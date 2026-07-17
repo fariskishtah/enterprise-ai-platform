@@ -1,0 +1,96 @@
+# Backend
+
+FastAPI backend service for the AI Manufacturing Platform.
+
+## Architecture
+
+- `app/core` owns application construction.
+- `app/api` owns HTTP routing.
+- `app/schemas` owns Pydantic request and response contracts.
+- `app/db` owns SQLAlchemy and Alembic integration.
+- `app/services` owns authentication and user use cases.
+- `app/repositories` owns SQLAlchemy persistence adapters.
+- `app/dependencies` owns FastAPI dependency injection for sessions, services, and authorization.
+
+The app is created through `create_app(settings)`, which makes configuration explicit and keeps tests independent from process-level environment state.
+
+## Sprint 2 Authentication
+
+The backend implements:
+
+- User ORM model with UUID primary key and unique normalized email.
+- Refresh-token metadata with hashed token storage, rotation, and revocation.
+- JWT access and refresh tokens.
+- pwdlib password hashing.
+- Role-based access control for `admin`, `engineer`, and `operator`.
+- Current-user dependency for protected routes.
+
+Public registration creates `operator` users. Manufacturing routes use the RBAC dependency for role-specific access control.
+
+## Sprint 3 Manufacturing Domain
+
+The backend implements production CRUD APIs for:
+
+- Companies.
+- Factories.
+- Machines.
+
+Manufacturing entities use UUID primary keys, `created_at`, `updated_at`, soft delete support through `deleted_at`, and indexed parent relationships. List endpoints support pagination, searching, filtering, and sorting.
+
+RBAC:
+
+- `admin`: full access.
+- `engineer`: create, update, and read.
+- `operator`: read only.
+
+## API
+
+```text
+GET  /health
+POST /auth/register
+POST /auth/login
+POST /auth/refresh
+POST /auth/logout
+GET  /users/me
+GET  /companies
+POST /companies
+GET  /companies/{company_id}
+PATCH /companies/{company_id}
+DELETE /companies/{company_id}
+GET  /factories
+POST /factories
+GET  /factories/{factory_id}
+PATCH /factories/{factory_id}
+DELETE /factories/{factory_id}
+GET  /machines
+POST /machines
+GET  /machines/{machine_id}
+PATCH /machines/{machine_id}
+DELETE /machines/{machine_id}
+```
+
+Interactive documentation is available at `/docs` outside production.
+
+## Local Development
+
+```bash
+python3.12 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements/dev.txt
+uvicorn app.main:app --reload
+```
+
+Run migrations:
+
+```bash
+alembic upgrade head
+```
+
+## Quality Checks
+
+```bash
+ruff check .
+black --check .
+mypy app
+pytest
+```
