@@ -29,6 +29,8 @@ Random Forest regression and integer-label classification are the only supported
 - [AI Core local demo](docs/ai-core-local-demo.md) covers Docker and direct Python
   startup, the complete training-to-prediction sequence, persistence inspection,
   and safe cleanup.
+- [AI Core MVP release checkpoint](docs/releases/ai-core-mvp.md) records delivered
+  capabilities, quality evidence, architectural decisions, and known limitations.
 - [`examples/ai-core/`](examples/ai-core/) contains Pydantic-validated JSON request
   payloads that can be submitted directly with `curl`.
 
