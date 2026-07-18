@@ -170,6 +170,34 @@ def test_training_response_never_documents_local_artifact_paths(
     assert "local_artifact_path" not in json.dumps(response_schema)
 
 
+def test_background_job_paths_document_safe_contracts(
+    settings: Settings,
+) -> None:
+    """OpenAPI exposes persistent jobs without local artifact paths."""
+    schema = _openapi(settings)
+    operations = {
+        "/ai/training-jobs/random-forest/regression": ("post", "202"),
+        "/ai/training-jobs/random-forest/classification": ("post", "202"),
+        "/ai/training-jobs/{job_id}": ("get", "200"),
+        "/ai/training-jobs": ("get", "200"),
+        "/ai/training-jobs/{job_id}/cancel": ("post", "200"),
+    }
+    for path, (method, success_status) in operations.items():
+        operation = _operation(schema, path, method)
+        assert operation["security"] == [{"HTTPBearer": []}]
+        assert success_status in operation["responses"]
+        assert {"401", "403", "422"} <= set(operation["responses"])
+
+    serialized = json.dumps(
+        {
+            name: value
+            for name, value in schema["components"]["schemas"].items()
+            if "TrainingJob" in name
+        },
+    )
+    assert "local_artifact_path" not in serialized
+
+
 def test_ai_descriptions_explain_roles_and_synchronous_boundaries(
     settings: Settings,
 ) -> None:

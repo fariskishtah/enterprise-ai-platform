@@ -141,12 +141,72 @@ def test_dependency_factory_does_not_mutate_a_global_trainer_registry() -> None:
     assert second.registered_keys() == expected_keys
 
 
+def test_background_worker_preserves_architecture_boundaries() -> None:
+    """Queue, worker, trainers, engine, and routes retain explicit ownership."""
+    _assert_no_import_prefixes(
+        APP_ROOT / "ml/jobs/tasks.py",
+        ("fastapi", "app.api", "app.dependencies"),
+    )
+    _assert_no_import_prefixes(
+        APP_ROOT / "ml/jobs/worker.py",
+        ("fastapi", "app.api", "app.dependencies", "dramatiq", "redis"),
+    )
+    _assert_no_import_prefixes(
+        APP_ROOT / "ml/engine/training.py",
+        ("dramatiq", "redis", "app.ml.jobs"),
+    )
+    for path in (APP_ROOT / "ml/trainers").rglob("*.py"):
+        _assert_no_import_prefixes(
+            path,
+            ("app.ml.jobs", "dramatiq", "redis"),
+        )
+    _assert_no_import_prefixes(
+        APP_ROOT / "api/routes/ai_governance.py",
+        ("app.models.ai_governance", "dramatiq", "redis", "mlflow"),
+    )
+
+
+def test_background_queue_boundary_has_no_dataset_or_automatic_champion_payload() -> (
+    None
+):
+    """The broker carries only UUID text and worker completion assigns candidate."""
+    queue_source = (APP_ROOT / "ml/jobs/queue.py").read_text(encoding="utf-8")
+    task_source = (APP_ROOT / "ml/jobs/tasks.py").read_text(encoding="utf-8")
+    worker_source = (APP_ROOT / "ml/jobs/worker.py").read_text(encoding="utf-8")
+
+    assert "execute_training_job.send(str(training_job_id))" in queue_source
+    assert "training_features" not in queue_source
+    assert '"candidate"' in task_source
+    assert '"champion"' not in task_source
+    assert '"champion"' not in worker_source
+
+
+def test_new_job_application_code_has_no_any() -> None:
+    """The production-oriented slice retains explicit application types."""
+    paths = [
+        *sorted((APP_ROOT / "ml/jobs").glob("*.py")),
+        APP_ROOT / "repositories/ai_governance.py",
+        APP_ROOT / "models/ai_governance.py",
+        APP_ROOT / "api/routes/ai_governance.py",
+        APP_ROOT / "schemas/ai_governance.py",
+    ]
+    for path in paths:
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        used_names = {node.id for node in ast.walk(tree) if isinstance(node, ast.Name)}
+        assert "Any" not in used_names, path
+
+
 @pytest.mark.parametrize(
     ("field", "value"),
     [
         ("ai_artifact_root", ""),
         ("mlflow_tracking_uri", ""),
         ("ai_default_registered_model_prefix", "Unsafe-Prefix"),
+        ("training_queue_name", "unsafe queue"),
+        ("training_job_max_attempts", 0),
+        ("training_job_retry_base_seconds", 0),
+        ("training_job_stale_after_seconds", 0),
+        ("training_job_orphaned_after_seconds", 0),
     ],
 )
 def test_ai_settings_reject_empty_paths_and_unsafe_prefixes(

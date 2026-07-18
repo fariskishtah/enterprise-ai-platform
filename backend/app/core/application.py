@@ -9,8 +9,9 @@ OPENAPI_TAGS = [
     {
         "name": "ai",
         "description": (
-            "Authenticated synchronous Random Forest training, MLflow tracking, "
-            "fitted-model registration, version lookup, and registered prediction."
+            "Authenticated synchronous and Redis-backed background Random Forest "
+            "training, MLflow registration, version lookup, and registered "
+            "prediction."
         ),
     },
     {"name": "auth", "description": "Authentication and token management."},
@@ -38,8 +39,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         title=resolved_settings.project_name,
         version=resolved_settings.app_version,
         description=(
-            "Manufacturing APIs and the AI Core's authenticated synchronous "
-            "Random Forest training and registered-prediction workflow."
+            "Manufacturing APIs and the AI Core's authenticated synchronous and "
+            "background Random Forest training and registered-prediction workflows."
         ),
         docs_url=docs_url,
         openapi_tags=OPENAPI_TAGS,

@@ -17,11 +17,51 @@ services:
       MODEL_ARTIFACT_ROOT: /app/data/model-artifacts
       AI_ARTIFACT_ROOT: /app/data/ai-artifacts
       AI_DEFAULT_REGISTERED_MODEL_PREFIX: ${AI_DEFAULT_REGISTERED_MODEL_PREFIX}
+      TRAINING_QUEUE_NAME: ${TRAINING_QUEUE_NAME:-ai-training}
+      TRAINING_JOB_MAX_ATTEMPTS: ${TRAINING_JOB_MAX_ATTEMPTS:-3}
+      TRAINING_JOB_RETRY_BASE_SECONDS: ${TRAINING_JOB_RETRY_BASE_SECONDS:-5}
+      TRAINING_JOB_STALE_AFTER_SECONDS: ${TRAINING_JOB_STALE_AFTER_SECONDS:-3600}
+      TRAINING_JOB_ORPHANED_AFTER_SECONDS: ${TRAINING_JOB_ORPHANED_AFTER_SECONDS:-60}
       REFRESH_TOKEN_EXPIRE_DAYS: ${REFRESH_TOKEN_EXPIRE_DAYS}
       REDIS_URL: ${REDIS_URL}
       SECRET_KEY: ${SECRET_KEY}
     ports:
       - "${BACKEND_PORT:-8000}:8000"
+    volumes:
+      - mlflow-data:/app/data/mlflow
+      - model-artifact-data:/app/data/model-artifacts
+      - ai-artifact-data:/app/data/ai-artifacts
+
+  training-worker:
+    build:
+      context: .
+      dockerfile: docker/backend/Dockerfile
+    command:
+      - dramatiq
+      - app.ml.jobs.tasks
+      - --processes
+      - "1"
+      - --threads
+      - "1"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      ENVIRONMENT: ${ENVIRONMENT}
+      MLFLOW_TRACKING_URI: file:/app/data/mlflow
+      MODEL_ARTIFACT_ROOT: /app/data/model-artifacts
+      AI_ARTIFACT_ROOT: /app/data/ai-artifacts
+      AI_DEFAULT_REGISTERED_MODEL_PREFIX: ${AI_DEFAULT_REGISTERED_MODEL_PREFIX}
+      REDIS_URL: ${REDIS_URL}
+      SECRET_KEY: ${SECRET_KEY}
+      TRAINING_QUEUE_NAME: ${TRAINING_QUEUE_NAME:-ai-training}
+      TRAINING_JOB_MAX_ATTEMPTS: ${TRAINING_JOB_MAX_ATTEMPTS:-3}
+      TRAINING_JOB_RETRY_BASE_SECONDS: ${TRAINING_JOB_RETRY_BASE_SECONDS:-5}
+      TRAINING_JOB_STALE_AFTER_SECONDS: ${TRAINING_JOB_STALE_AFTER_SECONDS:-3600}
+      TRAINING_JOB_ORPHANED_AFTER_SECONDS: ${TRAINING_JOB_ORPHANED_AFTER_SECONDS:-60}
     volumes:
       - mlflow-data:/app/data/mlflow
       - model-artifact-data:/app/data/model-artifacts
@@ -61,7 +101,7 @@ services:
       timeout: 5s
       retries: 5
     ports:
-      - "${REDIS_PORT:-6379}:6379"
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
     volumes:
       - redis-data:/data
 

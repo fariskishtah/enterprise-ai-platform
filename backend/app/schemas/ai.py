@@ -17,6 +17,16 @@ from pydantic import (
 
 from app.ml.domain import AlgorithmType, TaskType
 from app.ml.registry import RegisteredModelVersionStatus
+from app.ml.training_limits import (
+    MAX_EVALUATION_ROWS,
+    MAX_MODEL_DESCRIPTION_LENGTH,
+    MAX_TRAINING_ROWS,
+    MAX_TRAINING_RUN_NAME_LENGTH,
+    MAX_TRAINING_TAG_KEY_LENGTH,
+    MAX_TRAINING_TAG_VALUE_LENGTH,
+    MAX_TRAINING_TAGS,
+    validate_training_matrix_limits,
+)
 
 PositiveStrictInt = Annotated[int, Field(strict=True, gt=0)]
 SplitStrictInt = Annotated[int, Field(strict=True, ge=2)]
@@ -33,11 +43,19 @@ RegisteredModelName = Annotated[
 ]
 NonEmptyName = Annotated[
     str,
-    StringConstraints(strip_whitespace=True, min_length=1, max_length=255),
+    StringConstraints(
+        strip_whitespace=True,
+        min_length=1,
+        max_length=MAX_TRAINING_RUN_NAME_LENGTH,
+    ),
 ]
 OptionalDescription = Annotated[
     str,
-    StringConstraints(strip_whitespace=True, min_length=1, max_length=5000),
+    StringConstraints(
+        strip_whitespace=True,
+        min_length=1,
+        max_length=MAX_MODEL_DESCRIPTION_LENGTH,
+    ),
 ]
 
 
@@ -159,6 +177,7 @@ class _BaseTrainingRequest(BaseModel):
 
     training_features: list[list[FiniteFloat]] = Field(
         min_length=1,
+        max_length=MAX_TRAINING_ROWS,
         description=(
             "Non-empty rectangular row-by-feature matrix. Finite JSON numbers are "
             "converted explicitly to a two-dimensional float64 NumPy array."
@@ -167,6 +186,7 @@ class _BaseTrainingRequest(BaseModel):
     )
     evaluation_features: list[list[FiniteFloat]] = Field(
         min_length=1,
+        max_length=MAX_EVALUATION_ROWS,
         description=(
             "Held-out rectangular feature matrix used only for evaluation metrics. "
             "It must have the same column count as training_features."
@@ -200,6 +220,7 @@ class _BaseTrainingRequest(BaseModel):
     )
     tags: dict[str, str] = Field(
         default_factory=dict,
+        max_length=MAX_TRAINING_TAGS,
         description=(
             "Optional user MLflow tags. Keys and values must be non-empty and may "
             "not replace protected platform metadata."
@@ -224,7 +245,12 @@ class _BaseTrainingRequest(BaseModel):
     def validate_tags(cls, tags: dict[str, str]) -> dict[str, str]:
         """Require bounded non-empty tag keys and values."""
         for key, value in tags.items():
-            if not key or len(key) > 250 or not value or len(value) > 5000:
+            if (
+                not key
+                or len(key) > MAX_TRAINING_TAG_KEY_LENGTH
+                or not value
+                or len(value) > MAX_TRAINING_TAG_VALUE_LENGTH
+            ):
                 raise ValueError("tags require bounded non-empty keys and values.")
         return tags
 
@@ -243,6 +269,11 @@ class _BaseTrainingRequest(BaseModel):
             raise ValueError(
                 "training and evaluation features must have equal column counts.",
             )
+        validate_training_matrix_limits(
+            training_rows=len(self.training_features),
+            evaluation_rows=len(self.evaluation_features),
+            feature_columns=training_width,
+        )
         return self
 
 
@@ -251,6 +282,7 @@ class RandomForestRegressionTrainingRequest(_BaseTrainingRequest):
 
     training_targets: list[FiniteFloat] = Field(
         min_length=1,
+        max_length=MAX_TRAINING_ROWS,
         description=(
             "Finite numeric regression targets, one per training row, converted "
             "explicitly to a one-dimensional float64 NumPy array."
@@ -259,6 +291,7 @@ class RandomForestRegressionTrainingRequest(_BaseTrainingRequest):
     )
     evaluation_targets: list[FiniteFloat] = Field(
         min_length=1,
+        max_length=MAX_EVALUATION_ROWS,
         description=(
             "Finite numeric expected values, one per evaluation row, used to "
             "calculate MAE, MSE, RMSE, and R²."
@@ -298,6 +331,7 @@ class RandomForestClassificationTrainingRequest(_BaseTrainingRequest):
 
     training_targets: list[StrictInt] = Field(
         min_length=1,
+        max_length=MAX_TRAINING_ROWS,
         description=(
             "Strict integer class labels, one per training row, converted explicitly "
             "to a one-dimensional int64 NumPy array. Include at least two classes."
@@ -306,6 +340,7 @@ class RandomForestClassificationTrainingRequest(_BaseTrainingRequest):
     )
     evaluation_targets: list[StrictInt] = Field(
         min_length=1,
+        max_length=MAX_EVALUATION_ROWS,
         description=(
             "Strict integer expected labels, one per evaluation row, used to "
             "calculate accuracy and macro-averaged precision, recall, and F1."

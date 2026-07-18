@@ -9,6 +9,7 @@ description = "Backend service for the AI Manufacturing Platform."
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "alembic>=1.13.3,<2.0.0",
+    "dramatiq[redis]>=2.2.0,<3.0.0",
     "email-validator>=2.3.0,<3.0.0",
     "fastapi>=0.115.0,<1.0.0",
     "joblib>=1.4.2,<2.0.0",
@@ -66,3 +67,6 @@ warn_unreachable = true
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
+markers = [
+    "integration: opt-in tests that require disposable local infrastructure",
+]

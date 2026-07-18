@@ -10,8 +10,11 @@ from app.config.mlops import MLOpsConfigurationLoader
 from app.config.settings import Settings, get_settings
 from app.dependencies.database import get_db_session
 from app.ml.artifacts import BaseArtifactManager, LocalArtifactManager
+from app.ml.composition import create_ai_trainer_registry
 from app.ml.engine import TrainingEngine
 from app.ml.factory import TrainerFactory, TrainerRegistry
+from app.ml.jobs import DramatiqTrainingJobQueue, TrainingJobQueue
+from app.ml.jobs.service import TrainingJobService
 from app.ml.registry import BaseModelRegistry, MLflowModelRegistry
 from app.ml.services import (
     BaseRegisteredModelLoader,
@@ -20,10 +23,7 @@ from app.ml.services import (
     TrackedTrainingService,
 )
 from app.ml.tracking import BaseExperimentTracker, MLflowExperimentTracker
-from app.ml.trainers.random_forest import (
-    RANDOM_FOREST_CLASSIFIER_REGISTRATION,
-    RANDOM_FOREST_REGRESSOR_REGISTRATION,
-)
+from app.repositories.ai_governance import TrainingJobRepository
 from app.repositories.feature_engineering import FeatureEngineeringRepository
 from app.repositories.manufacturing import ManufacturingRepository
 from app.repositories.mlops import MLOpsRepository
@@ -105,10 +105,35 @@ def get_model_registry(
 
 def get_ai_trainer_registry() -> TrainerRegistry:
     """Return a fresh registry with the supported AI Core trainers."""
-    registry = TrainerRegistry()
-    registry.register(RANDOM_FOREST_REGRESSOR_REGISTRATION)
-    registry.register(RANDOM_FOREST_CLASSIFIER_REGISTRATION)
-    return registry
+    return create_ai_trainer_registry()
+
+
+def get_training_job_repository(
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> TrainingJobRepository:
+    """Return the persistent AI training-job repository."""
+    return TrainingJobRepository(session)
+
+
+def get_training_job_queue() -> TrainingJobQueue:
+    """Return the configured Redis-backed training-job queue adapter."""
+    return DramatiqTrainingJobQueue()
+
+
+def get_training_job_service(
+    settings: Annotated[Settings, Depends(get_settings)],
+    repository: Annotated[
+        TrainingJobRepository,
+        Depends(get_training_job_repository),
+    ],
+    queue: Annotated[TrainingJobQueue, Depends(get_training_job_queue)],
+) -> TrainingJobService:
+    """Return the persistent job submission and lifecycle service."""
+    return TrainingJobService(
+        repository=repository,
+        queue=queue,
+        max_attempts=settings.training_job_max_attempts,
+    )
 
 
 def get_ai_trainer_factory(

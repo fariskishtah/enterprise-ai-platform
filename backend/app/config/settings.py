@@ -3,7 +3,13 @@
 from functools import lru_cache
 from typing import Annotated, Literal
 
-from pydantic import Field, PositiveFloat, PositiveInt, SecretStr, StringConstraints
+from pydantic import (
+    Field,
+    PositiveFloat,
+    PositiveInt,
+    SecretStr,
+    StringConstraints,
+)
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 EnvironmentName = Literal["local", "development", "staging", "production", "test"]
@@ -45,6 +51,16 @@ class Settings(BaseSettings):
     )
     ai_artifact_root: str = Field(default="../ml/ai-artifacts", min_length=1)
     ai_default_registered_model_prefix: RegisteredModelPrefix = "ai_core"
+    training_queue_name: str = Field(
+        default="ai-training",
+        min_length=1,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9_.-]+$",
+    )
+    training_job_max_attempts: PositiveInt = 3
+    training_job_retry_base_seconds: PositiveFloat = 5.0
+    training_job_stale_after_seconds: PositiveInt = 3600
+    training_job_orphaned_after_seconds: PositiveInt = 60
     optuna_storage_url: str | None = None
 
 
