@@ -1,6 +1,6 @@
 # AI Manufacturing Platform
 
-Production-grade monorepo foundation for an AI Manufacturing Platform. Sprint 1 created the platform skeleton, Sprint 2 added authentication and user management, Sprint 3 added the core manufacturing domain, Sprint 4 added sensor management, Sprint 5 added the backend sensor data platform, Sprint 6 added CSV ETL and data validation, Sprint 7 added backend feature engineering dataset exports, and Sprint 8 added MLOps experiment management infrastructure. AI Core now includes a local Random Forest training vertical slice; it is not yet connected to prediction APIs, MLflow experiment tracking, the model registry, cloud deployment, monitoring, RAG, computer vision, MQTT, or Kafka.
+Production-grade monorepo foundation for an AI Manufacturing Platform. Sprint 1 created the platform skeleton, Sprint 2 added authentication and user management, Sprint 3 added the core manufacturing domain, Sprint 4 added sensor management, Sprint 5 added the backend sensor data platform, Sprint 6 added CSV ETL and data validation, Sprint 7 added backend feature engineering dataset exports, and Sprint 8 added MLOps experiment management infrastructure. AI Core now connects typed local Random Forest training to MLflow experiment tracking, fitted-model registration, registered-model prediction, and authenticated FastAPI endpoints. Cloud deployment, monitoring, RAG, computer vision, MQTT, and Kafka are not implemented.
 
 ## Project Overview
 
@@ -8,15 +8,19 @@ The repository is split into independently owned areas for the backend API, fron
 
 The backend is a FastAPI service using typed environment configuration, SQLAlchemy 2.0, Alembic, Pydantic v2, Pytest, Ruff, Black, and mypy. It includes JWT access tokens, refresh-token rotation, pwdlib password hashing, UUID primary keys, role-based access control, production CRUD APIs for companies, factories, machines, and sensors, sensor readings and upload-job APIs, CSV ETL using Polars and Pandera, Polars-based feature dataset exports to versioned Parquet files, and MLOps metadata management with MLflow, YAML configuration, and Optuna study preparation. The frontend is a Vite React TypeScript app using TailwindCSS, React Router, ESLint, and Prettier.
 
-## Local AI Training Architecture
+## AI Training and Prediction Architecture
 
-The explicit in-process training flow is:
+The explicit synchronous, in-process flow is:
 
 ```text
-TrainerRegistration → TrainerFactory → BaseTrainer → MetricsEngine → ArtifactManager → TrainingEngine
+Training Plan → Local TrainingEngine → MLflow ExperimentTracker → Model Registry → Prediction Service → FastAPI
 ```
 
-Prepared NumPy arrays enter through typed trainer inputs. Trainers only fit models and produce raw predictions; metrics engines only evaluate targets and predictions; the local artifact manager only persists and runtime-checks Joblib models; and the training engine sequences those supplied components into a typed execution result. The workflow adapter converts only successful executions to the existing `TrainingResult`. Failures propagate, and this local path does not access APIs, databases, MLflow, or the model registry.
+Prepared NumPy arrays enter through typed trainer inputs. Trainers only fit models and produce raw predictions; metrics engines only evaluate targets and predictions; the local artifact manager only persists and runtime-checks Joblib models; and the generic training engine sequences those supplied components into a typed local result. A higher-level service logs only successful executions to MLflow and then registers the completed artifact. Local artifact persistence and MLflow tracking remain separate responsibilities.
+
+Failures propagate without cross-system rollback: a tracking failure leaves the local artifact available, and a later registry failure leaves both the local artifact and completed MLflow run available. Reconciliation for these partial-success states is a future concern.
+
+Random Forest regression and integer-label classification are the only supported trainer tasks. Prediction resolves an exact model version or alias and performs runtime model-type and trainer-key checks before inference. Prediction probabilities, asynchronous jobs, model promotion, deployment, monitoring, drift detection, and automatic retraining are not implemented.
 
 ## Folder Structure
 
@@ -66,6 +70,20 @@ Run the full stack:
 ```bash
 docker compose up --build
 ```
+
+The backend container runs from `/app`. Docker Compose therefore overrides the
+local relative AI storage defaults with explicit container paths and named
+volumes:
+
+```text
+file:/app/data/mlflow       → mlflow-data
+/app/data/model-artifacts  → model-artifact-data
+/app/data/ai-artifacts     → ai-artifact-data
+```
+
+MLflow file-store data, Sprint 8 model-artifact metadata storage, and local AI
+Joblib artifacts consequently survive backend container replacement. Direct
+local Python execution continues to use the relative values in `.env.example`.
 
 Backend health check:
 
@@ -191,6 +209,16 @@ GET    /model-artifacts
 GET    /model-artifacts/{model_artifact_id}
 ```
 
+AI Core exposes synchronous training and prediction endpoints:
+
+```text
+POST   /ai/training/random-forest/regression
+POST   /ai/training/random-forest/classification
+POST   /ai/predictions/random-forest/regression
+POST   /ai/predictions/random-forest/classification
+GET    /ai/models/{registered_model_name}/versions/{version_or_alias}
+```
+
 Public registration creates `operator` users. Admins have full manufacturing access, engineers can create/update/read, and operators are read-only.
 
 ## Architectural Decisions
@@ -204,6 +232,7 @@ Public registration creates `operator` users. Admins have full manufacturing acc
 - Manufacturing deletes are soft deletes using `deleted_at` and list/read endpoints return active records only.
 - Feature engineering is isolated behind a repository and service so future feature-store integration can reuse the transformation pipeline without coupling to HTTP routes.
 - MLOps experiment management stores platform metadata in PostgreSQL while syncing experiment, run, and artifact metadata to MLflow through a registry abstraction.
+- AI Core keeps generic local execution independent from MLflow; a separate application service orders local training, successful-run tracking, and fitted-model registration without cross-system rollback.
 - Refresh tokens are stored as SHA-256 digests and rotated on refresh so logout and token reuse detection are enforceable server-side.
 - Passwords are hashed with pwdlib using Argon2 through the recommended password hash profile.
 - The frontend uses React Router immediately so route ownership is explicit even with only the Dashboard page.

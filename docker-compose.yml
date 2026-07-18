@@ -13,11 +13,19 @@ services:
       ENVIRONMENT: ${ENVIRONMENT}
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES}
       JWT_ALGORITHM: ${JWT_ALGORITHM}
+      MLFLOW_TRACKING_URI: file:/app/data/mlflow
+      MODEL_ARTIFACT_ROOT: /app/data/model-artifacts
+      AI_ARTIFACT_ROOT: /app/data/ai-artifacts
+      AI_DEFAULT_REGISTERED_MODEL_PREFIX: ${AI_DEFAULT_REGISTERED_MODEL_PREFIX}
       REFRESH_TOKEN_EXPIRE_DAYS: ${REFRESH_TOKEN_EXPIRE_DAYS}
       REDIS_URL: ${REDIS_URL}
       SECRET_KEY: ${SECRET_KEY}
     ports:
       - "${BACKEND_PORT:-8000}:8000"
+    volumes:
+      - mlflow-data:/app/data/mlflow
+      - model-artifact-data:/app/data/model-artifacts
+      - ai-artifact-data:/app/data/ai-artifacts
 
   frontend:
     build:
@@ -58,5 +66,8 @@ services:
       - redis-data:/data
 
 volumes:
+  ai-artifact-data:
+  mlflow-data:
+  model-artifact-data:
   postgres-data:
   redis-data:
