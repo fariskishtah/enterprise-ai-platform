@@ -170,10 +170,10 @@ def test_training_response_never_documents_local_artifact_paths(
     assert "local_artifact_path" not in json.dumps(response_schema)
 
 
-def test_background_job_paths_document_safe_contracts(
+def test_background_job_and_promotion_paths_document_safe_contracts(
     settings: Settings,
 ) -> None:
-    """OpenAPI exposes persistent jobs without local artifact paths."""
+    """OpenAPI exposes persistent jobs and governance without local artifact paths."""
     schema = _openapi(settings)
     operations = {
         "/ai/training-jobs/random-forest/regression": ("post", "202"),
@@ -181,6 +181,16 @@ def test_background_job_paths_document_safe_contracts(
         "/ai/training-jobs/{job_id}": ("get", "200"),
         "/ai/training-jobs": ("get", "200"),
         "/ai/training-jobs/{job_id}/cancel": ("post", "200"),
+        (
+            "/ai/models/{registered_model_name}/versions/{version}/promotions/"
+            "challenger"
+        ): ("post", "200"),
+        (
+            "/ai/models/{registered_model_name}/versions/{version}/promotions/"
+            "champion"
+        ): ("post", "200"),
+        "/ai/models/{registered_model_name}/promotions": ("get", "200"),
+        "/ai/models/{registered_model_name}/aliases": ("get", "200"),
     }
     for path, (method, success_status) in operations.items():
         operation = _operation(schema, path, method)
@@ -192,7 +202,7 @@ def test_background_job_paths_document_safe_contracts(
         {
             name: value
             for name, value in schema["components"]["schemas"].items()
-            if "TrainingJob" in name
+            if "TrainingJob" in name or "Promotion" in name
         },
     )
     assert "local_artifact_path" not in serialized

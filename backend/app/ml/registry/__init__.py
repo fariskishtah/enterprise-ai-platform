@@ -12,6 +12,7 @@ from app.ml.registry.mlflow import MLflowModelRegistry
 from app.ml.registry.models import (
     PROTECTED_MODEL_VERSION_TAGS,
     ModelRegistrationRequest,
+    RegisteredModelAlias,
     RegisteredModelVersion,
     RegisteredModelVersionStatus,
 )
@@ -29,6 +30,7 @@ __all__ = [
     "ModelRegistrationRequest",
     "ModelRegistryError",
     "ModelRegistryValidationError",
+    "RegisteredModelAlias",
     "RegisteredModelVersion",
     "RegisteredModelVersionNotFoundError",
     "RegisteredModelVersionStatus",

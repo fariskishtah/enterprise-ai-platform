@@ -141,8 +141,8 @@ def test_dependency_factory_does_not_mutate_a_global_trainer_registry() -> None:
     assert second.registered_keys() == expected_keys
 
 
-def test_background_worker_preserves_architecture_boundaries() -> None:
-    """Queue, worker, trainers, engine, and routes retain explicit ownership."""
+def test_background_worker_and_promotion_preserve_architecture_boundaries() -> None:
+    """Queue, worker, trainers, policies, and routes retain explicit ownership."""
     _assert_no_import_prefixes(
         APP_ROOT / "ml/jobs/tasks.py",
         ("fastapi", "app.api", "app.dependencies"),
@@ -152,13 +152,17 @@ def test_background_worker_preserves_architecture_boundaries() -> None:
         ("fastapi", "app.api", "app.dependencies", "dramatiq", "redis"),
     )
     _assert_no_import_prefixes(
+        APP_ROOT / "ml/promotion/policy.py",
+        ("fastapi", "mlflow", "app.api", "app.repositories"),
+    )
+    _assert_no_import_prefixes(
         APP_ROOT / "ml/engine/training.py",
-        ("dramatiq", "redis", "app.ml.jobs"),
+        ("dramatiq", "redis", "app.ml.jobs", "app.ml.promotion"),
     )
     for path in (APP_ROOT / "ml/trainers").rglob("*.py"):
         _assert_no_import_prefixes(
             path,
-            ("app.ml.jobs", "dramatiq", "redis"),
+            ("app.ml.jobs", "app.ml.promotion", "dramatiq", "redis"),
         )
     _assert_no_import_prefixes(
         APP_ROOT / "api/routes/ai_governance.py",
@@ -181,10 +185,11 @@ def test_background_queue_boundary_has_no_dataset_or_automatic_champion_payload(
     assert '"champion"' not in worker_source
 
 
-def test_new_job_application_code_has_no_any() -> None:
+def test_new_job_and_promotion_application_code_has_no_any() -> None:
     """The production-oriented slice retains explicit application types."""
     paths = [
         *sorted((APP_ROOT / "ml/jobs").glob("*.py")),
+        *sorted((APP_ROOT / "ml/promotion").glob("*.py")),
         APP_ROOT / "repositories/ai_governance.py",
         APP_ROOT / "models/ai_governance.py",
         APP_ROOT / "api/routes/ai_governance.py",
@@ -206,7 +211,10 @@ def test_new_job_application_code_has_no_any() -> None:
         ("training_job_max_attempts", 0),
         ("training_job_retry_base_seconds", 0),
         ("training_job_stale_after_seconds", 0),
-        ("training_job_orphaned_after_seconds", 0),
+        ("promotion_regression_min_r2", float("inf")),
+        ("promotion_regression_min_relative_rmse_improvement", 1.1),
+        ("promotion_classification_min_accuracy", -0.1),
+        ("promotion_classification_min_f1_improvement", 1.1),
     ],
 )
 def test_ai_settings_reject_empty_paths_and_unsafe_prefixes(

@@ -123,6 +123,32 @@ def test_registry_resolves_alias_without_automatic_alias_creation(
     assert resolved.aliases == ("champion",)
 
 
+def test_registry_assigns_verifies_and_lists_governed_aliases(tmp_path: Path) -> None:
+    """Alias mutation stays inside the adapter and returns exact read-back state."""
+    tracking_uri, request = _registration_request(tmp_path)
+    registry = MLflowModelRegistry(tracking_uri=tracking_uri)
+    version = registry.register(request)
+
+    candidate = registry.assign_alias(
+        version.registered_model_name,
+        "candidate",
+        version.version,
+    )
+    champion = registry.assign_alias(
+        version.registered_model_name,
+        "champion",
+        version.version,
+    )
+
+    assert candidate.version == version.version
+    assert "candidate" in candidate.aliases
+    assert set(champion.aliases) == {"candidate", "champion"}
+    assert {
+        (alias.alias, alias.version)
+        for alias in registry.list_aliases(version.registered_model_name)
+    } == {("candidate", "1"), ("champion", "1")}
+
+
 def test_registry_reports_missing_version_or_alias(tmp_path: Path) -> None:
     """Missing external model references become a dedicated lookup error."""
     registry = MLflowModelRegistry(tracking_uri=f"file:{tmp_path / 'mlruns'}")

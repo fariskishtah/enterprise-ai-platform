@@ -5,6 +5,8 @@ from typing import Annotated, Literal
 
 from pydantic import (
     Field,
+    FiniteFloat,
+    NonNegativeFloat,
     PositiveFloat,
     PositiveInt,
     SecretStr,
@@ -61,6 +63,24 @@ class Settings(BaseSettings):
     training_job_retry_base_seconds: PositiveFloat = 5.0
     training_job_stale_after_seconds: PositiveInt = 3600
     training_job_orphaned_after_seconds: PositiveInt = 60
+    promotion_audit_pending_after_seconds: PositiveInt = 300
+    promotion_regression_min_r2: FiniteFloat = Field(default=0.0, le=1)
+    promotion_regression_min_relative_rmse_improvement: float = Field(
+        default=0.0,
+        ge=0,
+        le=1,
+        allow_inf_nan=False,
+    )
+    promotion_classification_min_accuracy: float = Field(
+        default=0.0,
+        ge=0,
+        le=1,
+        allow_inf_nan=False,
+    )
+    promotion_classification_min_f1_improvement: NonNegativeFloat = Field(
+        default=0.0,
+        le=1,
+    )
     optuna_storage_url: str | None = None
 
 

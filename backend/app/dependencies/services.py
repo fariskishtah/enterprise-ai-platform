@@ -15,6 +15,11 @@ from app.ml.engine import TrainingEngine
 from app.ml.factory import TrainerFactory, TrainerRegistry
 from app.ml.jobs import DramatiqTrainingJobQueue, TrainingJobQueue
 from app.ml.jobs.service import TrainingJobService
+from app.ml.promotion import (
+    ClassificationPromotionPolicy,
+    RegressionPromotionPolicy,
+)
+from app.ml.promotion.service import ModelPromotionService
 from app.ml.registry import BaseModelRegistry, MLflowModelRegistry
 from app.ml.services import (
     BaseRegisteredModelLoader,
@@ -23,7 +28,10 @@ from app.ml.services import (
     TrackedTrainingService,
 )
 from app.ml.tracking import BaseExperimentTracker, MLflowExperimentTracker
-from app.repositories.ai_governance import TrainingJobRepository
+from app.repositories.ai_governance import (
+    ModelPromotionAuditRepository,
+    TrainingJobRepository,
+)
 from app.repositories.feature_engineering import FeatureEngineeringRepository
 from app.repositories.manufacturing import ManufacturingRepository
 from app.repositories.mlops import MLOpsRepository
@@ -113,6 +121,13 @@ def get_training_job_repository(
 ) -> TrainingJobRepository:
     """Return the persistent AI training-job repository."""
     return TrainingJobRepository(session)
+
+
+def get_model_promotion_audit_repository(
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> ModelPromotionAuditRepository:
+    """Return the append-only model-promotion audit repository."""
+    return ModelPromotionAuditRepository(session)
 
 
 def get_training_job_queue() -> TrainingJobQueue:
@@ -218,6 +233,41 @@ def get_ai_prediction_service(
     return PredictionService(
         model_registry=model_registry,
         model_loader=model_loader,
+    )
+
+
+def get_model_promotion_service(
+    settings: Annotated[Settings, Depends(get_settings)],
+    job_repository: Annotated[
+        TrainingJobRepository,
+        Depends(get_training_job_repository),
+    ],
+    audit_repository: Annotated[
+        ModelPromotionAuditRepository,
+        Depends(get_model_promotion_audit_repository),
+    ],
+    model_registry: Annotated[
+        BaseModelRegistry,
+        Depends(get_ai_model_registry),
+    ],
+) -> ModelPromotionService:
+    """Return configured task policies and audited promotion orchestration."""
+    return ModelPromotionService(
+        job_repository=job_repository,
+        audit_repository=audit_repository,
+        model_registry=model_registry,
+        regression_policy=RegressionPromotionPolicy(
+            minimum_r2=settings.promotion_regression_min_r2,
+            minimum_relative_rmse_improvement=(
+                settings.promotion_regression_min_relative_rmse_improvement
+            ),
+        ),
+        classification_policy=ClassificationPromotionPolicy(
+            minimum_accuracy=settings.promotion_classification_min_accuracy,
+            minimum_f1_improvement=(
+                settings.promotion_classification_min_f1_improvement
+            ),
+        ),
     )
 
 

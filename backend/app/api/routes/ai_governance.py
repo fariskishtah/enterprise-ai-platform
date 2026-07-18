@@ -1,13 +1,15 @@
-"""Authenticated persistent background-training routes."""
+"""Authenticated background-training and controlled-promotion routes."""
 
 from typing import Annotated
 from uuid import UUID
 
 from fastapi import (
     APIRouter,
+    Body,
     Depends,
     Header,
     HTTPException,
+    Path,
     Query,
     Response,
     status,
@@ -15,7 +17,10 @@ from fastapi import (
 
 from app.config.settings import Settings, get_settings
 from app.dependencies.auth import require_roles
-from app.dependencies.services import get_training_job_service
+from app.dependencies.services import (
+    get_model_promotion_service,
+    get_training_job_service,
+)
 from app.ml.domain import TaskType
 from app.ml.jobs import (
     RandomForestClassificationJobSpec,
@@ -31,14 +36,39 @@ from app.ml.jobs import (
     random_forest_key,
 )
 from app.ml.jobs.service import TrainingJobService
-from app.ml.registry import build_registered_model_name
+from app.ml.promotion import (
+    ModelAlias,
+    ModelPromotionRequest,
+    ModelPromotionResult,
+    PromotionAliasVerificationError,
+    PromotionAuditFinalizationError,
+    PromotionAuthorizationError,
+    PromotionPolicyRejectedError,
+    PromotionPreconditionError,
+    PromotionValidationError,
+)
+from app.ml.promotion.service import ModelPromotionService
+from app.ml.registry import (
+    ModelRegistryError,
+    ModelRegistryValidationError,
+    RegisteredModelVersionNotFoundError,
+    build_registered_model_name,
+)
 from app.models.user import User, UserRole
+from app.repositories.ai_governance import PromotionAuditPage
 from app.schemas.ai import (
     RandomForestClassificationTrainingRequest,
     RandomForestRegressionTrainingRequest,
     TrainerKeyResponse,
 )
 from app.schemas.ai_governance import (
+    ModelAliasesResponse,
+    ModelAliasResponse,
+    ModelPromotionBody,
+    ModelPromotionResponse,
+    PromotionAuditPageResponse,
+    PromotionAuditResponse,
+    PromotionEvaluationResponse,
     TrainingJobPageResponse,
     TrainingJobResponse,
     TrainingJobSubmissionResponse,
@@ -63,6 +93,13 @@ _JOB_SUBMISSION_RESPONSES: dict[int | str, dict[str, object]] = {
 _JOB_READ_RESPONSES: dict[int | str, dict[str, object]] = {
     **_AUTH_RESPONSES,
     404: {"description": "The job does not exist in the authorized scope."},
+}
+_PROMOTION_RESPONSES: dict[int | str, dict[str, object]] = {
+    **_AUTH_RESPONSES,
+    404: {"description": "The exact registered model version does not exist."},
+    409: {"description": "Promotion policy or lifecycle preconditions rejected."},
+    502: {"description": "The external registry failure detail is sanitized."},
+    503: {"description": "Promotion audit persistence requires reconciliation."},
 }
 
 
@@ -279,6 +316,147 @@ async def cancel_training_job(
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
+@router.post(
+    "/models/{registered_model_name}/versions/{version}/promotions/challenger",
+    response_model=ModelPromotionResponse,
+    summary="Promote a model version to challenger",
+    description=(
+        "Evaluate task metrics and explicitly assign challenger. Admin or engineer "
+        "role required; only admins may force a rejected evaluation with a reason."
+    ),
+    responses=_PROMOTION_RESPONSES,
+)
+async def promote_challenger(
+    registered_model_name: Annotated[str, Path()],
+    version: Annotated[str, Path()],
+    current_user: Annotated[
+        User,
+        Depends(require_roles(UserRole.ADMIN, UserRole.ENGINEER)),
+    ],
+    service: Annotated[
+        ModelPromotionService,
+        Depends(get_model_promotion_service),
+    ],
+    payload: Annotated[ModelPromotionBody, Body()],
+) -> ModelPromotionResponse:
+    """Assign challenger after task policy evaluation."""
+    return await _promote(
+        registered_model_name=registered_model_name,
+        version=version,
+        target_alias=ModelAlias.CHALLENGER,
+        payload=payload,
+        current_user=current_user,
+        service=service,
+    )
+
+
+@router.post(
+    "/models/{registered_model_name}/versions/{version}/promotions/champion",
+    response_model=ModelPromotionResponse,
+    summary="Promote a challenger model version to champion",
+    description=(
+        "Admin-only explicit champion assignment after policy evaluation and "
+        "challenger-transition validation. Training never calls this operation."
+    ),
+    responses=_PROMOTION_RESPONSES,
+)
+async def promote_champion(
+    registered_model_name: Annotated[str, Path()],
+    version: Annotated[str, Path()],
+    current_user: Annotated[
+        User,
+        Depends(require_roles(UserRole.ADMIN)),
+    ],
+    service: Annotated[
+        ModelPromotionService,
+        Depends(get_model_promotion_service),
+    ],
+    payload: Annotated[ModelPromotionBody, Body()],
+) -> ModelPromotionResponse:
+    """Assign champion only through an explicit admin request."""
+    return await _promote(
+        registered_model_name=registered_model_name,
+        version=version,
+        target_alias=ModelAlias.CHAMPION,
+        payload=payload,
+        current_user=current_user,
+        service=service,
+    )
+
+
+@router.get(
+    "/models/{registered_model_name}/promotions",
+    response_model=PromotionAuditPageResponse,
+    summary="List model promotion history",
+    responses=_AUTH_RESPONSES,
+)
+async def list_model_promotions(
+    registered_model_name: str,
+    _current_user: Annotated[
+        User,
+        Depends(require_roles(UserRole.ADMIN, UserRole.ENGINEER)),
+    ],
+    service: Annotated[
+        ModelPromotionService,
+        Depends(get_model_promotion_service),
+    ],
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> PromotionAuditPageResponse:
+    """Return immutable audit history without exposing SDK responses."""
+    try:
+        page = await service.list_audits(
+            registered_model_name=registered_model_name,
+            limit=limit,
+            offset=offset,
+        )
+    except ModelRegistryValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return _audit_page_response(page, limit=limit, offset=offset)
+
+
+@router.get(
+    "/models/{registered_model_name}/aliases",
+    response_model=ModelAliasesResponse,
+    summary="List governed model aliases",
+    responses={
+        **_AUTH_RESPONSES,
+        404: {"description": "The registered model does not exist."},
+        502: {"description": "The external registry failure detail is sanitized."},
+    },
+)
+def list_model_aliases(
+    registered_model_name: str,
+    _current_user: Annotated[
+        User,
+        Depends(require_roles(UserRole.ADMIN, UserRole.ENGINEER, UserRole.OPERATOR)),
+    ],
+    service: Annotated[
+        ModelPromotionService,
+        Depends(get_model_promotion_service),
+    ],
+) -> ModelAliasesResponse:
+    """Return candidate, challenger, and champion holders when present."""
+    try:
+        aliases = service.list_aliases(registered_model_name)
+    except ModelRegistryValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except RegisteredModelVersionNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ModelRegistryError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="An external model registry operation failed.",
+        ) from exc
+    return ModelAliasesResponse(
+        registered_model_name=registered_model_name,
+        aliases=[
+            ModelAliasResponse(alias=alias.alias, version=alias.version)
+            for alias in aliases
+        ],
+    )
+
+
 async def _submit(
     *,
     service: TrainingJobService,
@@ -311,6 +489,48 @@ async def _submit(
             status_code=503,
             detail="The queued job requires operational reconciliation.",
         ) from exc
+
+
+async def _promote(
+    *,
+    registered_model_name: str,
+    version: str,
+    target_alias: ModelAlias,
+    payload: ModelPromotionBody,
+    current_user: User,
+    service: ModelPromotionService,
+) -> ModelPromotionResponse:
+    try:
+        result = await service.promote(
+            ModelPromotionRequest(
+                registered_model_name=registered_model_name,
+                version=version,
+                target_alias=target_alias,
+                requested_by_user_id=current_user.id,
+                force=payload.force,
+                reason=payload.reason,
+            ),
+            requester_role=current_user.role,
+        )
+    except RegisteredModelVersionNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PromotionAuthorizationError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except (PromotionPolicyRejectedError, PromotionPreconditionError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except (PromotionValidationError, ModelRegistryValidationError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except (ModelRegistryError, PromotionAliasVerificationError) as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="An external model registry operation failed.",
+        ) from exc
+    except PromotionAuditFinalizationError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Promotion audit finalization requires operational reconciliation.",
+        ) from exc
+    return _promotion_response(result)
 
 
 def _submission_response(job: TrainingJobRecord) -> TrainingJobSubmissionResponse:
@@ -346,4 +566,64 @@ def _job_response(job: TrainingJobRecord) -> TrainingJobResponse:
         registered_model_version=job.registered_model_version,
         error_code=job.error_code,
         safe_error_message=job.safe_error_message,
+    )
+
+
+def _promotion_response(result: ModelPromotionResult) -> ModelPromotionResponse:
+    evaluation = result.evaluation
+    return ModelPromotionResponse(
+        audit_id=result.audit_id,
+        registered_model_name=result.registered_model_name,
+        selected_version=result.selected_version,
+        target_alias=result.target_alias,
+        previous_version=result.previous_version,
+        policy_evaluation=PromotionEvaluationResponse(
+            accepted=evaluation.accepted,
+            reason=evaluation.reason,
+            primary_metric=evaluation.primary_metric,
+            candidate_value=evaluation.candidate_value,
+            incumbent_value=evaluation.incumbent_value,
+            improvement=evaluation.improvement,
+            safeguards=dict(evaluation.safeguards),
+        ),
+        overridden=result.overridden,
+        completed_at=result.completed_at,
+    )
+
+
+def _audit_page_response(
+    page: PromotionAuditPage,
+    *,
+    limit: int,
+    offset: int,
+) -> PromotionAuditPageResponse:
+    return PromotionAuditPageResponse(
+        items=[
+            PromotionAuditResponse(
+                audit_id=audit.id,
+                registered_model_name=audit.registered_model_name,
+                model_version=audit.model_version,
+                trainer_key=TrainerKeyResponse(
+                    algorithm=audit.key.algorithm,
+                    task_type=audit.key.task_type,
+                ),
+                target_alias=audit.target_alias,
+                previous_version=audit.previous_version,
+                requested_by_user_id=audit.requested_by_user_id,
+                action=audit.action,
+                decision=audit.decision,
+                policy_result=dict(audit.policy_result),
+                force=audit.force,
+                reason=audit.reason,
+                operation_outcome=audit.operation_outcome,
+                created_at=audit.created_at,
+                completed_at=audit.completed_at,
+                error_code=audit.error_code,
+                safe_error_message=audit.safe_error_message,
+            )
+            for audit in page.items
+        ],
+        total=page.total,
+        limit=limit,
+        offset=offset,
     )

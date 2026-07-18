@@ -8,7 +8,10 @@ from types import MappingProxyType
 
 from app.ml.base import TrainerKey
 from app.ml.registry.exceptions import ModelRegistryValidationError
-from app.ml.registry.naming import validate_registered_model_name
+from app.ml.registry.naming import (
+    validate_registered_model_name,
+    validate_version_or_alias,
+)
 
 PROTECTED_MODEL_VERSION_TAGS = frozenset(
     {
@@ -71,6 +74,23 @@ class RegisteredModelVersion:
             )
         _validate_text(self.run_id, name="run_id", max_length=255)
         _validate_text(self.source_uri, name="source_uri", max_length=4096)
+
+
+@dataclass(frozen=True, slots=True)
+class RegisteredModelAlias:
+    """One registry alias and its exact immutable version holder."""
+
+    alias: str
+    version: str
+
+    def __post_init__(self) -> None:
+        """Require a safe alias and exact positive version."""
+        if validate_version_or_alias(self.alias).isdigit():
+            raise ModelRegistryValidationError("Model aliases must not be numeric.")
+        if not self.version.isdigit() or int(self.version) <= 0:
+            raise ModelRegistryValidationError(
+                "Registered model versions must be positive integer strings.",
+            )
 
 
 def _normalize_tags(tags: Mapping[str, str]) -> Mapping[str, str]:

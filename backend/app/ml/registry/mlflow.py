@@ -10,11 +10,13 @@ from app.ml.registry.base import BaseModelRegistry
 from app.ml.registry.exceptions import (
     ModelRegistrationError,
     ModelRegistryError,
+    ModelRegistryValidationError,
     RegisteredModelVersionNotFoundError,
     RegistryMetadataError,
 )
 from app.ml.registry.models import (
     ModelRegistrationRequest,
+    RegisteredModelAlias,
     RegisteredModelVersion,
     RegisteredModelVersionStatus,
 )
@@ -25,6 +27,7 @@ from app.ml.registry.naming import (
 
 _RESOURCE_DOES_NOT_EXIST = "RESOURCE_DOES_NOT_EXIST"
 _RESOURCE_ALREADY_EXISTS = "RESOURCE_ALREADY_EXISTS"
+_INVALID_PARAMETER_VALUE = "INVALID_PARAMETER_VALUE"
 
 
 class MLflowModelRegistry(BaseModelRegistry):
@@ -83,7 +86,9 @@ class MLflowModelRegistry(BaseModelRegistry):
                     reference,
                 )
         except MlflowException as exc:
-            if exc.error_code == _RESOURCE_DOES_NOT_EXIST:
+            if exc.error_code == _RESOURCE_DOES_NOT_EXIST or (
+                not reference.isdigit() and exc.error_code == _INVALID_PARAMETER_VALUE
+            ):
                 raise RegisteredModelVersionNotFoundError(
                     "The requested registered model version or alias was not found.",
                 ) from exc
@@ -91,6 +96,69 @@ class MLflowModelRegistry(BaseModelRegistry):
                 "MLflow could not resolve the requested model version.",
             ) from exc
         return self._to_platform_version(model_version)
+
+    def assign_alias(
+        self,
+        registered_model_name: str,
+        alias: str,
+        version: str,
+    ) -> RegisteredModelVersion:
+        """Assign an MLflow alias and verify its exact version by read-back."""
+        name = validate_registered_model_name(registered_model_name)
+        validated_alias = validate_version_or_alias(alias)
+        validated_version = validate_version_or_alias(version)
+        if validated_alias.isdigit() or not validated_version.isdigit():
+            raise ModelRegistryValidationError(
+                "Alias assignment requires a named alias and exact version.",
+            )
+        try:
+            self._client.set_registered_model_alias(
+                name,
+                validated_alias,
+                validated_version,
+            )
+        except MlflowException as exc:
+            if exc.error_code == _RESOURCE_DOES_NOT_EXIST:
+                raise RegisteredModelVersionNotFoundError(
+                    "The requested registered model version was not found.",
+                ) from exc
+            raise ModelRegistryError(
+                "MLflow could not assign the requested model alias.",
+            ) from exc
+        resolved = self.resolve(name, validated_alias)
+        if (
+            resolved.version != validated_version
+            or validated_alias not in resolved.aliases
+        ):
+            raise ModelRegistryError(
+                "MLflow alias verification did not match the requested version.",
+            )
+        return resolved
+
+    def list_aliases(
+        self,
+        registered_model_name: str,
+    ) -> tuple[RegisteredModelAlias, ...]:
+        """Return the bounded aliases owned by the AI Core lifecycle."""
+        name = validate_registered_model_name(registered_model_name)
+        try:
+            self._client.get_registered_model(name)
+        except MlflowException as exc:
+            if exc.error_code == _RESOURCE_DOES_NOT_EXIST:
+                raise RegisteredModelVersionNotFoundError(
+                    "The requested registered model was not found.",
+                ) from exc
+            raise ModelRegistryError(
+                "MLflow could not inspect the requested registered model.",
+            ) from exc
+        aliases: list[RegisteredModelAlias] = []
+        for alias in ("candidate", "challenger", "champion"):
+            try:
+                resolved = self.resolve(name, alias)
+            except RegisteredModelVersionNotFoundError:
+                continue
+            aliases.append(RegisteredModelAlias(alias=alias, version=resolved.version))
+        return tuple(aliases)
 
     def _ensure_registered_model(
         self,
