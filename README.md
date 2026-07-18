@@ -1,12 +1,22 @@
 # AI Manufacturing Platform
 
-Production-grade monorepo foundation for an AI Manufacturing Platform. Sprint 1 created the platform skeleton, Sprint 2 added authentication and user management, Sprint 3 added the core manufacturing domain, Sprint 4 added sensor management, Sprint 5 added the backend sensor data platform, Sprint 6 added CSV ETL and data validation, Sprint 7 added backend feature engineering dataset exports, and Sprint 8 adds MLOps experiment management infrastructure. The project still does not include ML models, model training, prediction, RAG, computer vision, MQTT, or Kafka.
+Production-grade monorepo foundation for an AI Manufacturing Platform. Sprint 1 created the platform skeleton, Sprint 2 added authentication and user management, Sprint 3 added the core manufacturing domain, Sprint 4 added sensor management, Sprint 5 added the backend sensor data platform, Sprint 6 added CSV ETL and data validation, Sprint 7 added backend feature engineering dataset exports, and Sprint 8 added MLOps experiment management infrastructure. AI Core now includes a local Random Forest training vertical slice; it is not yet connected to prediction APIs, MLflow experiment tracking, the model registry, cloud deployment, monitoring, RAG, computer vision, MQTT, or Kafka.
 
 ## Project Overview
 
 The repository is split into independently owned areas for the backend API, frontend web app, ML assets, infrastructure, Docker assets, datasets, documentation, tests, and automation scripts.
 
 The backend is a FastAPI service using typed environment configuration, SQLAlchemy 2.0, Alembic, Pydantic v2, Pytest, Ruff, Black, and mypy. It includes JWT access tokens, refresh-token rotation, pwdlib password hashing, UUID primary keys, role-based access control, production CRUD APIs for companies, factories, machines, and sensors, sensor readings and upload-job APIs, CSV ETL using Polars and Pandera, Polars-based feature dataset exports to versioned Parquet files, and MLOps metadata management with MLflow, YAML configuration, and Optuna study preparation. The frontend is a Vite React TypeScript app using TailwindCSS, React Router, ESLint, and Prettier.
+
+## Local AI Training Architecture
+
+The explicit in-process training flow is:
+
+```text
+TrainerRegistration → TrainerFactory → BaseTrainer → MetricsEngine → ArtifactManager → TrainingEngine
+```
+
+Prepared NumPy arrays enter through typed trainer inputs. Trainers only fit models and produce raw predictions; metrics engines only evaluate targets and predictions; the local artifact manager only persists and runtime-checks Joblib models; and the training engine sequences those supplied components into a typed execution result. The workflow adapter converts only successful executions to the existing `TrainingResult`. Failures propagate, and this local path does not access APIs, databases, MLflow, or the model registry.
 
 ## Folder Structure
 
