@@ -170,6 +170,53 @@ def test_background_worker_and_promotion_preserve_architecture_boundaries() -> N
     )
 
 
+def test_prediction_monitoring_preserves_execution_and_drift_boundaries() -> None:
+    """Capture, persistence, pure drift, and transport retain separate ownership."""
+    _assert_no_import_prefixes(
+        APP_ROOT / "ml/services/prediction.py",
+        ("sqlalchemy", "app.repositories", "app.models"),
+    )
+    _assert_no_import_prefixes(
+        APP_ROOT / "ml/monitoring/drift.py",
+        ("fastapi", "sqlalchemy", "mlflow", "dramatiq", "joblib"),
+    )
+    _assert_no_import_prefixes(
+        APP_ROOT / "repositories/ai_monitoring.py",
+        ("fastapi",),
+    )
+    _assert_no_import_prefixes(
+        APP_ROOT / "api/routes/ai_monitoring.py",
+        ("app.models.ai_monitoring", "sqlalchemy", "mlflow", "joblib"),
+    )
+    for path in (APP_ROOT / "ml/monitoring").glob("*.py"):
+        if path.name not in {"reconcile.py"}:
+            _assert_no_import_prefixes(path, ("joblib",))
+
+    route_source = (APP_ROOT / "api/routes/ai_monitoring.py").read_text(
+        encoding="utf-8",
+    )
+    repository_source = (APP_ROOT / "repositories/ai_monitoring.py").read_text(
+        encoding="utf-8",
+    )
+    capture_source = (APP_ROOT / "ml/monitoring/capture.py").read_text(
+        encoding="utf-8",
+    )
+    monitoring_sources = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in sorted((APP_ROOT / "ml/monitoring").glob("*.py"))
+    )
+
+    assert "population_stability_index" not in route_source
+    assert "DriftDetectionEngine" not in route_source
+    assert "PredictionEventEntity" not in route_source
+    assert "ModelReferenceProfileEntity" not in route_source
+    assert "DriftSeverity" not in repository_source
+    assert "population_stability_index" not in repository_source
+    assert capture_source.count("self._prediction_service.predict(") == 1
+    assert ".fit(" not in monitoring_sources
+    assert "app.ml.promotion" not in monitoring_sources
+
+
 def test_background_queue_boundary_has_no_dataset_or_automatic_champion_payload() -> (
     None
 ):
@@ -215,6 +262,17 @@ def test_new_job_and_promotion_application_code_has_no_any() -> None:
         ("promotion_regression_min_relative_rmse_improvement", 1.1),
         ("promotion_classification_min_accuracy", -0.1),
         ("promotion_classification_min_f1_improvement", 1.1),
+        ("prediction_event_retention_days", 0),
+        ("prediction_event_retention_batch_size", 0),
+        ("monitoring_min_sample_count", 0),
+        ("monitoring_max_window_days", 0),
+        ("monitoring_profile_bin_count", 9),
+        ("monitoring_max_events_per_window", 0),
+        ("monitoring_reference_reconciliation_batch_size", 0),
+        ("drift_psi_warning_threshold", 0.25),
+        ("drift_psi_critical_threshold", float("inf")),
+        ("drift_missing_rate_warning_threshold", 1.1),
+        ("drift_out_of_range_warning_threshold", -0.1),
     ],
 )
 def test_ai_settings_reject_empty_paths_and_unsafe_prefixes(

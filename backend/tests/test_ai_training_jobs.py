@@ -1,10 +1,14 @@
 """Persistent training-job contracts, service, repository, and worker tests."""
 
 from datetime import timedelta
+from typing import cast
 from uuid import UUID, uuid4
 
 import app.ml.jobs.service as training_job_service_module
+import numpy as np
 import pytest
+from app.ml.base import TrainerInput
+from app.ml.composition import create_random_forest_regression_prediction_plan
 from app.ml.domain import TaskType
 from app.ml.jobs import (
     RandomForestRegressionJobSpec,
@@ -22,11 +26,39 @@ from app.ml.jobs.worker import (
     TrainingJobWorker,
     WorkerExecutionState,
 )
-from app.ml.registry import ModelRegistryError
+from app.ml.monitoring import (
+    ModelReferenceProfile,
+    build_model_reference_profile_draft,
+)
+from app.ml.monitoring.reconcile import (
+    reconcile_reference_profile_candidates,
+)
+from app.ml.registry import (
+    BaseModelRegistry,
+    ModelRegistrationRequest,
+    ModelRegistryError,
+    RegisteredModelVersion,
+    RegisteredModelVersionStatus,
+)
+from app.ml.services import (
+    BaseRegisteredModelLoader,
+    PredictionService,
+    RegisteredPredictionRequest,
+)
+from app.ml.trainers.random_forest import RandomForestRegressorTrainer
+from app.ml.trainers.random_forest.types import (
+    FeatureArray,
+    RegressionPredictionArray,
+    RegressionTargetArray,
+)
+from app.models.ai_monitoring import ModelReferenceProfileEntity
 from app.models.user import User, UserRole
 from app.repositories.ai_governance import TrainingJobRepository
+from app.repositories.ai_monitoring import PredictionMonitoringRepository
 from app.utils.security import utc_now
 from pydantic import ValidationError
+from sklearn.ensemble import RandomForestRegressor  # type: ignore[import-untyped]
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 
@@ -56,6 +88,58 @@ class QueueIdentifierFailingRepository(TrainingJobRepository):
     ) -> TrainingJobRecord | None:
         _ = (job_id, queue_message_id, expected_version)
         raise RuntimeError("database write failed")
+
+
+class ExistingVersionRegistry(BaseModelRegistry):
+    """Resolve one checkpointed version and reject any new registration."""
+
+    def __init__(self, version: RegisteredModelVersion) -> None:
+        self.version = version
+        self.resolve_count = 0
+        self.registration_attempt_count = 0
+
+    def register(
+        self,
+        request: ModelRegistrationRequest,
+    ) -> RegisteredModelVersion:
+        _ = request
+        self.registration_attempt_count += 1
+        raise AssertionError("Reconciliation must not register another model version.")
+
+    def resolve(
+        self,
+        registered_model_name: str,
+        version_or_alias: str,
+    ) -> RegisteredModelVersion:
+        assert registered_model_name == self.version.registered_model_name
+        assert version_or_alias == self.version.version
+        self.resolve_count += 1
+        return self.version
+
+
+class ExistingVersionLoader(BaseRegisteredModelLoader):
+    """Load the fitted model already attached to the checkpointed version."""
+
+    def __init__(
+        self, model: RandomForestRegressor, *, unavailable: bool = False
+    ) -> None:
+        self.model = model
+        self.unavailable = unavailable
+        self.load_count = 0
+
+    def load[
+        ModelT
+    ](
+        self,
+        model_version: RegisteredModelVersion,
+        expected_type: type[ModelT],
+    ) -> ModelT:
+        _ = model_version
+        self.load_count += 1
+        if self.unavailable:
+            raise OSError("model loader unavailable")
+        assert isinstance(self.model, expected_type)
+        return self.model
 
 
 def _specification(*, seed: int = 11) -> RandomForestRegressionJobSpec:
@@ -318,6 +402,223 @@ async def test_worker_claims_once_checkpoints_and_skips_duplicate_delivery(
     assert completed.status is TrainingJobStatus.SUCCEEDED
     assert completed.attempt_count == 1
     assert completed.metrics == {"rmse": 0.2, "r2": 0.8}
+
+
+@pytest.mark.anyio
+async def test_profile_failure_after_registration_is_checkpointed_and_reconciled_once(
+    session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A post-alias profile outage degrades monitoring without model duplication."""
+    requested_by = await _user_id(
+        session_factory,
+        email="job-profile-checkpoint@example.com",
+    )
+    async with session_factory() as session:
+        submission = await TrainingJobService(
+            repository=TrainingJobRepository(session),
+            queue=FakeQueue(),
+            max_attempts=3,
+        ).submit(
+            requested_by_user_id=requested_by,
+            key=random_forest_key(TaskType.REGRESSION),
+            specification=_specification(),
+            idempotency_key=None,
+        )
+
+    training_execution_count = 0
+    model_registration_count = 0
+    alias_assignments: list[tuple[str, str]] = []
+    fitted_models: list[RandomForestRegressor] = []
+
+    def execute(specification: TrainingJobSpec) -> BackgroundTrainingOutcome:
+        nonlocal training_execution_count, model_registration_count
+        assert isinstance(specification, RandomForestRegressionJobSpec)
+        training_execution_count += 1
+        training_features: FeatureArray = np.asarray(
+            specification.training_features,
+            dtype=np.float64,
+        )
+        training_targets: RegressionTargetArray = np.asarray(
+            specification.training_targets,
+            dtype=np.float64,
+        )
+        evaluation_features: FeatureArray = np.asarray(
+            specification.evaluation_features,
+            dtype=np.float64,
+        )
+        model = (
+            RandomForestRegressorTrainer()
+            .fit(
+                TrainerInput(
+                    features=training_features,
+                    targets=training_targets,
+                    hyperparameters=specification.hyperparameters.model_dump(),
+                    random_seed=specification.random_seed,
+                ),
+            )
+            .model
+        )
+        fitted_models.append(model)
+        predictions = cast(
+            RegressionPredictionArray, model.predict(evaluation_features)
+        )
+        model_registration_count += 1
+        return BackgroundTrainingOutcome(
+            local_execution_run_id=uuid4(),
+            mlflow_experiment_id="experiment-profile",
+            mlflow_run_id="run-profile",
+            registered_model_version="41",
+            metrics={"rmse": 0.2, "r2": 0.8},
+            reference_profile=build_model_reference_profile_draft(
+                registered_model_name=specification.registered_model_name,
+                model_version="41",
+                key=random_forest_key(TaskType.REGRESSION),
+                evaluation_features=evaluation_features,
+                predictions=predictions,
+                bin_count=10,
+                created_at=utc_now(),
+            ),
+        )
+
+    original_create_profile = PredictionMonitoringRepository.create_reference_profile
+
+    async def fail_profile_persistence(
+        _repository: PredictionMonitoringRepository,
+        _profile: ModelReferenceProfile,
+    ) -> ModelReferenceProfile:
+        raise OSError("monitoring database unavailable")
+
+    monkeypatch.setattr(
+        PredictionMonitoringRepository,
+        "create_reference_profile",
+        fail_profile_persistence,
+    )
+    worker = TrainingJobWorker(
+        session_factory=session_factory,
+        execute_specification=execute,
+        assign_candidate_alias=lambda name, version: alias_assignments.append(
+            (name, version),
+        ),
+    )
+
+    first = await worker.execute(submission.job.id)
+    duplicate = await worker.execute(submission.job.id)
+
+    assert first is WorkerExecutionState.SUCCEEDED
+    assert duplicate is WorkerExecutionState.SKIPPED
+    assert training_execution_count == 1
+    assert model_registration_count == 1
+    assert alias_assignments == [("ai_core_random_forest_regression", "41")]
+    assert len(fitted_models) == 1
+
+    monkeypatch.setattr(
+        PredictionMonitoringRepository,
+        "create_reference_profile",
+        original_create_profile,
+    )
+    async with session_factory() as session:
+        job = await TrainingJobRepository(session).get_by_id(submission.job.id)
+        monitoring_repository = PredictionMonitoringRepository(session)
+        missing = await monitoring_repository.list_missing_reference_profiles(limit=10)
+        absent = await monitoring_repository.get_reference_profile(
+            "ai_core_random_forest_regression",
+            "41",
+        )
+
+    assert job is not None
+    assert job.status is TrainingJobStatus.SUCCEEDED
+    assert job.registered_model_version == "41"
+    assert absent is None
+    assert len(missing) == 1
+    assert missing[0].registered_model_version == "41"
+
+    version = RegisteredModelVersion(
+        registered_model_name="ai_core_random_forest_regression",
+        version="41",
+        run_id="run-profile",
+        source_uri="file:///checkpointed-model.joblib",
+        key=random_forest_key(TaskType.REGRESSION),
+        status=RegisteredModelVersionStatus.READY,
+        aliases=("candidate",),
+    )
+    registry = ExistingVersionRegistry(version)
+    unavailable_loader = ExistingVersionLoader(fitted_models[0], unavailable=True)
+    async with session_factory() as session:
+        failed_reconciliation = await reconcile_reference_profile_candidates(
+            repository=PredictionMonitoringRepository(session),
+            candidates=missing,
+            prediction_service=PredictionService(
+                model_registry=registry,
+                model_loader=unavailable_loader,
+            ),
+            bin_count=10,
+        )
+        still_missing = await PredictionMonitoringRepository(
+            session,
+        ).list_missing_reference_profiles(limit=10)
+
+    assert failed_reconciliation.examined == 1
+    assert failed_reconciliation.created == 0
+    assert failed_reconciliation.failed == 1
+    assert len(still_missing) == 1
+    assert training_execution_count == 1
+    assert model_registration_count == 1
+    assert registry.registration_attempt_count == 0
+
+    loader = ExistingVersionLoader(fitted_models[0])
+    prediction_service = PredictionService(
+        model_registry=registry,
+        model_loader=loader,
+    )
+    usable_result = prediction_service.predict(
+        create_random_forest_regression_prediction_plan(),
+        RegisteredPredictionRequest(
+            "ai_core_random_forest_regression",
+            "41",
+            np.asarray(((0.5,),), dtype=np.float64),
+        ),
+    )
+    assert usable_result.predictions.shape == (1,)
+
+    async with session_factory() as session:
+        monitoring_repository = PredictionMonitoringRepository(session)
+        successful_reconciliation = await reconcile_reference_profile_candidates(
+            repository=monitoring_repository,
+            candidates=still_missing,
+            prediction_service=prediction_service,
+            bin_count=10,
+        )
+        no_remaining_candidates = (
+            await monitoring_repository.list_missing_reference_profiles(limit=10)
+        )
+        repeated_reconciliation = await reconcile_reference_profile_candidates(
+            repository=monitoring_repository,
+            candidates=no_remaining_candidates,
+            prediction_service=prediction_service,
+            bin_count=10,
+        )
+        profile_row_count = await session.scalar(
+            select(func.count(ModelReferenceProfileEntity.id)),
+        )
+        profile = await monitoring_repository.get_reference_profile(
+            "ai_core_random_forest_regression",
+            "41",
+        )
+
+    assert successful_reconciliation.created == 1
+    assert successful_reconciliation.failed == 0
+    assert repeated_reconciliation.examined == 0
+    assert repeated_reconciliation.created == 0
+    assert no_remaining_candidates == ()
+    assert profile_row_count == 1
+    assert profile is not None
+    assert profile.model_version == "41"
+    assert profile.training_job_id == submission.job.id
+    assert training_execution_count == 1
+    assert model_registration_count == 1
+    assert alias_assignments == [("ai_core_random_forest_regression", "41")]
+    assert registry.registration_attempt_count == 0
 
 
 @pytest.mark.anyio

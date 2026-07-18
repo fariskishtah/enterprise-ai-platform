@@ -17,9 +17,12 @@ from app.ml.factory import TrainerFactory, TrainerRegistry
 from app.ml.jobs import DramatiqTrainingJobQueue, TrainingJobQueue
 from app.ml.jobs.service import TrainingJobService
 from app.ml.monitoring import (
+    DriftDetectionEngine,
+    DriftThresholds,
     MonitoredPredictionService,
     PredictionCaptureHealth,
 )
+from app.ml.monitoring.service import PredictionMonitoringService
 from app.ml.promotion import (
     ClassificationPromotionPolicy,
     RegressionPromotionPolicy,
@@ -274,6 +277,39 @@ def get_ai_monitored_prediction_service(
         prediction_service=prediction_service,
         event_store=repository,
         capture_health=capture_health,
+    )
+
+
+def get_prediction_monitoring_service(
+    settings: Annotated[Settings, Depends(get_settings)],
+    repository: Annotated[
+        PredictionMonitoringRepository,
+        Depends(get_prediction_monitoring_repository),
+    ],
+    model_registry: Annotated[
+        BaseModelRegistry,
+        Depends(get_ai_model_registry),
+    ],
+    capture_health: Annotated[
+        PredictionCaptureHealth,
+        Depends(get_prediction_capture_health),
+    ],
+) -> PredictionMonitoringService:
+    """Return configured aggregation, quality, and drift orchestration."""
+    return PredictionMonitoringService(
+        repository=repository,
+        model_registry=model_registry,
+        drift_engine=DriftDetectionEngine(),
+        capture_health=capture_health,
+        minimum_sample_count=settings.monitoring_min_sample_count,
+        maximum_window_days=settings.monitoring_max_window_days,
+        maximum_events_per_window=settings.monitoring_max_events_per_window,
+        thresholds=DriftThresholds(
+            warning=settings.drift_psi_warning_threshold,
+            critical=settings.drift_psi_critical_threshold,
+            missing_rate_warning=(settings.drift_missing_rate_warning_threshold),
+            out_of_range_warning=(settings.drift_out_of_range_warning_threshold),
+        ),
     )
 
 

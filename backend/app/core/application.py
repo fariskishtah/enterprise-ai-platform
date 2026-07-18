@@ -11,7 +11,16 @@ OPENAPI_TAGS = [
         "description": (
             "Authenticated synchronous and Redis-backed background Random Forest "
             "training, MLflow registration, controlled alias promotion, audit "
-            "history, version lookup, and registered prediction."
+            "history, version lookup, registered prediction, and privacy-preserving "
+            "prediction monitoring."
+        ),
+    },
+    {
+        "name": "ai-monitoring",
+        "description": (
+            "Authorized prediction-event summaries, exact-version operational and "
+            "data-quality metrics, evaluation reference profiles, and bounded "
+            "feature/prediction drift reports."
         ),
     },
     {"name": "auth", "description": "Authentication and token management."},
@@ -41,7 +50,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         description=(
             "Manufacturing APIs and the AI Core's authenticated synchronous and "
             "background Random Forest training, model governance, and registered "
-            "prediction workflows."
+            "prediction workflows with privacy-preserving monitoring and drift."
         ),
         docs_url=docs_url,
         openapi_tags=OPENAPI_TAGS,

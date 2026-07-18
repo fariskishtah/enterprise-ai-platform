@@ -7,6 +7,10 @@ from app.ml.monitoring.capture import (
     PredictionCaptureHealthSnapshot,
     PredictionEventStore,
 )
+from app.ml.monitoring.drift import (
+    DriftDetectionEngine,
+    population_stability_index,
+)
 from app.ml.monitoring.exceptions import (
     MonitoringDataError,
     MonitoringNotFoundError,
@@ -60,6 +64,7 @@ __all__ = [
     "ClassificationPredictionReferenceProfile",
     "DataQualityIssue",
     "DataQualitySeverity",
+    "DriftDetectionEngine",
     "DriftSeverity",
     "DriftThresholds",
     "FeatureDriftResult",
@@ -96,6 +101,7 @@ __all__ = [
     "feature_request_profiles",
     "numeric_reference_profile",
     "numeric_summary",
+    "population_stability_index",
     "prediction_request_profile",
     "regression_prediction_profile",
 ]

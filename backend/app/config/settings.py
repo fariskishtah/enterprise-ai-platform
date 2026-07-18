@@ -1,7 +1,7 @@
 """Application settings loaded from environment variables."""
 
 from functools import lru_cache
-from typing import Annotated, Literal
+from typing import Annotated, Literal, Self
 
 from pydantic import (
     Field,
@@ -11,6 +11,7 @@ from pydantic import (
     PositiveInt,
     SecretStr,
     StringConstraints,
+    model_validator,
 )
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -81,7 +82,56 @@ class Settings(BaseSettings):
         default=0.0,
         le=1,
     )
+    prediction_event_retention_days: PositiveInt = Field(default=90, le=3650)
+    monitoring_min_sample_count: PositiveInt = Field(default=20, le=100_000)
+    monitoring_max_window_days: PositiveInt = Field(default=30, le=365)
+    monitoring_profile_bin_count: int = Field(default=10, ge=10, le=20)
+    monitoring_max_events_per_window: PositiveInt = Field(
+        default=10_000,
+        le=100_000,
+    )
+    monitoring_reference_reconciliation_batch_size: PositiveInt = Field(
+        default=100,
+        le=1000,
+    )
+    prediction_event_retention_batch_size: PositiveInt = Field(
+        default=1000,
+        le=10_000,
+    )
+    drift_psi_warning_threshold: float = Field(
+        default=0.10,
+        ge=0,
+        le=1,
+        allow_inf_nan=False,
+    )
+    drift_psi_critical_threshold: float = Field(
+        default=0.25,
+        gt=0,
+        le=2,
+        allow_inf_nan=False,
+    )
+    drift_missing_rate_warning_threshold: float = Field(
+        default=0.05,
+        ge=0,
+        le=1,
+        allow_inf_nan=False,
+    )
+    drift_out_of_range_warning_threshold: float = Field(
+        default=0.10,
+        ge=0,
+        le=1,
+        allow_inf_nan=False,
+    )
     optuna_storage_url: str | None = None
+
+    @model_validator(mode="after")
+    def validate_drift_threshold_order(self) -> Self:
+        """Require the operational warning threshold below critical."""
+        if self.drift_psi_warning_threshold >= self.drift_psi_critical_threshold:
+            raise ValueError(
+                "drift_psi_warning_threshold must be below the critical threshold.",
+            )
+        return self
 
 
 @lru_cache

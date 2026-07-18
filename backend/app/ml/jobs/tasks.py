@@ -69,6 +69,7 @@ def execute_training_job(training_job_id: str) -> None:
             execute_tracked_training_specification(
                 specification,
                 service=training_service,
+                profile_bin_count=_settings.monitoring_profile_bin_count,
             )
         ),
         assign_candidate_alias=assign_candidate_alias,
