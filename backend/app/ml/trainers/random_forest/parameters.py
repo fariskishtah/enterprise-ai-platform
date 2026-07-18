@@ -71,6 +71,16 @@ class _RandomForestParameters(BaseModel):
     n_jobs: StrictInt | None = None
     random_state: StrictInt | None = None
 
+    @field_validator("max_features", mode="before")
+    @classmethod
+    def reject_integer_max_features(cls, value: object) -> object:
+        """Keep integer counts outside the fractional platform boundary."""
+        if isinstance(value, (bool, int)):
+            raise ValueError(
+                "max_features must be 'sqrt', 'log2', or a fractional float.",
+            )
+        return value
+
     @field_validator("n_jobs")
     @classmethod
     def reject_zero_n_jobs(cls, value: int | None) -> int | None:

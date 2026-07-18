@@ -6,6 +6,10 @@ from app.api.router import api_router
 from app.config.settings import Settings, get_settings
 
 OPENAPI_TAGS = [
+    {
+        "name": "ai",
+        "description": "Synchronous AI training, registry, and prediction.",
+    },
     {"name": "auth", "description": "Authentication and token management."},
     {"name": "companies", "description": "Company management."},
     {"name": "feature-datasets", "description": "Feature dataset exports."},

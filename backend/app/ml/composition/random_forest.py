@@ -16,6 +16,7 @@ from app.ml.metrics import (
     RegressionMetricsEngine,
     RegressionMetricsReport,
 )
+from app.ml.services import RegisteredPredictionPlan
 from app.ml.trainers.random_forest import (
     RANDOM_FOREST_CLASSIFIER_REGISTRATION,
     RANDOM_FOREST_REGRESSOR_REGISTRATION,
@@ -28,6 +29,7 @@ from app.ml.trainers.random_forest.types import (
     FeatureArray,
     RegressionPredictionArray,
     RegressionTargetArray,
+    validate_prediction_features,
 )
 
 
@@ -95,6 +97,34 @@ def create_random_forest_classification_plan(
     )
 
 
+def create_random_forest_regression_prediction_plan() -> RegisteredPredictionPlan[
+    RandomForestRegressor,
+    FeatureArray,
+    RegressionPredictionArray,
+]:
+    """Bind the Random Forest regression model and prediction contract."""
+    return RegisteredPredictionPlan(
+        key=RANDOM_FOREST_REGRESSOR_REGISTRATION.key,
+        expected_model_type=RandomForestRegressor,
+        validate_features=validate_prediction_features,
+        predict=_predict_regression,
+    )
+
+
+def create_random_forest_classification_prediction_plan() -> RegisteredPredictionPlan[
+    RandomForestClassifier,
+    FeatureArray,
+    ClassificationPredictionArray,
+]:
+    """Bind the Random Forest classification model and prediction contract."""
+    return RegisteredPredictionPlan(
+        key=RANDOM_FOREST_CLASSIFIER_REGISTRATION.key,
+        expected_model_type=RandomForestClassifier,
+        validate_features=validate_prediction_features,
+        predict=_predict_classification,
+    )
+
+
 def _regression_trainer_contract(
     trainer: RandomForestRegressorTrainer,
 ) -> BaseTrainer[
@@ -115,3 +145,17 @@ def _classification_trainer_contract(
     ClassificationPredictionArray,
 ]:
     return trainer
+
+
+def _predict_regression(
+    model: RandomForestRegressor,
+    features: FeatureArray,
+) -> RegressionPredictionArray:
+    return RandomForestRegressorTrainer().predict(model, features)
+
+
+def _predict_classification(
+    model: RandomForestClassifier,
+    features: FeatureArray,
+) -> ClassificationPredictionArray:
+    return RandomForestClassifierTrainer().predict(model, features)

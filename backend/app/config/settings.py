@@ -1,12 +1,16 @@
 """Application settings loaded from environment variables."""
 
 from functools import lru_cache
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import Field, PositiveFloat, PositiveInt, SecretStr
+from pydantic import Field, PositiveFloat, PositiveInt, SecretStr, StringConstraints
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 EnvironmentName = Literal["local", "development", "staging", "production", "test"]
+RegisteredModelPrefix = Annotated[
+    str,
+    StringConstraints(pattern=r"^[a-z][a-z0-9_]{1,63}$"),
+]
 
 
 class Settings(BaseSettings):
@@ -34,8 +38,13 @@ class Settings(BaseSettings):
     feature_dataset_dir: str = "../datasets/features"
     feature_rolling_window_size: PositiveInt = 5
     mlops_config_dir: str = "../ml/configs"
-    mlflow_tracking_uri: str = "file:../mlruns"
-    model_artifact_root: str = "../ml/model-artifacts"
+    mlflow_tracking_uri: str = Field(default="file:../mlruns", min_length=1)
+    model_artifact_root: str = Field(
+        default="../ml/model-artifacts",
+        min_length=1,
+    )
+    ai_artifact_root: str = Field(default="../ml/ai-artifacts", min_length=1)
+    ai_default_registered_model_prefix: RegisteredModelPrefix = "ai_core"
     optuna_storage_url: str | None = None
 
 

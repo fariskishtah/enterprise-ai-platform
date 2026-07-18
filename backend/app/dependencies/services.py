@@ -1,5 +1,6 @@
 """Service dependencies."""
 
+from pathlib import Path
 from typing import Annotated
 
 from fastapi import Depends
@@ -8,6 +9,21 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config.mlops import MLOpsConfigurationLoader
 from app.config.settings import Settings, get_settings
 from app.dependencies.database import get_db_session
+from app.ml.artifacts import BaseArtifactManager, LocalArtifactManager
+from app.ml.engine import TrainingEngine
+from app.ml.factory import TrainerFactory, TrainerRegistry
+from app.ml.registry import BaseModelRegistry, MLflowModelRegistry
+from app.ml.services import (
+    BaseRegisteredModelLoader,
+    MLflowRegisteredModelLoader,
+    PredictionService,
+    TrackedTrainingService,
+)
+from app.ml.tracking import BaseExperimentTracker, MLflowExperimentTracker
+from app.ml.trainers.random_forest import (
+    RANDOM_FOREST_CLASSIFIER_REGISTRATION,
+    RANDOM_FOREST_REGRESSOR_REGISTRATION,
+)
 from app.repositories.feature_engineering import FeatureEngineeringRepository
 from app.repositories.manufacturing import ManufacturingRepository
 from app.repositories.mlops import MLOpsRepository
@@ -18,7 +34,10 @@ from app.services.authentication import AuthenticationService
 from app.services.feature_engineering import FeatureEngineeringService
 from app.services.manufacturing import ManufacturingService
 from app.services.mlops import MLOpsService
-from app.services.model_registry import MLflowModelRegistry, ModelRegistry
+from app.services.model_registry import (
+    MLflowModelRegistry as MetadataMLflowModelRegistry,
+)
+from app.services.model_registry import ModelRegistry
 from app.services.optuna import OptunaStudyFactory
 from app.services.sensor_data import SensorDataService
 from app.services.sensor_data_etl import SensorDataEtlService
@@ -78,9 +97,102 @@ def get_model_registry(
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> ModelRegistry:
     """Return the configured model registry adapter."""
-    return MLflowModelRegistry(
+    return MetadataMLflowModelRegistry(
         tracking_uri=settings.mlflow_tracking_uri,
         artifact_root=settings.model_artifact_root,
+    )
+
+
+def get_ai_trainer_registry() -> TrainerRegistry:
+    """Return a fresh registry with the supported AI Core trainers."""
+    registry = TrainerRegistry()
+    registry.register(RANDOM_FOREST_REGRESSOR_REGISTRATION)
+    registry.register(RANDOM_FOREST_CLASSIFIER_REGISTRATION)
+    return registry
+
+
+def get_ai_trainer_factory(
+    registry: Annotated[TrainerRegistry, Depends(get_ai_trainer_registry)],
+) -> TrainerFactory:
+    """Return the request-scoped AI Core trainer factory."""
+    return TrainerFactory(registry)
+
+
+def get_ai_artifact_manager(
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> BaseArtifactManager:
+    """Return local persistence rooted at the configured AI artifact path."""
+    return LocalArtifactManager(Path(settings.ai_artifact_root))
+
+
+def get_ai_training_engine(
+    trainer_factory: Annotated[TrainerFactory, Depends(get_ai_trainer_factory)],
+    artifact_manager: Annotated[
+        BaseArtifactManager,
+        Depends(get_ai_artifact_manager),
+    ],
+) -> TrainingEngine:
+    """Return the typed local training orchestrator."""
+    return TrainingEngine(
+        trainer_factory=trainer_factory,
+        artifact_manager=artifact_manager,
+    )
+
+
+def get_ai_experiment_tracker(
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> BaseExperimentTracker:
+    """Return the configured MLflow successful-run tracker."""
+    return MLflowExperimentTracker(tracking_uri=settings.mlflow_tracking_uri)
+
+
+def get_ai_model_registry(
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> BaseModelRegistry:
+    """Return the configured fitted-model registry adapter."""
+    return MLflowModelRegistry(tracking_uri=settings.mlflow_tracking_uri)
+
+
+def get_ai_registered_model_loader(
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> BaseRegisteredModelLoader:
+    """Return the configured MLflow registered-model loader."""
+    return MLflowRegisteredModelLoader(tracking_uri=settings.mlflow_tracking_uri)
+
+
+def get_ai_tracked_training_service(
+    training_engine: Annotated[TrainingEngine, Depends(get_ai_training_engine)],
+    experiment_tracker: Annotated[
+        BaseExperimentTracker,
+        Depends(get_ai_experiment_tracker),
+    ],
+    model_registry: Annotated[
+        BaseModelRegistry,
+        Depends(get_ai_model_registry),
+    ],
+) -> TrackedTrainingService:
+    """Return the ordered local-training, tracking, and registry service."""
+    return TrackedTrainingService(
+        training_engine=training_engine,
+        experiment_tracker=experiment_tracker,
+        model_registry=model_registry,
+    )
+
+
+def get_ai_prediction_service(
+    model_registry: Annotated[
+        BaseModelRegistry,
+        Depends(get_ai_model_registry),
+    ],
+    model_loader: Annotated[
+        BaseRegisteredModelLoader,
+        Depends(get_ai_registered_model_loader),
+    ],
+) -> PredictionService:
+    """Return the registered-model prediction application service."""
+    return PredictionService(
+        model_registry=model_registry,
+        model_loader=model_loader,
     )
 
 
