@@ -67,9 +67,18 @@ POST /machines
 GET  /machines/{machine_id}
 PATCH /machines/{machine_id}
 DELETE /machines/{machine_id}
+POST /ai/training/random-forest/regression
+POST /ai/training/random-forest/classification
+POST /ai/predictions/random-forest/regression
+POST /ai/predictions/random-forest/classification
+GET  /ai/models/{registered_model_name}/versions/{version_or_alias}
 ```
 
 Interactive documentation is available at `/docs` outside production.
+
+See the repository-level [AI Core API](../docs/ai-core-api.md) and
+[local demo guide](../docs/ai-core-local-demo.md) for authenticated examples and
+the exact training, tracking, registration, and prediction flow.
 
 ## Local Development
 

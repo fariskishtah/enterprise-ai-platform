@@ -22,6 +22,16 @@ Failures propagate without cross-system rollback: a tracking failure leaves the 
 
 Random Forest regression and integer-label classification are the only supported trainer tasks. Prediction resolves an exact model version or alias and performs runtime model-type and trainer-key checks before inference. Prediction probabilities, asynchronous jobs, model promotion, deployment, monitoring, drift detection, and automatic retraining are not implemented.
 
+## AI Core Guides
+
+- [AI Core API](docs/ai-core-api.md) documents authentication, request and
+  response contracts, hyperparameters, metrics, failure behavior, and curl flows.
+- [AI Core local demo](docs/ai-core-local-demo.md) covers Docker and direct Python
+  startup, the complete training-to-prediction sequence, persistence inspection,
+  and safe cleanup.
+- [`examples/ai-core/`](examples/ai-core/) contains Pydantic-validated JSON request
+  payloads that can be submitted directly with `curl`.
+
 ## Folder Structure
 
 ```text
