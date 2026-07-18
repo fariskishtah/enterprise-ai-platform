@@ -72,13 +72,24 @@ POST /ai/training/random-forest/classification
 POST /ai/predictions/random-forest/regression
 POST /ai/predictions/random-forest/classification
 GET  /ai/models/{registered_model_name}/versions/{version_or_alias}
+POST /ai/training-jobs/random-forest/regression
+POST /ai/training-jobs/random-forest/classification
+GET  /ai/training-jobs/{job_id}
+GET  /ai/training-jobs
+POST /ai/training-jobs/{job_id}/cancel
+POST /ai/models/{name}/versions/{version}/promotions/challenger
+POST /ai/models/{name}/versions/{version}/promotions/champion
+GET  /ai/models/{name}/promotions
+GET  /ai/models/{name}/aliases
 ```
 
 Interactive documentation is available at `/docs` outside production.
 
 See the repository-level [AI Core API](../docs/ai-core-api.md) and
 [local demo guide](../docs/ai-core-local-demo.md) for authenticated examples and
-the exact training, tracking, registration, and prediction flow.
+the exact training, tracking, registration, and prediction flow. The
+[background training and promotion guide](../docs/ai-background-training-and-promotion.md)
+covers the Redis worker, persistent jobs, recovery, policies, and audit history.
 
 ## Local Development
 

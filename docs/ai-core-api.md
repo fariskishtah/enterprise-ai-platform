@@ -1,6 +1,8 @@
 # AI Core API
 
-This guide documents the implemented synchronous AI Core HTTP boundary. The
+This guide documents the compatible synchronous AI Core HTTP boundary. Persistent
+background jobs and controlled promotion are documented in
+[AI Background Training and Model Promotion](ai-background-training-and-promotion.md). The
 interactive OpenAPI UI is available at `http://localhost:8000/docs` outside the
 production environment.
 
@@ -250,9 +252,9 @@ curl -X POST \
 }
 ```
 
-To predict through an alias, replace `version_or_alias` with an already assigned
-safe alias such as `champion`. AI Core can resolve aliases but does not create or
-promote them automatically.
+To predict through an alias, replace `version_or_alias` with an assigned safe
+alias such as `champion`. Successful background training assigns `candidate`;
+authorized promotion endpoints assign `challenger` and `champion` explicitly.
 
 ## Model-version lookup
 
@@ -375,14 +377,22 @@ Documented statuses are:
 
 ## Current limitations
 
+Training request limits are shared by synchronous and background endpoints:
+10,000 training rows, 5,000 evaluation rows, 256 feature columns, 1,000,000
+combined feature cells, 32 tags, 250-character tag keys, 5,000-character tag
+values, 255-character run names, and 5,000-character model descriptions. These
+are intentional MVP platform limits rather than the complete capacities of
+scikit-learn or MLflow.
+
 - Training and prediction run synchronously in the API process.
 - Random Forest is the only algorithm.
 - Internal features are exact two-dimensional float64 arrays.
 - Regression targets and predictions are exact one-dimensional float64 arrays.
 - Classification targets and predictions are exact one-dimensional int64 labels.
 - Classification probability prediction is not exposed.
-- Model aliases and promotion are not automated.
-- Background training jobs are not implemented.
+- Background jobs use a dedicated worker; synchronous compatibility endpoints
+  still run in the API process.
+- Model promotion is explicit and audited, not automated.
 - Drift monitoring is not implemented.
 - Automated retraining is not implemented.
 - Production cloud deployment is not implemented.

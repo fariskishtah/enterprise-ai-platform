@@ -2,7 +2,9 @@
 
 This guide demonstrates synchronous Random Forest training, MLflow tracking,
 model registration, registered prediction, and model-version lookup from a local
-checkout. Run commands from the repository root unless a step says otherwise.
+checkout. The dedicated worker and governance flow is documented in
+[AI Background Training and Model Promotion](ai-background-training-and-promotion.md).
+Run commands from the repository root unless a step says otherwise.
 
 ## Prerequisites
 
@@ -56,6 +58,7 @@ Inspect service state and backend logs:
 ```bash
 docker compose ps
 docker compose logs --tail=100 backend
+docker compose logs --tail=100 training-worker
 curl http://localhost:8000/health
 ```
 

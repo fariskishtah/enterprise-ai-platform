@@ -1,6 +1,6 @@
 # AI Manufacturing Platform
 
-Production-grade monorepo foundation for an AI Manufacturing Platform. Sprint 1 created the platform skeleton, Sprint 2 added authentication and user management, Sprint 3 added the core manufacturing domain, Sprint 4 added sensor management, Sprint 5 added the backend sensor data platform, Sprint 6 added CSV ETL and data validation, Sprint 7 added backend feature engineering dataset exports, and Sprint 8 added MLOps experiment management infrastructure. AI Core now connects typed local Random Forest training to MLflow experiment tracking, fitted-model registration, registered-model prediction, and authenticated FastAPI endpoints. Cloud deployment, monitoring, RAG, computer vision, MQTT, and Kafka are not implemented.
+Production-grade monorepo foundation for an AI Manufacturing Platform. Sprint 1 created the platform skeleton, Sprint 2 added authentication and user management, Sprint 3 added the core manufacturing domain, Sprint 4 added sensor management, Sprint 5 added the backend sensor data platform, Sprint 6 added CSV ETL and data validation, Sprint 7 added backend feature engineering dataset exports, and Sprint 8 added MLOps experiment management infrastructure. AI Core now connects typed local Random Forest training to persistent Redis-backed jobs, dedicated workers, MLflow experiment tracking, fitted-model registration, controlled alias promotion, auditable governance, and registered-model prediction. Cloud deployment, monitoring, RAG, computer vision, MQTT, and Kafka are not implemented.
 
 ## Project Overview
 
@@ -10,17 +10,17 @@ The backend is a FastAPI service using typed environment configuration, SQLAlche
 
 ## AI Training and Prediction Architecture
 
-The explicit synchronous, in-process flow is:
+The original synchronous path remains available. The background path is:
 
 ```text
-Training Plan → Local TrainingEngine → MLflow ExperimentTracker → Model Registry → Prediction Service → FastAPI
+FastAPI → TrainingJob → Redis/Dramatiq → Worker → TrackedTrainingService → candidate → challenger → champion → Prediction Service
 ```
 
 Prepared NumPy arrays enter through typed trainer inputs. Trainers only fit models and produce raw predictions; metrics engines only evaluate targets and predictions; the local artifact manager only persists and runtime-checks Joblib models; and the generic training engine sequences those supplied components into a typed local result. A higher-level service logs only successful executions to MLflow and then registers the completed artifact. Local artifact persistence and MLflow tracking remain separate responsibilities.
 
 Failures propagate without cross-system rollback: a tracking failure leaves the local artifact available, and a later registry failure leaves both the local artifact and completed MLflow run available. Reconciliation for these partial-success states is a future concern.
 
-Random Forest regression and integer-label classification are the only supported trainer tasks. Prediction resolves an exact model version or alias and performs runtime model-type and trainer-key checks before inference. Prediction probabilities, asynchronous jobs, model promotion, deployment, monitoring, drift detection, and automatic retraining are not implemented.
+Random Forest regression and integer-label classification are the only supported trainer tasks. Prediction resolves an exact model version or alias and performs runtime model-type and trainer-key checks before inference. Background completion assigns only `candidate`; challenger and champion changes require explicit authorized, policy-evaluated, audited requests. Prediction probabilities, automated promotion, deployment, monitoring, drift detection, and automatic retraining are not implemented.
 
 ## AI Core Guides
 
@@ -29,6 +29,9 @@ Random Forest regression and integer-label classification are the only supported
 - [AI Core local demo](docs/ai-core-local-demo.md) covers Docker and direct Python
   startup, the complete training-to-prediction sequence, persistence inspection,
   and safe cleanup.
+- [AI background training and promotion](docs/ai-background-training-and-promotion.md)
+  documents the worker, job lifecycle, retries, idempotency, recovery, promotion
+  policies, audit history, and champion prediction.
 - [AI Core MVP release checkpoint](docs/releases/ai-core-mvp.md) records delivered
   capabilities, quality evidence, architectural decisions, and known limitations.
 - [`examples/ai-core/`](examples/ai-core/) contains Pydantic-validated JSON request
@@ -221,7 +224,8 @@ GET    /model-artifacts
 GET    /model-artifacts/{model_artifact_id}
 ```
 
-AI Core exposes synchronous training and prediction endpoints:
+AI Core exposes compatible synchronous endpoints plus persistent jobs and model
+governance:
 
 ```text
 POST   /ai/training/random-forest/regression
@@ -229,6 +233,15 @@ POST   /ai/training/random-forest/classification
 POST   /ai/predictions/random-forest/regression
 POST   /ai/predictions/random-forest/classification
 GET    /ai/models/{registered_model_name}/versions/{version_or_alias}
+POST   /ai/training-jobs/random-forest/regression
+POST   /ai/training-jobs/random-forest/classification
+GET    /ai/training-jobs/{job_id}
+GET    /ai/training-jobs
+POST   /ai/training-jobs/{job_id}/cancel
+POST   /ai/models/{name}/versions/{version}/promotions/challenger
+POST   /ai/models/{name}/versions/{version}/promotions/champion
+GET    /ai/models/{name}/promotions
+GET    /ai/models/{name}/aliases
 ```
 
 Public registration creates `operator` users. Admins have full manufacturing access, engineers can create/update/read, and operators are read-only.
