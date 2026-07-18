@@ -2,9 +2,9 @@
 
 from app.ml.factory.exceptions import (
     InvalidTrainerProviderError,
-    TrainerAlgorithmMismatchError,
     TrainerAlreadyRegisteredError,
     TrainerFactoryError,
+    TrainerKeyMismatchError,
     TrainerNotRegisteredError,
 )
 from app.ml.factory.factory import TrainerFactory
@@ -16,10 +16,10 @@ from app.ml.factory.registry import (
 
 __all__ = [
     "InvalidTrainerProviderError",
-    "TrainerAlgorithmMismatchError",
     "TrainerAlreadyRegisteredError",
     "TrainerFactory",
     "TrainerFactoryError",
+    "TrainerKeyMismatchError",
     "TrainerNotRegisteredError",
     "TrainerProvider",
     "TrainerRegistration",

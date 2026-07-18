@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID, uuid4
 
+import app.ml.domain as domain_contracts
 import pytest
 from app.ml.domain import (
     AlgorithmType,
@@ -12,6 +13,7 @@ from app.ml.domain import (
     ModelStatus,
     PredictionRequest,
     PredictionResult,
+    TaskType,
     TrainingRequest,
     TrainingResult,
 )
@@ -25,6 +27,14 @@ def test_algorithm_type_contains_only_supported_values() -> None:
         "xgboost",
         "lightgbm",
         "catboost",
+    }
+
+
+def test_task_type_contains_only_initial_supported_values() -> None:
+    """Trainer tasks remain separate from algorithm identity."""
+    assert {task_type.value for task_type in TaskType} == {
+        "regression",
+        "classification",
     }
 
 
@@ -287,6 +297,7 @@ def test_domain_models_validate_assignment() -> None:
 def test_all_public_domain_models_are_importable() -> None:
     """The domain package exposes its complete supported public API."""
     assert AlgorithmType.RANDOM_FOREST.value == "random_forest"
+    assert TaskType.REGRESSION.value == "regression"
     assert ModelStatus.CREATED.value == "created"
     assert TrainingRequest.__name__ == "TrainingRequest"
     assert TrainingResult.__name__ == "TrainingResult"
@@ -294,6 +305,21 @@ def test_all_public_domain_models_are_importable() -> None:
     assert PredictionResult.__name__ == "PredictionResult"
     assert ModelContext.__name__ == "ModelContext"
     assert DatasetInfo.__name__ == "DatasetInfo"
+
+
+def test_domain_package_public_exports_include_task_type() -> None:
+    """Task identity is available from the stable domain package."""
+    assert domain_contracts.__all__ == [
+        "AlgorithmType",
+        "TaskType",
+        "ModelStatus",
+        "TrainingRequest",
+        "TrainingResult",
+        "PredictionRequest",
+        "PredictionResult",
+        "ModelContext",
+        "DatasetInfo",
+    ]
 
 
 def test_training_request_coerces_uuid_input() -> None:

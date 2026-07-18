@@ -12,6 +12,13 @@ class AlgorithmType(StrEnum):
     CATBOOST = "catboost"
 
 
+class TaskType(StrEnum):
+    """Initial machine-learning task families supported by AI Core."""
+
+    REGRESSION = "regression"
+    CLASSIFICATION = "classification"
+
+
 class ModelStatus(StrEnum):
     """Lifecycle states for an AI model."""
 

@@ -3,7 +3,7 @@
 from app.ml.base import BaseTrainer
 from app.ml.factory.exceptions import (
     InvalidTrainerProviderError,
-    TrainerAlgorithmMismatchError,
+    TrainerKeyMismatchError,
 )
 from app.ml.factory.registry import TrainerRegistration, TrainerRegistry
 
@@ -23,15 +23,14 @@ class TrainerFactory:
         if not isinstance(created, BaseTrainer):
             returned_type = type(created).__name__
             msg = (
-                f"Trainer provider for '{registration.algorithm.value}' returned "
+                f"Trainer provider for '{registration.key}' returned "
                 f"'{returned_type}', expected a BaseTrainer instance."
             )
             raise InvalidTrainerProviderError(msg)
-        if created.algorithm is not registration.algorithm:
+        if created.key != registration.key:
             msg = (
-                f"Trainer provider registered for '{registration.algorithm.value}' "
-                "created "
-                f"a trainer for '{created.algorithm.value}'."
+                f"Trainer provider registered for '{registration.key}' created "
+                f"a trainer for '{created.key}'."
             )
-            raise TrainerAlgorithmMismatchError(msg)
+            raise TrainerKeyMismatchError(msg)
         return created

@@ -4,8 +4,8 @@ from dataclasses import FrozenInstanceError, dataclass, fields
 
 import app.ml.base as trainer_contracts
 import pytest
-from app.ml.base import BaseTrainer, TrainerInput, TrainerOutput
-from app.ml.domain import AlgorithmType
+from app.ml.base import BaseTrainer, TrainerInput, TrainerKey, TrainerOutput
+from app.ml.domain import AlgorithmType, TaskType
 
 type FeatureMatrix = tuple[tuple[float, ...], ...]
 type TargetVector = tuple[float, ...]
@@ -13,6 +13,10 @@ type PredictionVector = tuple[float, ...]
 
 FEATURES: FeatureMatrix = ((1.0, 2.0), (3.0, 4.0))
 TARGETS: TargetVector = (0.25, 0.75)
+FAKE_TRAINER_KEY = TrainerKey(
+    algorithm=AlgorithmType.RANDOM_FOREST,
+    task_type=TaskType.REGRESSION,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,9 +36,9 @@ class FakeTrainer(
     """Typed trainer implementation used to exercise the abstract contract."""
 
     @property
-    def algorithm(self) -> AlgorithmType:
-        """Return the algorithm represented by this fake trainer."""
-        return AlgorithmType.RANDOM_FOREST
+    def key(self) -> TrainerKey:
+        """Return the composite identity represented by this fake trainer."""
+        return FAKE_TRAINER_KEY
 
     def fit(
         self,
@@ -61,9 +65,9 @@ class IncompleteTrainer(
     """Trainer intentionally missing fit and predict implementations."""
 
     @property
-    def algorithm(self) -> AlgorithmType:
-        """Return the fake trainer's supported algorithm."""
-        return AlgorithmType.RANDOM_FOREST
+    def key(self) -> TrainerKey:
+        """Return the fake trainer's supported composite identity."""
+        return FAKE_TRAINER_KEY
 
 
 def _assign_attribute(
@@ -148,11 +152,19 @@ def test_fake_trainer_subclasses_base_trainer() -> None:
     assert isinstance(FakeTrainer(), BaseTrainer)
 
 
-def test_fake_trainer_exposes_supported_algorithm() -> None:
-    """A concrete trainer identifies its supported algorithm."""
+def test_trainer_key_is_immutable() -> None:
+    """Composite trainer identity cannot change after construction."""
+    with pytest.raises(FrozenInstanceError):
+        _assign_attribute(FAKE_TRAINER_KEY, "task_type", TaskType.CLASSIFICATION)
+
+
+def test_fake_trainer_exposes_supported_key() -> None:
+    """A concrete trainer identifies its supported algorithm and task."""
     trainer = FakeTrainer()
 
-    assert trainer.algorithm is AlgorithmType.RANDOM_FOREST
+    assert trainer.key == FAKE_TRAINER_KEY
+    assert trainer.key.algorithm is AlgorithmType.RANDOM_FOREST
+    assert trainer.key.task_type is TaskType.REGRESSION
 
 
 def test_fake_trainer_fits_and_returns_raw_output() -> None:
@@ -192,6 +204,11 @@ def test_base_trainer_cannot_be_instantiated() -> None:
         ]()  # type: ignore[abstract]
 
 
+def test_base_trainer_has_only_the_clean_abstract_contract() -> None:
+    """Identity, fitting, and raw prediction are its only responsibilities."""
+    assert BaseTrainer.__abstractmethods__ == frozenset({"key", "fit", "predict"})
+
+
 def test_incomplete_trainer_cannot_be_instantiated() -> None:
     """Subclasses must implement every abstract trainer operation."""
     with pytest.raises(TypeError):
@@ -202,10 +219,12 @@ def test_public_trainer_contract_exports() -> None:
     """The base package exposes its complete intended public API."""
     assert trainer_contracts.__all__ == [
         "BaseTrainer",
+        "TrainerKey",
         "TrainerInput",
         "TrainerOutput",
     ]
     assert BaseTrainer.__name__ == "BaseTrainer"
+    assert TrainerKey.__name__ == "TrainerKey"
     assert TrainerInput.__name__ == "TrainerInput"
     assert TrainerOutput.__name__ == "TrainerOutput"
 

@@ -8,14 +8,14 @@ from typing import assert_type
 
 import app.ml.factory as factory_contracts
 import pytest
-from app.ml.base import BaseTrainer, TrainerInput, TrainerOutput
-from app.ml.domain import AlgorithmType
+from app.ml.base import BaseTrainer, TrainerInput, TrainerKey, TrainerOutput
+from app.ml.domain import AlgorithmType, TaskType
 from app.ml.factory import (
     InvalidTrainerProviderError,
-    TrainerAlgorithmMismatchError,
     TrainerAlreadyRegisteredError,
     TrainerFactory,
     TrainerFactoryError,
+    TrainerKeyMismatchError,
     TrainerNotRegisteredError,
     TrainerRegistration,
     TrainerRegistry,
@@ -24,6 +24,15 @@ from app.ml.factory import (
 type FeatureMatrix = tuple[tuple[float, ...], ...]
 type TargetVector = tuple[float, ...]
 type PredictionVector = tuple[float, ...]
+
+REGRESSION_KEY = TrainerKey(
+    algorithm=AlgorithmType.RANDOM_FOREST,
+    task_type=TaskType.REGRESSION,
+)
+CLASSIFICATION_KEY = TrainerKey(
+    algorithm=AlgorithmType.RANDOM_FOREST,
+    task_type=TaskType.CLASSIFICATION,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,9 +48,9 @@ class FakeTrainer(
     """Strictly typed trainer used to exercise heterogeneous registration."""
 
     @property
-    def algorithm(self) -> AlgorithmType:
-        """Return the fake trainer's supported algorithm."""
-        return AlgorithmType.RANDOM_FOREST
+    def key(self) -> TrainerKey:
+        """Return the fake trainer's composite identity."""
+        return REGRESSION_KEY
 
     def fit(
         self,
@@ -62,13 +71,22 @@ class FakeTrainer(
         return tuple(model.prediction for _ in features)
 
 
+class ClassificationFakeTrainer(FakeTrainer):
+    """Fake trainer sharing an algorithm but using a different task key."""
+
+    @property
+    def key(self) -> TrainerKey:
+        """Return the classification key for coexistence tests."""
+        return CLASSIFICATION_KEY
+
+
 class MismatchedTrainer(FakeTrainer):
     """Trainer whose identity intentionally differs from its registration."""
 
     @property
-    def algorithm(self) -> AlgorithmType:
-        """Return an algorithm that will not match the registry key."""
-        return AlgorithmType.RANDOM_FOREST
+    def key(self) -> TrainerKey:
+        """Return a composite key that will not match its registration."""
+        return CLASSIFICATION_KEY
 
 
 class ProviderConstructionError(RuntimeError):
@@ -80,8 +98,13 @@ def create_fake_trainer() -> FakeTrainer:
     return FakeTrainer()
 
 
+def create_classification_fake_trainer() -> ClassificationFakeTrainer:
+    """Return a fake trainer for the second Random Forest task."""
+    return ClassificationFakeTrainer()
+
+
 def create_mismatched_trainer() -> MismatchedTrainer:
-    """Return a trainer with the wrong algorithm identity."""
+    """Return a trainer with the wrong composite identity."""
     return MismatchedTrainer()
 
 
@@ -96,19 +119,32 @@ def raise_during_construction() -> FakeTrainer:
 
 
 FAKE_REGISTRATION = TrainerRegistration(
-    algorithm=AlgorithmType.RANDOM_FOREST,
+    key=REGRESSION_KEY,
     provider=create_fake_trainer,
 )
+CLASSIFICATION_REGISTRATION = TrainerRegistration(
+    key=CLASSIFICATION_KEY,
+    provider=create_classification_fake_trainer,
+)
 MISMATCHED_REGISTRATION = TrainerRegistration(
-    algorithm=AlgorithmType.XGBOOST,
+    key=TrainerKey(
+        algorithm=AlgorithmType.XGBOOST,
+        task_type=TaskType.REGRESSION,
+    ),
     provider=create_mismatched_trainer,
 )
 INVALID_REGISTRATION = TrainerRegistration(
-    algorithm=AlgorithmType.CATBOOST,
+    key=TrainerKey(
+        algorithm=AlgorithmType.CATBOOST,
+        task_type=TaskType.CLASSIFICATION,
+    ),
     provider=create_invalid_trainer,
 )
 FAILING_REGISTRATION = TrainerRegistration(
-    algorithm=AlgorithmType.LIGHTGBM,
+    key=TrainerKey(
+        algorithm=AlgorithmType.LIGHTGBM,
+        task_type=TaskType.REGRESSION,
+    ),
     provider=raise_during_construction,
 )
 
@@ -126,7 +162,7 @@ def _assign_attribute(
 def test_typed_registration_is_immutable() -> None:
     """Registration tokens preserve configuration after construction."""
     with pytest.raises(FrozenInstanceError):
-        _assign_attribute(FAKE_REGISTRATION, "algorithm", AlgorithmType.CATBOOST)
+        _assign_attribute(FAKE_REGISTRATION, "key", CLASSIFICATION_KEY)
 
 
 def test_registry_registers_and_resolves_typed_token() -> None:
@@ -141,70 +177,88 @@ def test_registry_registers_and_resolves_typed_token() -> None:
 
 
 def test_registry_contains_reports_registration_state() -> None:
-    """Registry membership reflects explicit registration."""
+    """Registry membership reflects explicit composite registration."""
     registry = TrainerRegistry()
 
-    assert registry.contains(AlgorithmType.RANDOM_FOREST) is False
+    assert registry.contains(REGRESSION_KEY) is False
 
     registry.register(FAKE_REGISTRATION)
 
-    assert registry.contains(AlgorithmType.RANDOM_FOREST) is True
+    assert registry.contains(REGRESSION_KEY) is True
+    assert registry.contains(CLASSIFICATION_KEY) is False
 
 
-def test_registered_algorithms_are_deterministic() -> None:
-    """Registered algorithms are sorted independently of insertion order."""
+def test_registry_allows_same_algorithm_for_different_tasks() -> None:
+    """Regression and classification registrations can coexist."""
     registry = TrainerRegistry()
+
+    registry.register(FAKE_REGISTRATION)
+    registry.register(CLASSIFICATION_REGISTRATION)
+
+    assert registry.contains(REGRESSION_KEY)
+    assert registry.contains(CLASSIFICATION_KEY)
+
+
+def test_registered_keys_are_deterministic() -> None:
+    """Registered keys are sorted independently of insertion order."""
+    registry = TrainerRegistry()
+    registry.register(FAKE_REGISTRATION)
     registry.register(MISMATCHED_REGISTRATION)
-    registry.register(FAKE_REGISTRATION)
+    registry.register(CLASSIFICATION_REGISTRATION)
 
-    assert registry.registered_algorithms() == (
-        AlgorithmType.RANDOM_FOREST,
-        AlgorithmType.XGBOOST,
+    assert registry.registered_keys() == (
+        CLASSIFICATION_KEY,
+        REGRESSION_KEY,
+        MISMATCHED_REGISTRATION.key,
     )
 
 
-def test_registered_algorithms_do_not_expose_mutable_registry_state() -> None:
+def test_registered_keys_do_not_expose_mutable_registry_state() -> None:
     """The registry exposes an immutable snapshot rather than its dictionary."""
     registry = TrainerRegistry()
     registry.register(FAKE_REGISTRATION)
 
-    algorithms = registry.registered_algorithms()
-    extended_algorithms = algorithms + (AlgorithmType.CATBOOST,)
+    keys = registry.registered_keys()
+    extended_keys = keys + (CLASSIFICATION_KEY,)
 
-    assert isinstance(algorithms, tuple)
-    assert extended_algorithms != registry.registered_algorithms()
-    assert registry.registered_algorithms() == (AlgorithmType.RANDOM_FOREST,)
+    assert isinstance(keys, tuple)
+    assert extended_keys != registry.registered_keys()
+    assert registry.registered_keys() == (REGRESSION_KEY,)
 
 
-def test_duplicate_registration_raises_dedicated_exception() -> None:
-    """An algorithm cannot be registered more than once."""
+def test_duplicate_exact_key_registration_raises_dedicated_exception() -> None:
+    """The same algorithm/task pair cannot be registered twice."""
     registry = TrainerRegistry()
     registry.register(FAKE_REGISTRATION)
+    duplicate = TrainerRegistration(
+        key=REGRESSION_KEY,
+        provider=create_fake_trainer,
+    )
 
     with pytest.raises(
         TrainerAlreadyRegisteredError,
-        match="already exists for 'random_forest'",
+        match="already exists for 'random_forest/regression'",
     ):
-        registry.register(FAKE_REGISTRATION)
+        registry.register(duplicate)
 
 
 def test_missing_registration_raises_dedicated_exception() -> None:
-    """Resolving an unsupported algorithm fails deterministically."""
+    """Resolving an unsupported composite key fails deterministically."""
     registry = TrainerRegistry()
 
     with pytest.raises(
         TrainerNotRegisteredError,
-        match="No trainer registration exists for 'lightgbm'",
+        match="No trainer registration exists for 'lightgbm/regression'",
     ):
         registry.resolve(FAILING_REGISTRATION)
 
 
-def test_registry_rejects_inactive_token_for_registered_algorithm() -> None:
+def test_registry_rejects_inactive_token_for_registered_key() -> None:
     """A different token cannot impersonate the active registration."""
     registry = TrainerRegistry()
     registry.register(FAKE_REGISTRATION)
     different_token = TrainerRegistration(
-        algorithm=AlgorithmType.RANDOM_FOREST,
+        key=REGRESSION_KEY,
         provider=create_fake_trainer,
     )
 
@@ -235,14 +289,14 @@ def test_factory_creates_distinct_instances() -> None:
     assert first is not second
 
 
-def test_created_trainer_exposes_requested_algorithm() -> None:
-    """A created trainer identifies the algorithm requested from the factory."""
+def test_created_trainer_exposes_requested_key() -> None:
+    """A created trainer identifies the composite key requested."""
     registry = TrainerRegistry()
     registry.register(FAKE_REGISTRATION)
 
     created = TrainerFactory(registry).create(FAKE_REGISTRATION)
 
-    assert created.algorithm is AlgorithmType.RANDOM_FOREST
+    assert created.key == REGRESSION_KEY
 
 
 def test_factory_rejects_non_trainer_provider_result() -> None:
@@ -252,19 +306,25 @@ def test_factory_rejects_non_trainer_provider_result() -> None:
 
     with pytest.raises(
         InvalidTrainerProviderError,
-        match="returned 'object', expected a BaseTrainer instance",
+        match=(
+            "for 'catboost/classification' returned 'object', "
+            "expected a BaseTrainer instance"
+        ),
     ):
         TrainerFactory(registry).create(INVALID_REGISTRATION)
 
 
-def test_factory_rejects_algorithm_mismatch() -> None:
-    """Provider output must match its registered algorithm key."""
+def test_factory_rejects_composite_key_mismatch() -> None:
+    """Provider output must match its registered algorithm and task key."""
     registry = TrainerRegistry()
     registry.register(MISMATCHED_REGISTRATION)
 
     with pytest.raises(
-        TrainerAlgorithmMismatchError,
-        match="registered for 'xgboost'.*trainer for 'random_forest'",
+        TrainerKeyMismatchError,
+        match=(
+            "registered for 'xgboost/regression'.*"
+            "trainer for 'random_forest/classification'"
+        ),
     ):
         TrainerFactory(registry).create(MISMATCHED_REGISTRATION)
 
@@ -282,18 +342,18 @@ def test_factory_package_public_exports() -> None:
     """The factory package exposes only its intended public API."""
     assert factory_contracts.__all__ == [
         "InvalidTrainerProviderError",
-        "TrainerAlgorithmMismatchError",
         "TrainerAlreadyRegisteredError",
         "TrainerFactory",
         "TrainerFactoryError",
+        "TrainerKeyMismatchError",
         "TrainerNotRegisteredError",
         "TrainerProvider",
         "TrainerRegistration",
         "TrainerRegistry",
     ]
     assert issubclass(InvalidTrainerProviderError, TrainerFactoryError)
-    assert issubclass(TrainerAlgorithmMismatchError, TrainerFactoryError)
     assert issubclass(TrainerAlreadyRegisteredError, TrainerFactoryError)
+    assert issubclass(TrainerKeyMismatchError, TrainerFactoryError)
     assert issubclass(TrainerNotRegisteredError, TrainerFactoryError)
 
 

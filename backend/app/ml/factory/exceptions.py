@@ -6,16 +6,16 @@ class TrainerFactoryError(Exception):
 
 
 class TrainerAlreadyRegisteredError(TrainerFactoryError):
-    """Raised when an algorithm already has a registered provider."""
+    """Raised when a trainer key already has a registered provider."""
 
 
 class TrainerNotRegisteredError(TrainerFactoryError):
-    """Raised when an algorithm has no registered provider."""
+    """Raised when a trainer key has no registered provider."""
 
 
 class InvalidTrainerProviderError(TrainerFactoryError):
     """Raised when a provider does not create a trainer instance."""
 
 
-class TrainerAlgorithmMismatchError(TrainerFactoryError):
-    """Raised when a trainer reports a different registered algorithm."""
+class TrainerKeyMismatchError(TrainerFactoryError):
+    """Raised when a trainer reports a different registered key."""

@@ -2,8 +2,8 @@
 
 from abc import ABC, abstractmethod
 
+from app.ml.base.identity import TrainerKey
 from app.ml.base.types import TrainerInput, TrainerOutput
-from app.ml.domain import AlgorithmType
 
 
 class BaseTrainer[
@@ -16,8 +16,8 @@ class BaseTrainer[
 
     @property
     @abstractmethod
-    def algorithm(self) -> AlgorithmType:
-        """Return the algorithm implemented by this trainer."""
+    def key(self) -> TrainerKey:
+        """Return the composite identity implemented by this trainer."""
 
     @abstractmethod
     def fit(
