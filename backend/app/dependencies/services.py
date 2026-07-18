@@ -1,5 +1,6 @@
 """Service dependencies."""
 
+from functools import lru_cache
 from pathlib import Path
 from typing import Annotated
 
@@ -15,6 +16,10 @@ from app.ml.engine import TrainingEngine
 from app.ml.factory import TrainerFactory, TrainerRegistry
 from app.ml.jobs import DramatiqTrainingJobQueue, TrainingJobQueue
 from app.ml.jobs.service import TrainingJobService
+from app.ml.monitoring import (
+    MonitoredPredictionService,
+    PredictionCaptureHealth,
+)
 from app.ml.promotion import (
     ClassificationPromotionPolicy,
     RegressionPromotionPolicy,
@@ -32,6 +37,7 @@ from app.repositories.ai_governance import (
     ModelPromotionAuditRepository,
     TrainingJobRepository,
 )
+from app.repositories.ai_monitoring import PredictionMonitoringRepository
 from app.repositories.feature_engineering import FeatureEngineeringRepository
 from app.repositories.manufacturing import ManufacturingRepository
 from app.repositories.mlops import MLOpsRepository
@@ -233,6 +239,41 @@ def get_ai_prediction_service(
     return PredictionService(
         model_registry=model_registry,
         model_loader=model_loader,
+    )
+
+
+def get_prediction_monitoring_repository(
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> PredictionMonitoringRepository:
+    """Return request-scoped prediction monitoring persistence."""
+    return PredictionMonitoringRepository(session)
+
+
+@lru_cache
+def get_prediction_capture_health() -> PredictionCaptureHealth:
+    """Return the restart-resetting, non-replica-aggregated instance counter."""
+    return PredictionCaptureHealth()
+
+
+def get_ai_monitored_prediction_service(
+    prediction_service: Annotated[
+        PredictionService,
+        Depends(get_ai_prediction_service),
+    ],
+    repository: Annotated[
+        PredictionMonitoringRepository,
+        Depends(get_prediction_monitoring_repository),
+    ],
+    capture_health: Annotated[
+        PredictionCaptureHealth,
+        Depends(get_prediction_capture_health),
+    ],
+) -> MonitoredPredictionService:
+    """Wrap registered prediction with noncritical privacy-safe event capture."""
+    return MonitoredPredictionService(
+        prediction_service=prediction_service,
+        event_store=repository,
+        capture_health=capture_health,
     )
 
 

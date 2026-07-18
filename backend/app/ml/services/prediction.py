@@ -4,6 +4,7 @@ from app.ml.registry import BaseModelRegistry
 from app.ml.services.exceptions import PredictionTrainerKeyMismatchError
 from app.ml.services.loader import BaseRegisteredModelLoader
 from app.ml.services.types import (
+    RegisteredPredictionObserver,
     RegisteredPredictionPlan,
     RegisteredPredictionRequest,
     RegisteredPredictionResult,
@@ -28,12 +29,16 @@ class PredictionService:
         self,
         plan: RegisteredPredictionPlan[ModelT, FeaturesT, PredictionsT],
         request: RegisteredPredictionRequest[FeaturesT],
+        *,
+        observer: RegisteredPredictionObserver | None = None,
     ) -> RegisteredPredictionResult[PredictionsT]:
         """Execute prediction through one explicit typed composition plan."""
         model_version = self._model_registry.resolve(
             request.registered_model_name,
             request.version_or_alias,
         )
+        if observer is not None:
+            observer.model_resolved(model_version)
         if model_version.key != plan.key:
             raise PredictionTrainerKeyMismatchError(
                 f"Registered model uses '{model_version.key}', expected '{plan.key}'.",

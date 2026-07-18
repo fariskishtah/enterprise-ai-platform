@@ -20,11 +20,13 @@ from app.ml.registry import RegisteredModelVersionStatus
 from app.ml.training_limits import (
     MAX_EVALUATION_ROWS,
     MAX_MODEL_DESCRIPTION_LENGTH,
+    MAX_PREDICTION_ROWS,
     MAX_TRAINING_ROWS,
     MAX_TRAINING_RUN_NAME_LENGTH,
     MAX_TRAINING_TAG_KEY_LENGTH,
     MAX_TRAINING_TAG_VALUE_LENGTH,
     MAX_TRAINING_TAGS,
+    validate_prediction_matrix_limits,
     validate_training_matrix_limits,
 )
 
@@ -390,6 +392,7 @@ class RegisteredModelPredictionRequest(BaseModel):
     ]
     features: list[list[FiniteFloat]] = Field(
         min_length=1,
+        max_length=MAX_PREDICTION_ROWS,
         description=(
             "Non-empty rectangular prediction matrix. Finite JSON numbers are "
             "converted explicitly to a two-dimensional float64 NumPy array."
@@ -407,7 +410,11 @@ class RegisteredModelPredictionRequest(BaseModel):
     @model_validator(mode="after")
     def validate_feature_matrix(self) -> Self:
         """Reject ragged prediction matrices and empty columns."""
-        _validate_rectangular_matrix(self.features, name="features")
+        width = _validate_rectangular_matrix(self.features, name="features")
+        validate_prediction_matrix_limits(
+            rows=len(self.features),
+            feature_columns=width,
+        )
         return self
 
 

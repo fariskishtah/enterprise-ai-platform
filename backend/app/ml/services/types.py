@@ -2,6 +2,7 @@
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from typing import Protocol
 
 from app.ml.base import TrainerKey
 from app.ml.engine import TrainingExecutionPlan, TrainingExecutionResult
@@ -115,3 +116,10 @@ class RegisteredPredictionPlan[ModelT, FeaturesT, PredictionsT]:
     expected_model_type: type[ModelT]
     validate_features: Callable[[object], FeaturesT]
     predict: Callable[[ModelT, FeaturesT], PredictionsT]
+
+
+class RegisteredPredictionObserver(Protocol):
+    """Optional application observer for safe model-resolution metadata."""
+
+    def model_resolved(self, version: RegisteredModelVersion) -> None:
+        """Receive the resolved version before loading or prediction."""

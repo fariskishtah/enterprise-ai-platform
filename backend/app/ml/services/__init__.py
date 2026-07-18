@@ -13,6 +13,7 @@ from app.ml.services.loader import (
 from app.ml.services.prediction import PredictionService
 from app.ml.services.training import TrackedTrainingService
 from app.ml.services.types import (
+    RegisteredPredictionObserver,
     RegisteredPredictionPlan,
     RegisteredPredictionRequest,
     RegisteredPredictionResult,
@@ -28,6 +29,7 @@ __all__ = [
     "PredictionTrainerKeyMismatchError",
     "RegisteredModelLoadError",
     "RegisteredModelTypeMismatchError",
+    "RegisteredPredictionObserver",
     "RegisteredPredictionPlan",
     "RegisteredPredictionRequest",
     "RegisteredPredictionResult",

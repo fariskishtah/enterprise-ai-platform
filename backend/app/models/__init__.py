@@ -1,6 +1,7 @@
 """Domain model package."""
 
 from app.models.ai_governance import ModelPromotionAudit, TrainingJob
+from app.models.ai_monitoring import ModelReferenceProfileEntity, PredictionEventEntity
 from app.models.manufacturing import Company, Factory, Machine
 from app.models.mlops import (
     Experiment,
@@ -24,10 +25,12 @@ __all__ = [
     "Factory",
     "Machine",
     "ModelPromotionAudit",
+    "ModelReferenceProfileEntity",
     "ModelArtifact",
     "ReadingQuality",
     "ReadingSource",
     "RefreshToken",
+    "PredictionEventEntity",
     "Sensor",
     "SensorReading",
     "TrainingRun",

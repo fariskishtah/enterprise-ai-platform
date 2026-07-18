@@ -3,14 +3,14 @@
 from typing import Annotated
 
 import numpy as np
-from fastapi import APIRouter, Body, Depends, HTTPException, Path, status
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Path, status
 from pydantic import ValidationError
 
 from app.config.settings import Settings, get_settings
 from app.dependencies.auth import require_roles
 from app.dependencies.services import (
     get_ai_model_registry,
-    get_ai_prediction_service,
+    get_ai_monitored_prediction_service,
     get_ai_tracked_training_service,
 )
 from app.ml.artifacts import ArtifactAlreadyExistsError
@@ -23,6 +23,7 @@ from app.ml.composition import (
 )
 from app.ml.engine import TrainingModelTypeMismatchError
 from app.ml.metrics import MetricsDataValidationError, MetricsReport
+from app.ml.monitoring import MonitoredPredictionService, PredictionCaptureContext
 from app.ml.registry import (
     BaseModelRegistry,
     ModelRegistryError,
@@ -33,7 +34,6 @@ from app.ml.registry import (
     build_registered_model_name,
 )
 from app.ml.services import (
-    PredictionService,
     PredictionTrainerKeyMismatchError,
     RegisteredModelLoadError,
     RegisteredModelTypeMismatchError,
@@ -440,7 +440,7 @@ def train_random_forest_classification(
     ),
     responses=_PREDICTION_ERROR_RESPONSES,
 )
-def predict_random_forest_regression(
+async def predict_random_forest_regression(
     payload: Annotated[
         RegisteredModelPredictionRequest,
         Body(
@@ -452,21 +452,32 @@ def predict_random_forest_regression(
             },
         ),
     ],
-    _current_user: Annotated[
+    current_user: Annotated[
         User,
         Depends(require_roles(UserRole.ADMIN, UserRole.ENGINEER, UserRole.OPERATOR)),
     ],
-    service: Annotated[PredictionService, Depends(get_ai_prediction_service)],
+    service: Annotated[
+        MonitoredPredictionService,
+        Depends(get_ai_monitored_prediction_service),
+    ],
+    correlation_id: Annotated[
+        str | None,
+        Header(alias="X-Correlation-ID", min_length=1, max_length=128),
+    ] = None,
 ) -> RegressionPredictionResponse:
     """Return float predictions from an exact registered model reference."""
     features: FeatureArray = np.asarray(payload.features, dtype=np.float64)
     try:
-        result = service.predict(
+        result = await service.predict(
             create_random_forest_regression_prediction_plan(),
             RegisteredPredictionRequest(
                 registered_model_name=payload.registered_model_name,
                 version_or_alias=payload.version_or_alias,
                 features=features,
+            ),
+            PredictionCaptureContext(
+                requested_by_user_id=current_user.id,
+                correlation_id=correlation_id,
             ),
         )
     except (ModelRegistryValidationError, TrainerDataValidationError) as exc:
@@ -501,7 +512,7 @@ def predict_random_forest_regression(
     ),
     responses=_PREDICTION_ERROR_RESPONSES,
 )
-def predict_random_forest_classification(
+async def predict_random_forest_classification(
     payload: Annotated[
         RegisteredModelPredictionRequest,
         Body(
@@ -513,21 +524,32 @@ def predict_random_forest_classification(
             },
         ),
     ],
-    _current_user: Annotated[
+    current_user: Annotated[
         User,
         Depends(require_roles(UserRole.ADMIN, UserRole.ENGINEER, UserRole.OPERATOR)),
     ],
-    service: Annotated[PredictionService, Depends(get_ai_prediction_service)],
+    service: Annotated[
+        MonitoredPredictionService,
+        Depends(get_ai_monitored_prediction_service),
+    ],
+    correlation_id: Annotated[
+        str | None,
+        Header(alias="X-Correlation-ID", min_length=1, max_length=128),
+    ] = None,
 ) -> ClassificationPredictionResponse:
     """Return integer labels from an exact registered model reference."""
     features: FeatureArray = np.asarray(payload.features, dtype=np.float64)
     try:
-        result = service.predict(
+        result = await service.predict(
             create_random_forest_classification_prediction_plan(),
             RegisteredPredictionRequest(
                 registered_model_name=payload.registered_model_name,
                 version_or_alias=payload.version_or_alias,
                 features=features,
+            ),
+            PredictionCaptureContext(
+                requested_by_user_id=current_user.id,
+                correlation_id=correlation_id,
             ),
         )
     except (ModelRegistryValidationError, TrainerDataValidationError) as exc:
