@@ -4,6 +4,8 @@ This guide demonstrates synchronous Random Forest training, MLflow tracking,
 model registration, registered prediction, and model-version lookup from a local
 checkout. The dedicated worker and governance flow is documented in
 [AI Background Training and Model Promotion](ai-background-training-and-promotion.md).
+Monitoring operations are documented in
+[AI Prediction Monitoring and Drift](ai-prediction-monitoring-and-drift.md).
 Run commands from the repository root unless a step says otherwise.
 
 ## Prerequisites
@@ -268,7 +270,37 @@ docker compose exec backend \
 
 For direct execution, inspect `ml/ai-artifacts/` from the repository root.
 
-### 10. Confirm persistent volumes
+### 10. Query prediction monitoring
+
+After an authenticated prediction, list privacy-preserving event summaries:
+
+```bash
+curl "${API_BASE_URL}/ai/monitoring/prediction-events?limit=20" \
+  -H "Authorization: Bearer ${ACCESS_TOKEN}"
+```
+
+Query the exact version or an assigned alias such as `candidate`:
+
+```bash
+curl \
+  "${API_BASE_URL}/ai/monitoring/models/ai_core_random_forest_regression/versions/candidate/operations" \
+  -H "Authorization: Bearer ${ACCESS_TOKEN}"
+
+curl \
+  "${API_BASE_URL}/ai/monitoring/models/ai_core_random_forest_regression/versions/candidate/drift?minimum_sample_count=1" \
+  -H "Authorization: Bearer ${ACCESS_TOKEN}"
+```
+
+Synchronous compatibility training does not create a background-job evaluation
+profile. Use background training for automatic profile creation. A profile may be
+temporarily missing after noncritical monitoring failure; reconcile from the
+persisted bounded evaluation specification with:
+
+```bash
+docker compose exec training-worker python -m app.ml.monitoring.reconcile
+```
+
+### 11. Confirm persistent volumes
 
 ```bash
 docker volume ls --filter name=ai-manufacturing-platform
@@ -296,3 +328,8 @@ docker compose down -v
 `docker compose down -v` is destructive. It deletes the persisted MLflow runs,
 registered model metadata, local Joblib artifacts, application database, and Redis
 data owned by this Compose project. Use it only when a complete reset is intended.
+
+Prediction-event cleanup is separate from Compose teardown. Preview it with
+`python -m app.ml.monitoring.retention --dry-run`; `--execute` deletes only one
+configured batch of expired events and leaves jobs, audits, profiles, and model
+artifacts intact. No cleanup schedule is installed by this milestone.

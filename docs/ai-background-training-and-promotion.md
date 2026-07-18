@@ -286,6 +286,25 @@ as `failed` with `promotion_reconciliation_conflict`. Registry unavailability
 leaves the audit pending and reports only `registry_unavailable <audit-id>`.
 Conditional pending-only completion makes repeated runs idempotent.
 
+## Monitoring profile checkpoint
+
+Training execution summarizes held-out evaluation features and predictions for an
+immutable profile owned by the exact registered version. The worker checkpoints
+the external run/version, assigns `candidate`, then attempts the idempotent profile
+database checkpoint before marking the job successful. The profile stores fixed
+numeric bins and aggregate label frequencies, never another copy of the evaluation
+matrices.
+
+A profile failure is recoverable monitoring degradation: the checkpointed model
+remains usable, the job is still successful, and no training, registration, or
+candidate assignment is repeated by duplicate delivery. A later bounded run of
+`python -m app.ml.monitoring.reconcile` reads the existing successful job
+specification, loads the exact existing version, predicts its evaluation features,
+and creates only the missing profile. Registry or loader outages leave it missing
+for a later safe retry, and repeated successful reconciliation creates no duplicate.
+See
+[AI Prediction Monitoring and Drift](ai-prediction-monitoring-and-drift.md).
+
 ## Current limitations
 
 - sklearn fitting is synchronous inside the dedicated worker process.
@@ -297,6 +316,7 @@ Conditional pending-only completion makes repeated runs idempotent.
   leave an external partial run/version for later reconciliation.
 - The local MLflow file store is for local Compose operation, not a cloud
   deployment design.
-- Monitoring, prediction logging, drift detection, and automated retraining are
-  not implemented.
+- Prediction logging, bounded operational/data-quality monitoring, and
+  exact-version distribution drift are implemented. Automated alerts and
+  retraining are not implemented.
 - No cloud account is required.

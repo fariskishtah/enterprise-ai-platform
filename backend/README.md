@@ -81,6 +81,12 @@ POST /ai/models/{name}/versions/{version}/promotions/challenger
 POST /ai/models/{name}/versions/{version}/promotions/champion
 GET  /ai/models/{name}/promotions
 GET  /ai/models/{name}/aliases
+GET  /ai/monitoring/prediction-events
+GET  /ai/monitoring/prediction-events/{event_id}
+GET  /ai/monitoring/models/{name}/versions/{version-or-alias}/operations
+GET  /ai/monitoring/models/{name}/versions/{version-or-alias}/data-quality
+GET  /ai/monitoring/models/{name}/versions/{version-or-alias}/drift
+GET  /ai/monitoring/models/{name}/versions/{version-or-alias}/reference-profile
 ```
 
 Interactive documentation is available at `/docs` outside production.
@@ -90,6 +96,9 @@ See the repository-level [AI Core API](../docs/ai-core-api.md) and
 the exact training, tracking, registration, and prediction flow. The
 [background training and promotion guide](../docs/ai-background-training-and-promotion.md)
 covers the Redis worker, persistent jobs, recovery, policies, and audit history.
+The [prediction monitoring and drift guide](../docs/ai-prediction-monitoring-and-drift.md)
+covers summary-only event capture, exact-version profiles, bounded reports,
+reconciliation, and retention.
 
 ## Local Development
 

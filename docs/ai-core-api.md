@@ -2,7 +2,9 @@
 
 This guide documents the compatible synchronous AI Core HTTP boundary. Persistent
 background jobs and controlled promotion are documented in
-[AI Background Training and Model Promotion](ai-background-training-and-promotion.md). The
+[AI Background Training and Model Promotion](ai-background-training-and-promotion.md),
+and event, quality, and drift APIs are documented in
+[AI Prediction Monitoring and Drift](ai-prediction-monitoring-and-drift.md). The
 interactive OpenAPI UI is available at `http://localhost:8000/docs` outside the
 production environment.
 
@@ -393,6 +395,9 @@ scikit-learn or MLflow.
 - Background jobs use a dedicated worker; synchronous compatibility endpoints
   still run in the API process.
 - Model promotion is explicit and audited, not automated.
-- Drift monitoring is not implemented.
+- Prediction event summaries, operational/data-quality monitoring, and
+  exact-version drift are documented in
+  [AI Prediction Monitoring and Drift](ai-prediction-monitoring-and-drift.md).
+- Automated drift alerts are not implemented.
 - Automated retraining is not implemented.
 - Production cloud deployment is not implemented.
