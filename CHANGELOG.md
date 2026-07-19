@@ -4,6 +4,20 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project follows semantic versioning.
 
+## [Unreleased]
+
+### Added
+
+- Persisted exact-version monitoring evaluations with bounded reports,
+  deterministic status, database idempotency, and authenticated history APIs.
+- Deduplicated internal monitoring alerts with acknowledgement, automatic
+  resolution, and stale reconciliation.
+- Explicitly enabled Dramatiq actors for monitoring, retention, and existing
+  reconciliation operations with database-backed execution locks.
+- Monitoring-evaluation lineage for controlled retraining requests and audits.
+- Mature prediction outcomes plus bounded regression and binary-classification
+  performance summaries without weakening summary-only prediction telemetry.
+
 ## [0.8.0] - 2026-07-17
 
 ### Added

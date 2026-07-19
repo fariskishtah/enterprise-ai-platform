@@ -5,6 +5,10 @@ from fastapi import APIRouter
 from app.api.routes.ai import router as ai_router
 from app.api.routes.ai_governance import router as ai_governance_router
 from app.api.routes.ai_monitoring import router as ai_monitoring_router
+from app.api.routes.ai_monitoring_orchestration import (
+    router as ai_monitoring_orchestration_router,
+)
+from app.api.routes.ai_retraining import router as ai_retraining_router
 from app.api.routes.auth import router as auth_router
 from app.api.routes.companies import router as companies_router
 from app.api.routes.factories import router as factories_router
@@ -31,6 +35,8 @@ api_router = APIRouter()
 api_router.include_router(ai_router)
 api_router.include_router(ai_governance_router)
 api_router.include_router(ai_monitoring_router)
+api_router.include_router(ai_monitoring_orchestration_router)
+api_router.include_router(ai_retraining_router)
 api_router.include_router(auth_router)
 api_router.include_router(companies_router)
 api_router.include_router(feature_engineering_router)

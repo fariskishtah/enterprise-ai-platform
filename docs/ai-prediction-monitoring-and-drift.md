@@ -1,8 +1,11 @@
 # AI Prediction Monitoring and Drift
 
 This guide describes the local-first prediction-event, operational monitoring,
-reference-profile, data-quality, and drift boundaries. It does not add automated
-alerts, retraining, promotion, or model rollback.
+reference-profile, data-quality, and drift boundaries. Drift reports are evidence,
+not proof of reduced accuracy. An authorized caller may evaluate them through the
+separate [controlled retraining workflow](ai-controlled-retraining.md); monitoring
+never submits training as a prediction side effect. This guide does not add
+automated alerts, promotion, or model rollback.
 
 ## Event capture and privacy
 
@@ -138,7 +141,9 @@ stable. A window below `MONITORING_MIN_SAMPLE_COUNT`, or one lacking compatible
 fixed-bin counts, reports `insufficient_data` rather than estimating drift.
 
 Drift indicates a distribution change. It does not prove accuracy or model
-quality degradation because this milestone does not collect ground truth.
+quality degradation. The outcome foundation can score only mature, single-row
+events that retain an exact summary prediction; see
+[Persisted AI Monitoring Orchestration](ai-monitoring-orchestration.md).
 
 ## APIs and RBAC
 
@@ -183,7 +188,8 @@ sanitized monitoring-database failures.
 ## Retention
 
 `PREDICTION_EVENT_RETENTION_DAYS` defaults to 90. Cleanup never runs inside an
-API request and is not scheduled automatically. The command defaults to dry-run:
+API request. Its Dramatiq actor is disabled by default, while the command defaults
+to dry-run:
 
 ```bash
 cd backend
@@ -200,7 +206,8 @@ Explicitly delete one oldest bounded batch with:
 idempotent and each run deletes at most
 `PREDICTION_EVENT_RETENTION_BATCH_SIZE`. It never deletes reference profiles,
 training jobs, promotion audits, registered models, or artifacts. Production
-scheduling remains future operational work.
+scheduling requires an external scheduler to enqueue the explicitly enabled
+actor.
 
 ## Configuration
 
@@ -224,11 +231,11 @@ No cloud resource is required.
 
 ## Current limitations
 
-- No automated alerts or real-time event streaming.
+- No external alert delivery or real-time event streaming.
 - No classification probability drift.
-- No ground-truth performance monitoring.
-- No automated retraining, promotion, rollback, or remediation.
-- No scheduled retention or reconciliation job.
+- Performance requires mature outcomes for single-row events.
+- No automated promotion, rollback, or remediation.
+- Scheduling requires an external clock to enqueue the provided Dramatiq actors.
 - No cloud object storage or multi-tenant monitoring scope.
 - The event-write failure counter is process-local.
 - Drift indicates distribution change, not guaranteed model-quality degradation.

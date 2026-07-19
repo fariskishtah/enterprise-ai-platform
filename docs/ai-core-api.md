@@ -4,8 +4,10 @@ This guide documents the compatible synchronous AI Core HTTP boundary. Persisten
 background jobs and controlled promotion are documented in
 [AI Background Training and Model Promotion](ai-background-training-and-promotion.md),
 and event, quality, and drift APIs are documented in
-[AI Prediction Monitoring and Drift](ai-prediction-monitoring-and-drift.md). The
-interactive OpenAPI UI is available at `http://localhost:8000/docs` outside the
+[AI Prediction Monitoring and Drift](ai-prediction-monitoring-and-drift.md).
+[Controlled Automated Retraining](ai-controlled-retraining.md) documents explicit
+drift evaluation, manual requests, policy blocks, request lineage, and candidate
+comparison. The interactive OpenAPI UI is available at `http://localhost:8000/docs` outside the
 production environment.
 
 ## Overview

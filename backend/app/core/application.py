@@ -23,6 +23,14 @@ OPENAPI_TAGS = [
             "feature/prediction drift reports."
         ),
     },
+    {
+        "name": "ai-retraining",
+        "description": (
+            "Explicit controlled retraining policies, audited drift decisions, "
+            "persisted cooldown and quota state, trusted source-job lineage, "
+            "background candidate creation, and advisory metric comparison."
+        ),
+    },
     {"name": "auth", "description": "Authentication and token management."},
     {"name": "companies", "description": "Company management."},
     {"name": "feature-datasets", "description": "Feature dataset exports."},
@@ -50,7 +58,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         description=(
             "Manufacturing APIs and the AI Core's authenticated synchronous and "
             "background Random Forest training, model governance, and registered "
-            "prediction workflows with privacy-preserving monitoring and drift."
+            "prediction workflows with privacy-preserving monitoring, drift, and "
+            "controlled candidate retraining."
         ),
         docs_url=docs_url,
         openapi_tags=OPENAPI_TAGS,

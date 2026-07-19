@@ -4,6 +4,10 @@ This guide covers the local production-oriented path added after the AI Core MVP
 The original synchronous training and registered-prediction endpoints remain
 available and unchanged.
 
+The [controlled retraining workflow](ai-controlled-retraining.md) reuses this same
+durable job, worker, registration, and candidate boundary. It cannot invoke
+challenger/champion promotion, which remains an explicit audited operation here.
+
 ## Runtime flow
 
 ```text

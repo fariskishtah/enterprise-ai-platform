@@ -1,6 +1,6 @@
 # AI Manufacturing Platform
 
-Production-grade monorepo foundation for an AI Manufacturing Platform. Sprint 1 created the platform skeleton, Sprint 2 added authentication and user management, Sprint 3 added the core manufacturing domain, Sprint 4 added sensor management, Sprint 5 added the backend sensor data platform, Sprint 6 added CSV ETL and data validation, Sprint 7 added backend feature engineering dataset exports, and Sprint 8 added MLOps experiment management infrastructure. AI Core now connects typed local Random Forest training to persistent Redis-backed jobs, dedicated workers, MLflow experiment tracking, fitted-model registration, controlled alias promotion, auditable governance, registered-model prediction, privacy-preserving prediction events, operational monitoring, and exact-version drift reports. Cloud deployment, automated monitoring alerts, RAG, computer vision, MQTT, and Kafka are not implemented.
+Production-grade monorepo foundation for an AI Manufacturing Platform. Sprint 1 created the platform skeleton, Sprint 2 added authentication and user management, Sprint 3 added the core manufacturing domain, Sprint 4 added sensor management, Sprint 5 added the backend sensor data platform, Sprint 6 added CSV ETL and data validation, Sprint 7 added backend feature engineering dataset exports, and Sprint 8 added MLOps experiment management infrastructure. AI Core now connects typed local Random Forest training to persistent Redis-backed jobs, dedicated workers, MLflow experiment tracking, fitted-model registration, controlled alias promotion, auditable governance, registered-model prediction, privacy-preserving prediction events, persisted exact-version monitoring evaluations, internal alerts, mature outcomes, and controlled candidate retraining. Cloud deployment, external alert delivery, RAG, computer vision, MQTT, and Kafka are not implemented.
 
 ## Project Overview
 
@@ -13,14 +13,14 @@ The backend is a FastAPI service using typed environment configuration, SQLAlche
 The original synchronous path remains available. The background path is:
 
 ```text
-FastAPI → TrainingJob → Redis/Dramatiq → Worker → TrackedTrainingService → candidate → reference profile → challenger → champion → Prediction Service → safe event → monitoring/drift
+FastAPI → TrainingJob → Redis/Dramatiq → Worker → TrackedTrainingService → candidate → reference profile → challenger → champion → Prediction Service → safe event → monitoring/drift → explicit retraining policy → TrainingJob → candidate
 ```
 
 Prepared NumPy arrays enter through typed trainer inputs. Trainers only fit models and produce raw predictions; metrics engines only evaluate targets and predictions; the local artifact manager only persists and runtime-checks Joblib models; and the generic training engine sequences those supplied components into a typed local result. A higher-level service logs only successful executions to MLflow and then registers the completed artifact. Local artifact persistence and MLflow tracking remain separate responsibilities.
 
 Failures propagate without cross-system rollback: a tracking failure leaves the local artifact available, and a later registry failure leaves both the local artifact and completed MLflow run available. Reconciliation for these partial-success states is a future concern.
 
-Random Forest regression and integer-label classification are the only supported trainer tasks. Prediction resolves an exact model version or alias and performs runtime model-type and trainer-key checks before inference. Background completion assigns only `candidate`; challenger and champion changes require explicit authorized, policy-evaluated, audited requests. Prediction monitoring stores summaries rather than raw matrices and compares each version only with its own evaluation profile. Prediction probabilities, automated promotion, alert delivery, deployment, and automatic retraining are not implemented.
+Random Forest regression and integer-label classification are the only supported trainer tasks. Prediction resolves an exact model version or alias and performs runtime model-type and trainer-key checks before inference. Background completion assigns only `candidate`; challenger and champion changes require explicit authorized, policy-evaluated, audited requests. Prediction monitoring stores summaries rather than raw matrices and compares each version only with its own evaluation profile. Controlled retraining reuses trusted source specifications and creates candidates only. Prediction probabilities, automated promotion, external alert delivery, deployment, and online retraining are not implemented.
 
 ## AI Core Guides
 
@@ -35,6 +35,12 @@ Random Forest regression and integer-label classification are the only supported
 - [AI prediction monitoring and drift](docs/ai-prediction-monitoring-and-drift.md)
   documents privacy-safe events, operational and data-quality metrics, immutable
   reference profiles, drift calculations, reconciliation, and retention.
+- [Controlled automated retraining](docs/ai-controlled-retraining.md) documents
+  explicit drift policy, cooldowns, quotas, trusted source evidence, candidate
+  comparison, governance safeguards, and bounded recovery.
+- [Persisted monitoring orchestration](docs/ai-monitoring-orchestration.md)
+  documents evaluation status, scheduled Dramatiq actors, internal alerts,
+  retraining lineage, retention, and mature ground-truth outcomes.
 - [AI Core MVP release checkpoint](docs/releases/ai-core-mvp.md) records delivered
   capabilities, quality evidence, architectural decisions, and known limitations.
 - [`examples/ai-core/`](examples/ai-core/) contains Pydantic-validated JSON request
@@ -251,6 +257,12 @@ GET    /ai/monitoring/models/{name}/versions/{version-or-alias}/operations
 GET    /ai/monitoring/models/{name}/versions/{version-or-alias}/data-quality
 GET    /ai/monitoring/models/{name}/versions/{version-or-alias}/drift
 GET    /ai/monitoring/models/{name}/versions/{version-or-alias}/reference-profile
+GET    /ai/monitoring/evaluations
+POST   /ai/monitoring/models/{name}/versions/{version}/evaluations
+GET    /ai/monitoring/alerts
+POST   /ai/monitoring/alerts/{alert-id}/acknowledge
+PUT    /ai/monitoring/prediction-events/{event-id}/outcome
+GET    /ai/monitoring/models/{name}/versions/{version}/performance
 ```
 
 Public registration creates `operator` users. Admins have full manufacturing access, engineers can create/update/read, and operators are read-only.

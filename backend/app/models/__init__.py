@@ -2,12 +2,23 @@
 
 from app.models.ai_governance import ModelPromotionAudit, TrainingJob
 from app.models.ai_monitoring import ModelReferenceProfileEntity, PredictionEventEntity
+from app.models.ai_retraining import (
+    ModelRetrainingAudit,
+    ModelRetrainingPolicy,
+    ModelRetrainingRequest,
+)
 from app.models.manufacturing import Company, Factory, Machine
 from app.models.mlops import (
     Experiment,
     ModelArtifact,
     TrainingRun,
     TrainingRunStatus,
+)
+from app.models.monitoring_orchestration import (
+    ModelMonitoringEvaluationEntity,
+    MonitoringAlertEntity,
+    MonitoringJobLockEntity,
+    PredictionOutcomeEntity,
 )
 from app.models.sensor import Sensor
 from app.models.sensor_data import (
@@ -26,11 +37,18 @@ __all__ = [
     "Machine",
     "ModelPromotionAudit",
     "ModelReferenceProfileEntity",
+    "ModelMonitoringEvaluationEntity",
+    "ModelRetrainingAudit",
+    "ModelRetrainingPolicy",
+    "ModelRetrainingRequest",
     "ModelArtifact",
+    "MonitoringAlertEntity",
+    "MonitoringJobLockEntity",
     "ReadingQuality",
     "ReadingSource",
     "RefreshToken",
     "PredictionEventEntity",
+    "PredictionOutcomeEntity",
     "Sensor",
     "SensorReading",
     "TrainingRun",

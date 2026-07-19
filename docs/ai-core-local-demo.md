@@ -6,6 +6,8 @@ checkout. The dedicated worker and governance flow is documented in
 [AI Background Training and Model Promotion](ai-background-training-and-promotion.md).
 Monitoring operations are documented in
 [AI Prediction Monitoring and Drift](ai-prediction-monitoring-and-drift.md).
+Controlled candidate reruns are documented in
+[Controlled Automated Retraining](ai-controlled-retraining.md).
 Run commands from the repository root unless a step says otherwise.
 
 ## Prerequisites

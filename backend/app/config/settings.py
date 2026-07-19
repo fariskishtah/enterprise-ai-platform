@@ -2,6 +2,7 @@
 
 from functools import lru_cache
 from typing import Annotated, Literal, Self
+from uuid import UUID
 
 from pydantic import (
     Field,
@@ -29,6 +30,7 @@ class Settings(BaseSettings):
         case_sensitive=False,
         env_file=(".env", "../.env"),
         env_file_encoding="utf-8",
+        env_ignore_empty=True,
         extra="ignore",
     )
 
@@ -98,6 +100,43 @@ class Settings(BaseSettings):
         default=1000,
         le=10_000,
     )
+    monitoring_scheduling_enabled: bool = False
+    monitoring_queue_name: str = Field(
+        default="ai-monitoring",
+        min_length=1,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9_.-]+$",
+    )
+    monitoring_window_hours: PositiveInt = Field(default=24, le=24 * 365)
+    monitoring_evaluation_interval_seconds: PositiveInt = 3600
+    monitoring_lock_timeout_seconds: PositiveInt = 1800
+    monitoring_eligible_model_aliases: str = Field(
+        default="champion",
+        min_length=1,
+        max_length=255,
+    )
+    monitoring_max_models_per_run: PositiveInt = Field(default=100, le=1000)
+    monitoring_failure_rate_warning_threshold: float = Field(
+        default=0.05, ge=0, le=1, allow_inf_nan=False
+    )
+    monitoring_failure_rate_critical_threshold: float = Field(
+        default=0.20, gt=0, le=1, allow_inf_nan=False
+    )
+    monitoring_evaluation_retention_days: PositiveInt = Field(default=365, le=3650)
+    monitoring_evaluation_retention_batch_size: PositiveInt = Field(
+        default=500, le=10_000
+    )
+    monitoring_stale_alert_hours: PositiveInt = Field(default=168, le=24 * 365)
+    prediction_event_retention_scheduling_enabled: bool = False
+    monitoring_evaluation_retention_scheduling_enabled: bool = False
+    reference_profile_reconciliation_scheduling_enabled: bool = False
+    retraining_reconciliation_scheduling_enabled: bool = False
+    stale_alert_reconciliation_scheduling_enabled: bool = False
+    monitoring_automatic_retraining_enabled: bool = False
+    monitoring_retraining_actor_user_id: UUID | None = None
+    ground_truth_max_outcomes_per_summary: PositiveInt = Field(
+        default=10_000, le=100_000
+    )
     drift_psi_warning_threshold: float = Field(
         default=0.10,
         ge=0,
@@ -122,6 +161,16 @@ class Settings(BaseSettings):
         le=1,
         allow_inf_nan=False,
     )
+    retraining_default_cooldown_seconds: int = Field(default=86_400, ge=0)
+    retraining_default_max_requests_per_day: PositiveInt = 1
+    retraining_default_max_requests_per_week: PositiveInt = 3
+    retraining_default_max_active_requests: PositiveInt = 1
+    retraining_reconciliation_batch_size: PositiveInt = Field(
+        default=100,
+        le=1000,
+    )
+    retraining_default_minimum_drift_status: Literal["warning", "critical"] = "critical"
+    retraining_allow_truncated_drift: bool = True
     optuna_storage_url: str | None = None
 
     @model_validator(mode="after")
@@ -131,7 +180,41 @@ class Settings(BaseSettings):
             raise ValueError(
                 "drift_psi_warning_threshold must be below the critical threshold.",
             )
+        if (
+            self.monitoring_failure_rate_warning_threshold
+            >= self.monitoring_failure_rate_critical_threshold
+        ):
+            raise ValueError(
+                "monitoring failure-rate warning threshold must be below critical."
+            )
+        if self.monitoring_window_hours > self.monitoring_max_window_days * 24:
+            raise ValueError(
+                "monitoring_window_hours exceeds monitoring_max_window_days."
+            )
+        _ = self.monitoring_aliases
+        if (
+            self.monitoring_automatic_retraining_enabled
+            and self.monitoring_retraining_actor_user_id is None
+        ):
+            raise ValueError(
+                "monitoring_retraining_actor_user_id is required when automatic "
+                "retraining is enabled."
+            )
         return self
+
+    @property
+    def monitoring_aliases(self) -> tuple[str, ...]:
+        """Return normalized, bounded aliases used by scheduled evaluation."""
+        aliases = tuple(
+            dict.fromkeys(
+                item.strip()
+                for item in self.monitoring_eligible_model_aliases.split(",")
+                if item.strip()
+            )
+        )
+        if not aliases or len(aliases) > 10 or any(len(item) > 128 for item in aliases):
+            raise ValueError("monitoring_eligible_model_aliases is invalid.")
+        return aliases
 
 
 @lru_cache

@@ -87,6 +87,11 @@ GET  /ai/monitoring/models/{name}/versions/{version-or-alias}/operations
 GET  /ai/monitoring/models/{name}/versions/{version-or-alias}/data-quality
 GET  /ai/monitoring/models/{name}/versions/{version-or-alias}/drift
 GET  /ai/monitoring/models/{name}/versions/{version-or-alias}/reference-profile
+GET  /ai/monitoring/evaluations
+POST /ai/monitoring/models/{name}/versions/{version}/evaluations
+GET  /ai/monitoring/alerts
+PUT  /ai/monitoring/prediction-events/{event-id}/outcome
+GET  /ai/monitoring/models/{name}/versions/{version}/performance
 ```
 
 Interactive documentation is available at `/docs` outside production.
@@ -99,6 +104,12 @@ covers the Redis worker, persistent jobs, recovery, policies, and audit history.
 The [prediction monitoring and drift guide](../docs/ai-prediction-monitoring-and-drift.md)
 covers summary-only event capture, exact-version profiles, bounded reports,
 reconciliation, and retention.
+The [controlled automated retraining guide](../docs/ai-controlled-retraining.md)
+documents explicit policy evaluation, trusted source evidence, persisted cooldowns
+and quotas, background candidate creation, advisory comparison, and recovery.
+The [persisted monitoring orchestration guide](../docs/ai-monitoring-orchestration.md)
+covers durable evaluation status, internal alerts, scheduled actors, retraining
+lineage, retention, and mature outcome performance summaries.
 
 ## Local Development
 

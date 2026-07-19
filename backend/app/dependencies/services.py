@@ -18,10 +18,14 @@ from app.ml.jobs import DramatiqTrainingJobQueue, TrainingJobQueue
 from app.ml.jobs.service import TrainingJobService
 from app.ml.monitoring import (
     DriftDetectionEngine,
+    DriftSeverity,
     DriftThresholds,
     MonitoredPredictionService,
     PredictionCaptureHealth,
 )
+from app.ml.monitoring.alert_service import MonitoringAlertService
+from app.ml.monitoring.evaluation_service import MonitoringEvaluationService
+from app.ml.monitoring.outcome_service import PredictionOutcomeService
 from app.ml.monitoring.service import PredictionMonitoringService
 from app.ml.promotion import (
     ClassificationPromotionPolicy,
@@ -29,6 +33,8 @@ from app.ml.promotion import (
 )
 from app.ml.promotion.service import ModelPromotionService
 from app.ml.registry import BaseModelRegistry, MLflowModelRegistry
+from app.ml.retraining import RetrainingPolicyEvaluator
+from app.ml.retraining.service import PolicyDefaults, RetrainingService
 from app.ml.services import (
     BaseRegisteredModelLoader,
     MLflowRegisteredModelLoader,
@@ -41,9 +47,13 @@ from app.repositories.ai_governance import (
     TrainingJobRepository,
 )
 from app.repositories.ai_monitoring import PredictionMonitoringRepository
+from app.repositories.ai_retraining import RetrainingRepository
 from app.repositories.feature_engineering import FeatureEngineeringRepository
 from app.repositories.manufacturing import ManufacturingRepository
 from app.repositories.mlops import MLOpsRepository
+from app.repositories.monitoring_alerts import MonitoringAlertRepository
+from app.repositories.monitoring_evaluations import MonitoringEvaluationRepository
+from app.repositories.prediction_outcomes import PredictionOutcomeRepository
 from app.repositories.sensor_data import SensorDataRepository
 from app.repositories.sensors import SensorRepository
 from app.repositories.users import UserRepository
@@ -252,6 +262,34 @@ def get_prediction_monitoring_repository(
     return PredictionMonitoringRepository(session)
 
 
+def get_retraining_repository(
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> RetrainingRepository:
+    """Return request-scoped controlled-retraining persistence."""
+    return RetrainingRepository(session)
+
+
+def get_monitoring_evaluation_repository(
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> MonitoringEvaluationRepository:
+    """Return persisted monitoring-evaluation storage."""
+    return MonitoringEvaluationRepository(session)
+
+
+def get_monitoring_alert_repository(
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> MonitoringAlertRepository:
+    """Return deduplicated monitoring-alert storage."""
+    return MonitoringAlertRepository(session)
+
+
+def get_prediction_outcome_repository(
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> PredictionOutcomeRepository:
+    """Return prediction-outcome storage."""
+    return PredictionOutcomeRepository(session)
+
+
 @lru_cache
 def get_prediction_capture_health() -> PredictionCaptureHealth:
     """Return the restart-resetting, non-replica-aggregated instance counter."""
@@ -313,6 +351,70 @@ def get_prediction_monitoring_service(
     )
 
 
+def get_monitoring_alert_service(
+    repository: Annotated[
+        MonitoringAlertRepository, Depends(get_monitoring_alert_repository)
+    ],
+) -> MonitoringAlertService:
+    """Return internal alert lifecycle orchestration."""
+    return MonitoringAlertService(repository=repository)
+
+
+def get_monitoring_evaluation_service(
+    settings: Annotated[Settings, Depends(get_settings)],
+    repository: Annotated[
+        MonitoringEvaluationRepository,
+        Depends(get_monitoring_evaluation_repository),
+    ],
+    monitoring_service: Annotated[
+        PredictionMonitoringService,
+        Depends(get_prediction_monitoring_service),
+    ],
+    model_registry: Annotated[
+        BaseModelRegistry,
+        Depends(get_ai_model_registry),
+    ],
+    alert_service: Annotated[
+        MonitoringAlertService,
+        Depends(get_monitoring_alert_service),
+    ],
+) -> MonitoringEvaluationService:
+    """Return complete persisted monitoring evaluation orchestration."""
+    return MonitoringEvaluationService(
+        repository=repository,
+        monitoring_service=monitoring_service,
+        model_registry=model_registry,
+        alert_service=alert_service,
+        minimum_sample_count=settings.monitoring_min_sample_count,
+        maximum_window_days=settings.monitoring_max_window_days,
+        failure_rate_warning_threshold=(
+            settings.monitoring_failure_rate_warning_threshold
+        ),
+        failure_rate_critical_threshold=(
+            settings.monitoring_failure_rate_critical_threshold
+        ),
+    )
+
+
+def get_prediction_outcome_service(
+    settings: Annotated[Settings, Depends(get_settings)],
+    repository: Annotated[
+        PredictionOutcomeRepository,
+        Depends(get_prediction_outcome_repository),
+    ],
+    monitoring_repository: Annotated[
+        PredictionMonitoringRepository,
+        Depends(get_prediction_monitoring_repository),
+    ],
+) -> PredictionOutcomeService:
+    """Return ground-truth outcome ingestion and performance summaries."""
+    return PredictionOutcomeService(
+        repository=repository,
+        monitoring_repository=monitoring_repository,
+        maximum_outcomes_per_summary=settings.ground_truth_max_outcomes_per_summary,
+    )
+
+
 def get_model_promotion_service(
     settings: Annotated[Settings, Depends(get_settings)],
     job_repository: Annotated[
@@ -344,6 +446,47 @@ def get_model_promotion_service(
             minimum_f1_improvement=(
                 settings.promotion_classification_min_f1_improvement
             ),
+        ),
+    )
+
+
+def get_retraining_service(
+    settings: Annotated[Settings, Depends(get_settings)],
+    repository: Annotated[
+        RetrainingRepository,
+        Depends(get_retraining_repository),
+    ],
+    monitoring_service: Annotated[
+        PredictionMonitoringService,
+        Depends(get_prediction_monitoring_service),
+    ],
+    model_registry: Annotated[
+        BaseModelRegistry,
+        Depends(get_ai_model_registry),
+    ],
+    training_job_service: Annotated[
+        TrainingJobService,
+        Depends(get_training_job_service),
+    ],
+) -> RetrainingService:
+    """Return controlled policy-to-existing-background-job orchestration."""
+    return RetrainingService(
+        repository=repository,
+        monitoring_service=monitoring_service,
+        model_registry=model_registry,
+        training_job_service=training_job_service,
+        evaluator=RetrainingPolicyEvaluator(),
+        defaults=PolicyDefaults(
+            cooldown_seconds=settings.retraining_default_cooldown_seconds,
+            maximum_requests_per_day=(settings.retraining_default_max_requests_per_day),
+            maximum_requests_per_week=(
+                settings.retraining_default_max_requests_per_week
+            ),
+            maximum_active_requests=(settings.retraining_default_max_active_requests),
+            minimum_drift_status=DriftSeverity(
+                settings.retraining_default_minimum_drift_status
+            ),
+            allow_truncated_drift=settings.retraining_allow_truncated_drift,
         ),
     )
 
