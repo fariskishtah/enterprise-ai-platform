@@ -67,9 +67,49 @@ POST /machines
 GET  /machines/{machine_id}
 PATCH /machines/{machine_id}
 DELETE /machines/{machine_id}
+POST /ai/training/random-forest/regression
+POST /ai/training/random-forest/classification
+POST /ai/predictions/random-forest/regression
+POST /ai/predictions/random-forest/classification
+GET  /ai/models/{registered_model_name}/versions/{version_or_alias}
+POST /ai/training-jobs/random-forest/regression
+POST /ai/training-jobs/random-forest/classification
+GET  /ai/training-jobs/{job_id}
+GET  /ai/training-jobs
+POST /ai/training-jobs/{job_id}/cancel
+POST /ai/models/{name}/versions/{version}/promotions/challenger
+POST /ai/models/{name}/versions/{version}/promotions/champion
+GET  /ai/models/{name}/promotions
+GET  /ai/models/{name}/aliases
+GET  /ai/monitoring/prediction-events
+GET  /ai/monitoring/prediction-events/{event_id}
+GET  /ai/monitoring/models/{name}/versions/{version-or-alias}/operations
+GET  /ai/monitoring/models/{name}/versions/{version-or-alias}/data-quality
+GET  /ai/monitoring/models/{name}/versions/{version-or-alias}/drift
+GET  /ai/monitoring/models/{name}/versions/{version-or-alias}/reference-profile
+GET  /ai/monitoring/evaluations
+POST /ai/monitoring/models/{name}/versions/{version}/evaluations
+GET  /ai/monitoring/alerts
+PUT  /ai/monitoring/prediction-events/{event-id}/outcome
+GET  /ai/monitoring/models/{name}/versions/{version}/performance
 ```
 
 Interactive documentation is available at `/docs` outside production.
+
+See the repository-level [AI Core API](../docs/ai-core-api.md) and
+[local demo guide](../docs/ai-core-local-demo.md) for authenticated examples and
+the exact training, tracking, registration, and prediction flow. The
+[background training and promotion guide](../docs/ai-background-training-and-promotion.md)
+covers the Redis worker, persistent jobs, recovery, policies, and audit history.
+The [prediction monitoring and drift guide](../docs/ai-prediction-monitoring-and-drift.md)
+covers summary-only event capture, exact-version profiles, bounded reports,
+reconciliation, and retention.
+The [controlled automated retraining guide](../docs/ai-controlled-retraining.md)
+documents explicit policy evaluation, trusted source evidence, persisted cooldowns
+and quotas, background candidate creation, advisory comparison, and recovery.
+The [persisted monitoring orchestration guide](../docs/ai-monitoring-orchestration.md)
+covers durable evaluation status, internal alerts, scheduled actors, retraining
+lineage, retention, and mature outcome performance summaries.
 
 ## Local Development
 

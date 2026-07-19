@@ -1,0 +1,8 @@
+{
+  "registered_model_name": "ai_core_random_forest_regression",
+  "version_or_alias": "1",
+  "features": [
+    [0.75, 1.4],
+    [2.75, 2.4]
+  ]
+}

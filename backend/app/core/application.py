@@ -6,6 +6,31 @@ from app.api.router import api_router
 from app.config.settings import Settings, get_settings
 
 OPENAPI_TAGS = [
+    {
+        "name": "ai",
+        "description": (
+            "Authenticated synchronous and Redis-backed background Random Forest "
+            "training, MLflow registration, controlled alias promotion, audit "
+            "history, version lookup, registered prediction, and privacy-preserving "
+            "prediction monitoring."
+        ),
+    },
+    {
+        "name": "ai-monitoring",
+        "description": (
+            "Authorized prediction-event summaries, exact-version operational and "
+            "data-quality metrics, evaluation reference profiles, and bounded "
+            "feature/prediction drift reports."
+        ),
+    },
+    {
+        "name": "ai-retraining",
+        "description": (
+            "Explicit controlled retraining policies, audited drift decisions, "
+            "persisted cooldown and quota state, trusted source-job lineage, "
+            "background candidate creation, and advisory metric comparison."
+        ),
+    },
     {"name": "auth", "description": "Authentication and token management."},
     {"name": "companies", "description": "Company management."},
     {"name": "feature-datasets", "description": "Feature dataset exports."},
@@ -30,6 +55,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application = FastAPI(
         title=resolved_settings.project_name,
         version=resolved_settings.app_version,
+        description=(
+            "Manufacturing APIs and the AI Core's authenticated synchronous and "
+            "background Random Forest training, model governance, and registered "
+            "prediction workflows with privacy-preserving monitoring, drift, and "
+            "controlled candidate retraining."
+        ),
         docs_url=docs_url,
         openapi_tags=OPENAPI_TAGS,
         redoc_url=None,

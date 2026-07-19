@@ -1,0 +1,8 @@
+{
+  "registered_model_name": "ai_core_random_forest_classification",
+  "version_or_alias": "1",
+  "features": [
+    [0.25, 0.75],
+    [2.75, 2.25]
+  ]
+}

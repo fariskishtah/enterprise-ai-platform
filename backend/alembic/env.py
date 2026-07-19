@@ -9,7 +9,7 @@ from alembic import context
 from app import models as app_models
 from app.config.settings import get_settings
 from app.db.base import Base
-from sqlalchemy import pool
+from sqlalchemy import pool, text
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
@@ -42,6 +42,21 @@ def run_migrations_offline() -> None:
 
 def do_run_migrations(connection: Connection) -> None:
     """Run migrations with an existing SQLAlchemy connection."""
+    if connection.dialect.name == "postgresql":
+        # Existing descriptive revision IDs exceed Alembic's VARCHAR(32) default.
+        with connection.begin():
+            connection.execute(
+                text(
+                    "CREATE TABLE IF NOT EXISTS alembic_version "
+                    "(version_num VARCHAR(128) NOT NULL PRIMARY KEY)"
+                )
+            )
+            connection.execute(
+                text(
+                    "ALTER TABLE alembic_version ALTER COLUMN version_num "
+                    "TYPE VARCHAR(128)"
+                )
+            )
     context.configure(connection=connection, target_metadata=target_metadata)
 
     with context.begin_transaction():

@@ -9,8 +9,10 @@ description = "Backend service for the AI Manufacturing Platform."
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "alembic>=1.13.3,<2.0.0",
+    "dramatiq[redis]>=2.2.0,<3.0.0",
     "email-validator>=2.3.0,<3.0.0",
     "fastapi>=0.115.0,<1.0.0",
+    "joblib>=1.4.2,<2.0.0",
     "mlflow-skinny>=2.17.0,<3.0.0",
     "optuna>=4.0.0,<5.0.0",
     "pandera[polars]>=0.22.0,<1.0.0",
@@ -23,6 +25,7 @@ dependencies = [
     "psycopg[binary]>=3.2.2,<4.0.0",
     "PyYAML>=6.0.2,<7.0.0",
     "redis>=5.1.0,<6.0.0",
+    "scikit-learn>=1.9.0,<2.0.0",
     "sqlalchemy[asyncio]>=2.0.35,<3.0.0",
     "uvicorn[standard]>=0.30.6,<1.0.0",
 ]
@@ -64,3 +67,6 @@ warn_unreachable = true
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
+markers = [
+    "integration: opt-in tests that require disposable local infrastructure",
+]
