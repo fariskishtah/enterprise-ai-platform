@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID, uuid4
 
@@ -23,6 +24,7 @@ from app.ml.monitoring.exceptions import (
     MonitoringPersistenceError,
     MonitoringPreconditionError,
 )
+from app.observability.metrics import record_monitoring_alert_resolved
 from app.repositories.monitoring_alerts import MonitoringAlertRepository
 from app.utils.security import utc_now
 
@@ -70,6 +72,13 @@ _ALERT_COPY: dict[MonitoringAlertType, tuple[MonitoringAlertSeverity, str, str]]
 }
 
 
+@dataclass(frozen=True, slots=True)
+class MonitoringAlertChanges:
+    detected: tuple[MonitoringAlert, ...]
+    created: tuple[MonitoringAlert, ...]
+    resolved: tuple[MonitoringAlert, ...]
+
+
 class MonitoringAlertService:
     def __init__(
         self,
@@ -82,16 +91,20 @@ class MonitoringAlertService:
 
     async def process_evaluation(
         self, evaluation: ModelMonitoringEvaluation
-    ) -> tuple[MonitoringAlert, ...]:
+    ) -> MonitoringAlertChanges:
         """Upsert active conditions and resolve conditions cleared by this result."""
         detected = _conditions(evaluation)
         alerts: list[MonitoringAlert] = []
+        created: list[MonitoringAlert] = []
         now = self._clock()
         try:
             for alert_type in detected:
-                alerts.append(await self._upsert(evaluation, alert_type, now))
+                alert, was_created = await self._upsert(evaluation, alert_type, now)
+                alerts.append(alert)
+                if was_created:
+                    created.append(alert)
             cleared = frozenset(MonitoringAlertType) - detected
-            await self._repository.resolve_types(
+            resolved = await self._repository.resolve_types(
                 registered_model_name=evaluation.registered_model_name,
                 model_version=evaluation.model_version,
                 alert_types=cleared,
@@ -101,14 +114,14 @@ class MonitoringAlertService:
             raise MonitoringPersistenceError(
                 "Monitoring alert storage is unavailable."
             ) from exc
-        return tuple(alerts)
+        return MonitoringAlertChanges(tuple(alerts), tuple(created), resolved)
 
     async def _upsert(
         self,
         evaluation: ModelMonitoringEvaluation,
         alert_type: MonitoringAlertType,
         now: datetime,
-    ) -> MonitoringAlert:
+    ) -> tuple[MonitoringAlert, bool]:
         severity, title, summary = _ALERT_COPY[alert_type]
         key = monitoring_alert_deduplication_key(
             alert_type=alert_type,
@@ -127,8 +140,8 @@ class MonitoringAlertService:
             )
             if updated is None:
                 raise MonitoringPersistenceError("Monitoring alert update failed.")
-            return updated
-        return await self._repository.create(
+            return updated, False
+        created = await self._repository.create(
             MonitoringAlert(
                 id=uuid4(),
                 alert_type=alert_type,
@@ -150,6 +163,7 @@ class MonitoringAlertService:
                 updated_at=now,
             )
         )
+        return created, True
 
     async def get(self, alert_id: UUID) -> MonitoringAlert:
         try:
@@ -217,6 +231,10 @@ class MonitoringAlertService:
                     raise MonitoringNotFoundError("Monitoring alert was not found.")
                 return existing
             await self._repository.commit()
+            record_monitoring_alert_resolved(
+                alert_type=alert.alert_type.value,
+                severity=alert.severity.value,
+            )
             return alert
         except SQLAlchemyError as exc:
             await self._repository.rollback()

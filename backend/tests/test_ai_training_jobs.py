@@ -201,8 +201,15 @@ def test_job_specification_is_immutable_validated_and_deterministic() -> None:
 @pytest.mark.anyio
 async def test_submission_persists_before_enqueue_and_is_idempotent(
     session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Equivalent scoped retries return one durable job and one queue message."""
+    metric_labels: list[dict[str, str]] = []
+    monkeypatch.setattr(
+        training_job_service_module,
+        "record_training_job_submitted",
+        lambda **labels: metric_labels.append(labels),
+    )
     requested_by = await _user_id(session_factory, email="job-submit@example.com")
     queue = FakeQueue()
     async with session_factory() as session:
@@ -228,6 +235,7 @@ async def test_submission_persists_before_enqueue_and_is_idempotent(
     assert second.created is False
     assert second.job.id == first.job.id
     assert second.job.queue_message_id == f"message-{first.job.id}"
+    assert metric_labels == [{"task_type": "regression", "algorithm": "random_forest"}]
     assert queue.job_ids == [first.job.id]
 
 

@@ -6,6 +6,7 @@ from time import perf_counter as real_perf_counter
 from typing import cast
 from uuid import uuid4
 
+import app.ml.monitoring.capture as monitoring_capture_module
 import numpy as np
 import pytest
 from app.ml.base import TrainerInput
@@ -177,8 +178,16 @@ def test_capture_failure_health_is_instance_local_and_restart_resetting() -> Non
 
 
 @pytest.mark.anyio
-async def test_successful_prediction_creates_one_safe_event() -> None:
+async def test_successful_prediction_creates_one_safe_event(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Capture preserves exact resolution, request shape, and output summary."""
+    metric_labels: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        monitoring_capture_module,
+        "record_prediction",
+        lambda **labels: metric_labels.append(labels),
+    )
     registry = FakeRegistry(_version())
     loader = FakeLoader(_model())
     store = FakeEventStore()
@@ -213,6 +222,14 @@ async def test_successful_prediction_creates_one_safe_event() -> None:
     assert event.row_count == 4
     assert event.feature_count == 1
     assert event.correlation_id == "request-17"
+    assert metric_labels == [
+        {
+            "task_type": "regression",
+            "algorithm": "random_forest",
+            "final_status": "succeeded",
+            "row_count": 4,
+        }
+    ]
 
 
 @pytest.mark.anyio

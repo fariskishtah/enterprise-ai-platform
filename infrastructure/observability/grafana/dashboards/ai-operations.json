@@ -1,0 +1,114 @@
+{
+  "annotations": {"list": []},
+  "editable": false,
+  "graphTooltip": 1,
+  "panels": [
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+      "id": 1,
+      "options": {"legend": {"displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [
+        {"editorMode": "code", "expr": "sum by (task_type, algorithm) (rate(training_jobs_submitted_total{service=~\"$service\",environment=~\"$environment\"}[$__rate_interval]))", "legendFormat": "submitted {{task_type}} {{algorithm}}", "range": true, "refId": "A"},
+        {"editorMode": "code", "expr": "sum by (task_type, algorithm, final_status) (rate({__name__=~\"training_jobs_(completed|failed)_total\",service=~\"$service\",environment=~\"$environment\"}[$__rate_interval]))", "legendFormat": "{{final_status}} {{task_type}} {{algorithm}}", "range": true, "refId": "B"}
+      ],
+      "title": "Training jobs by final status",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+      "id": 2,
+      "options": {"legend": {"displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"editorMode": "code", "expr": "histogram_quantile(0.95, sum by (le, task_type, final_status) (rate(training_job_duration_seconds_bucket{service=~\"$service\",environment=~\"$environment\"}[$__rate_interval])))", "legendFormat": "P95 {{task_type}} {{final_status}}", "range": true, "refId": "A"}],
+      "title": "Training duration",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+      "id": 3,
+      "options": {"legend": {"displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [
+        {"editorMode": "code", "expr": "sum by (task_type, final_status) (rate(prediction_requests_total{service=~\"$service\",environment=~\"$environment\"}[$__rate_interval]))", "legendFormat": "requests {{task_type}} {{final_status}}", "range": true, "refId": "A"},
+        {"editorMode": "code", "expr": "sum by (task_type, final_status) (rate(prediction_rows_total{service=~\"$service\",environment=~\"$environment\"}[$__rate_interval]))", "legendFormat": "rows {{task_type}} {{final_status}}", "range": true, "refId": "B"}
+      ],
+      "title": "Predictions and rows",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+      "id": 4,
+      "options": {"legend": {"displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"editorMode": "code", "expr": "sum by (task_type, algorithm) (rate(prediction_failures_total{service=~\"$service\",environment=~\"$environment\"}[$__rate_interval]))", "legendFormat": "{{task_type}} {{algorithm}}", "range": true, "refId": "A"}],
+      "title": "Prediction failures",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+      "id": 5,
+      "options": {"legend": {"displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"editorMode": "code", "expr": "sum by (trigger, final_status) (rate(monitoring_evaluations_total{service=~\"$service\",environment=~\"$environment\"}[$__rate_interval]))", "legendFormat": "{{trigger}} {{final_status}}", "range": true, "refId": "A"}],
+      "title": "Monitoring evaluation status",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+      "id": 6,
+      "options": {"legend": {"displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [
+        {"editorMode": "code", "expr": "sum by (alert_type, severity) (rate(monitoring_alerts_created_total{service=~\"$service\",environment=~\"$environment\"}[$__rate_interval]))", "legendFormat": "created {{alert_type}} {{severity}}", "range": true, "refId": "A"},
+        {"editorMode": "code", "expr": "sum by (alert_type, severity) (rate(monitoring_alerts_resolved_total{service=~\"$service\",environment=~\"$environment\"}[$__rate_interval]))", "legendFormat": "resolved {{alert_type}} {{severity}}", "range": true, "refId": "B"}
+      ],
+      "title": "Monitoring alerts by type and severity",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 24},
+      "id": 7,
+      "options": {"legend": {"displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [
+        {"editorMode": "code", "expr": "sum by (trigger) (rate(retraining_requests_total{service=~\"$service\",environment=~\"$environment\"}[$__rate_interval]))", "legendFormat": "created {{trigger}}", "range": true, "refId": "A"},
+        {"editorMode": "code", "expr": "sum by (trigger, final_status) (rate(retraining_requests_blocked_total{service=~\"$service\",environment=~\"$environment\"}[$__rate_interval]))", "legendFormat": "blocked {{trigger}} {{final_status}}", "range": true, "refId": "B"}
+      ],
+      "title": "Retraining requests and blocked decisions",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 24},
+      "id": 8,
+      "options": {"legend": {"displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"editorMode": "code", "expr": "sum by (job_name) (rate(background_job_failures_total{service=~\"$service\",environment=~\"$environment\"}[$__rate_interval]))", "legendFormat": "{{job_name}}", "range": true, "refId": "A"}],
+      "title": "Background job failures",
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 41,
+  "tags": ["ai", "mlops", "observability"],
+  "templating": {
+    "list": [
+      {"current": {"text": "All", "value": "$__all"}, "datasource": {"type": "prometheus", "uid": "prometheus"}, "definition": "label_values({__name__=~\"(training|prediction|monitoring|retraining|background).*\"}, service)", "includeAll": true, "label": "Service", "name": "service", "options": [], "query": {"query": "label_values({__name__=~\"(training|prediction|monitoring|retraining|background).*\"}, service)", "refId": "PrometheusVariableQueryEditor-VariableQuery"}, "refresh": 1, "regex": "", "type": "query"},
+      {"current": {"text": "All", "value": "$__all"}, "datasource": {"type": "prometheus", "uid": "prometheus"}, "definition": "label_values(training_jobs_submitted_total{service=~\"$service\"}, environment)", "includeAll": true, "label": "Environment", "name": "environment", "options": [], "query": {"query": "label_values(training_jobs_submitted_total{service=~\"$service\"}, environment)", "refId": "PrometheusVariableQueryEditor-VariableQuery"}, "refresh": 1, "regex": "", "type": "query"}
+    ]
+  },
+  "time": {"from": "now-24h", "to": "now"},
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "AI Operations",
+  "uid": "ai-operations",
+  "version": 1
+}

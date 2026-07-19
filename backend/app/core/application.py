@@ -4,6 +4,11 @@ from fastapi import FastAPI
 
 from app.api.router import api_router
 from app.config.settings import Settings, get_settings
+from app.observability import (
+    PrometheusMetricsMiddleware,
+    configure_metrics,
+    metrics_response,
+)
 
 OPENAPI_TAGS = [
     {
@@ -65,6 +70,31 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         openapi_tags=OPENAPI_TAGS,
         redoc_url=None,
     )
+    configure_metrics(
+        enabled=resolved_settings.observability_metrics_enabled,
+        service=resolved_settings.observability_service_name,
+        environment=resolved_settings.observability_environment,
+    )
+    if resolved_settings.observability_metrics_enabled:
+        metrics_path = resolved_settings.observability_metrics_path
+        application.add_middleware(
+            PrometheusMetricsMiddleware,
+            excluded_paths=frozenset(
+                {
+                    metrics_path,
+                    "/docs",
+                    "/openapi.json",
+                    "/health",
+                }
+            ),
+        )
+        application.add_route(
+            metrics_path,
+            metrics_response,
+            methods=["GET"],
+            include_in_schema=False,
+            name="prometheus-metrics",
+        )
     if settings is not None:
         application.dependency_overrides[get_settings] = lambda: resolved_settings
     application.include_router(api_router)

@@ -68,6 +68,11 @@ services:
       REFRESH_TOKEN_EXPIRE_DAYS: ${REFRESH_TOKEN_EXPIRE_DAYS}
       REDIS_URL: ${REDIS_URL}
       SECRET_KEY: ${SECRET_KEY}
+      OBSERVABILITY_METRICS_ENABLED: ${OBSERVABILITY_METRICS_ENABLED:-true}
+      OBSERVABILITY_METRICS_PATH: ${OBSERVABILITY_METRICS_PATH:-/metrics}
+      OBSERVABILITY_SERVICE_NAME: ${OBSERVABILITY_SERVICE_NAME:-ai-manufacturing-backend}
+      OBSERVABILITY_ENVIRONMENT: ${OBSERVABILITY_ENVIRONMENT:-local}
+      OBSERVABILITY_WORKER_METRICS_PORT: ${OBSERVABILITY_WORKER_METRICS_PORT:-9191}
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     volumes:
@@ -148,6 +153,13 @@ services:
       RETRAINING_RECONCILIATION_BATCH_SIZE: ${RETRAINING_RECONCILIATION_BATCH_SIZE:-100}
       RETRAINING_DEFAULT_MINIMUM_DRIFT_STATUS: ${RETRAINING_DEFAULT_MINIMUM_DRIFT_STATUS:-critical}
       RETRAINING_ALLOW_TRUNCATED_DRIFT: ${RETRAINING_ALLOW_TRUNCATED_DRIFT:-true}
+      OBSERVABILITY_METRICS_ENABLED: ${OBSERVABILITY_METRICS_ENABLED:-true}
+      OBSERVABILITY_METRICS_PATH: ${OBSERVABILITY_METRICS_PATH:-/metrics}
+      OBSERVABILITY_SERVICE_NAME: ${OBSERVABILITY_SERVICE_NAME:-ai-manufacturing-backend}
+      OBSERVABILITY_ENVIRONMENT: ${OBSERVABILITY_ENVIRONMENT:-local}
+      OBSERVABILITY_WORKER_METRICS_PORT: ${OBSERVABILITY_WORKER_METRICS_PORT:-9191}
+    expose:
+      - "9191"
     volumes:
       - mlflow-data:/app/data/mlflow
       - model-artifact-data:/app/data/model-artifacts
@@ -191,9 +203,104 @@ services:
     volumes:
       - redis-data:/data
 
+  postgres-exporter:
+    image: quay.io/prometheuscommunity/postgres-exporter:v0.19.1
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATA_SOURCE_URI: postgres:5432/${POSTGRES_DB}?sslmode=disable
+      DATA_SOURCE_USER: ${POSTGRES_USER}
+      DATA_SOURCE_PASS: ${POSTGRES_PASSWORD}
+    expose:
+      - "9187"
+    restart: unless-stopped
+
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.84.0
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      REDIS_ADDR: redis://redis:6379
+    expose:
+      - "9121"
+    restart: unless-stopped
+
+  cadvisor:
+    image: ghcr.io/google/cadvisor:v0.57.0
+    command:
+      - --docker_only=true
+      - --housekeeping_interval=15s
+    expose:
+      - "8080"
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - /:/rootfs:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+      - /dev/disk:/dev/disk:ro
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v3.12.0
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+      - --web.enable-lifecycle
+    depends_on:
+      backend:
+        condition: service_started
+      training-worker:
+        condition: service_started
+      postgres-exporter:
+        condition: service_started
+      redis-exporter:
+        condition: service_started
+      cadvisor:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:9090/-/healthy"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    ports:
+      - "127.0.0.1:${PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - ./infrastructure/observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:13.1.0
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-replace-with-a-local-password}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:3000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    ports:
+      - "127.0.0.1:${GRAFANA_PORT:-3000}:3000"
+    volumes:
+      - ./infrastructure/observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infrastructure/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    restart: unless-stopped
+
 volumes:
   ai-artifact-data:
   mlflow-data:
   model-artifact-data:
   postgres-data:
   redis-data:
+  prometheus-data:
+  grafana-data:

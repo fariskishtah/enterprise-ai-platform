@@ -110,6 +110,9 @@ and quotas, background candidate creation, advisory comparison, and recovery.
 The [persisted monitoring orchestration guide](../docs/ai-monitoring-orchestration.md)
 covers durable evaluation status, internal alerts, scheduled actors, retraining
 lineage, retention, and mature outcome performance summaries.
+The [platform observability guide](../docs/platform-observability.md) covers the
+unauthenticated metrics endpoint, bounded labels, worker metrics, Prometheus
+scraping, exporters, cAdvisor, and provisioned Grafana dashboards.
 
 ## Local Development
 

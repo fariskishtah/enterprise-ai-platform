@@ -190,9 +190,9 @@ class MonitoringAlertRepository:
         model_version: str,
         alert_types: frozenset[MonitoringAlertType],
         resolved_at: datetime,
-    ) -> int:
+    ) -> tuple[MonitoringAlert, ...]:
         if not alert_types:
-            return 0
+            return ()
         result = await self._session.execute(
             update(MonitoringAlertEntity)
             .where(
@@ -206,11 +206,13 @@ class MonitoringAlertRepository:
                 resolved_at=resolved_at,
                 updated_at=resolved_at,
             )
-            .returning(MonitoringAlertEntity.id)
+            .returning(MonitoringAlertEntity)
         )
-        return len(tuple(result.scalars()))
+        return tuple(_record(entity) for entity in result.scalars())
 
-    async def resolve_stale(self, *, last_detected_before: datetime, limit: int) -> int:
+    async def resolve_stale(
+        self, *, last_detected_before: datetime, limit: int
+    ) -> tuple[MonitoringAlert, ...]:
         identifiers = (
             select(MonitoringAlertEntity.id)
             .where(
@@ -228,9 +230,9 @@ class MonitoringAlertRepository:
                 resolved_at=last_detected_before,
                 updated_at=last_detected_before,
             )
-            .returning(MonitoringAlertEntity.id)
+            .returning(MonitoringAlertEntity)
         )
-        return len(tuple(result.scalars()))
+        return tuple(_record(entity) for entity in result.scalars())
 
     async def acquire_lock(
         self,

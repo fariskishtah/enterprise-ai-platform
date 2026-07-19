@@ -4,6 +4,7 @@ from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
+import app.ml.retraining.service as retraining_service_module
 import pytest
 from app.ml.base import TrainerKey
 from app.ml.domain import AlgorithmType, TaskType
@@ -338,7 +339,14 @@ def _service(
 @pytest.mark.anyio
 async def test_eligible_evaluation_checkpoints_and_reuses_background_job_once(
     session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    decision_metrics: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        retraining_service_module,
+        "record_retraining_decision",
+        lambda **labels: decision_metrics.append(labels),
+    )
     user_id, source_job_id = await _source_evidence(session_factory)
     queue = FakeQueue()
     async with session_factory() as session:
@@ -402,6 +410,18 @@ async def test_eligible_evaluation_checkpoints_and_reuses_background_job_once(
     assert job.specification.tags["retraining_request_id"] == str(result.request.id)
     assert job.specification.tags["source_model_version"] == "3"
     assert audits.total == 2
+    assert decision_metrics == [
+        {
+            "trigger": "feature_drift",
+            "final_status": "eligible",
+            "request_created": True,
+        },
+        {
+            "trigger": "feature_drift",
+            "final_status": "blocked_duplicate",
+            "request_created": False,
+        },
+    ]
 
 
 @pytest.mark.anyio

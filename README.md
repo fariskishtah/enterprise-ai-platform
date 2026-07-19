@@ -41,6 +41,9 @@ Random Forest regression and integer-label classification are the only supported
 - [Persisted monitoring orchestration](docs/ai-monitoring-orchestration.md)
   documents evaluation status, scheduled Dramatiq actors, internal alerts,
   retraining lineage, retention, and mature ground-truth outcomes.
+- [Platform observability](docs/platform-observability.md) documents Prometheus
+  metrics, exporters, cAdvisor, provisioned Grafana dashboards, privacy rules,
+  and production hardening guidance.
 - [AI Core MVP release checkpoint](docs/releases/ai-core-mvp.md) records delivered
   capabilities, quality evidence, architectural decisions, and known limitations.
 - [`examples/ai-core/`](examples/ai-core/) contains Pydantic-validated JSON request
@@ -125,6 +128,14 @@ Frontend:
 
 ```bash
 open http://localhost:5173
+```
+
+Local observability endpoints:
+
+```text
+Backend metrics  http://localhost:8000/metrics
+Prometheus       http://localhost:9090
+Grafana          http://localhost:3000
 ```
 
 ## Docker Commands

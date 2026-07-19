@@ -2,6 +2,7 @@
 
 from datetime import UTC, datetime, timedelta
 
+import app.ml.monitoring.evaluation_service as evaluation_service_module
 import pytest
 from app.ml.base import TrainerKey
 from app.ml.domain import AlgorithmType, TaskType
@@ -245,7 +246,26 @@ async def test_evaluation_persists_exact_version_and_is_idempotent(
 @pytest.mark.anyio
 async def test_critical_alert_deduplicates_and_healthy_evaluation_resolves_it(
     session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    evaluation_metrics: list[dict[str, object]] = []
+    created_metrics: list[dict[str, str]] = []
+    resolved_metrics: list[dict[str, str]] = []
+    monkeypatch.setattr(
+        evaluation_service_module,
+        "record_monitoring_evaluation",
+        lambda **labels: evaluation_metrics.append(labels),
+    )
+    monkeypatch.setattr(
+        evaluation_service_module,
+        "record_monitoring_alert_created",
+        lambda **labels: created_metrics.append(labels),
+    )
+    monkeypatch.setattr(
+        evaluation_service_module,
+        "record_monitoring_alert_resolved",
+        lambda **labels: resolved_metrics.append(labels),
+    )
     monitoring = FakeMonitoring(drift_status=DriftSeverity.CRITICAL)
     async with session_factory() as session:
         service = _service(session, monitoring)
@@ -292,6 +312,16 @@ async def test_critical_alert_deduplicates_and_healthy_evaluation_resolves_it(
 
     assert resolved is not None
     assert resolved.status is MonitoringAlertStatus.RESOLVED
+    assert [metric["final_status"] for metric in evaluation_metrics] == [
+        "critical",
+        "critical",
+        "healthy",
+    ]
+    assert {metric["alert_type"] for metric in created_metrics} == {
+        "critical_feature_drift",
+        "critical_prediction_drift",
+    }
+    assert resolved_metrics == created_metrics
 
 
 @pytest.mark.anyio

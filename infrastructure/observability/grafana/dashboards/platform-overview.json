@@ -1,0 +1,163 @@
+{
+  "annotations": {"list": []},
+  "editable": false,
+  "graphTooltip": 1,
+  "panels": [
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "reqps"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+      "id": 1,
+      "options": {"legend": {"displayMode": "list", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"editorMode": "code", "expr": "sum(rate(http_requests_total{service=~\"$service\",environment=~\"$environment\"}[$__rate_interval]))", "legendFormat": "requests", "range": true, "refId": "A"}],
+      "title": "Backend request rate",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "reqps"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+      "id": 2,
+      "options": {"legend": {"displayMode": "list", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"editorMode": "code", "expr": "sum(rate(http_requests_total{service=~\"$service\",environment=~\"$environment\",status_code=~\"5..\"}[$__rate_interval]))", "legendFormat": "5xx", "range": true, "refId": "A"}],
+      "title": "Backend 5xx rate",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+      "id": 3,
+      "options": {"legend": {"displayMode": "list", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [
+        {"editorMode": "code", "expr": "histogram_quantile(0.50, sum by (le) (rate(http_request_duration_seconds_bucket{service=~\"$service\",environment=~\"$environment\"}[$__rate_interval])))", "legendFormat": "P50", "range": true, "refId": "A"},
+        {"editorMode": "code", "expr": "histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{service=~\"$service\",environment=~\"$environment\"}[$__rate_interval])))", "legendFormat": "P95", "range": true, "refId": "B"},
+        {"editorMode": "code", "expr": "histogram_quantile(0.99, sum by (le) (rate(http_request_duration_seconds_bucket{service=~\"$service\",environment=~\"$environment\"}[$__rate_interval])))", "legendFormat": "P99", "range": true, "refId": "C"}
+      ],
+      "title": "Backend latency percentiles",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+      "id": 4,
+      "options": {"legend": {"displayMode": "list", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"editorMode": "code", "expr": "sum by (method) (http_requests_in_progress{service=~\"$service\",environment=~\"$environment\"})", "legendFormat": "{{method}}", "range": true, "refId": "A"}],
+      "title": "In-progress requests",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+      "id": 5,
+      "options": {"legend": {"displayMode": "list", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [
+        {"editorMode": "code", "expr": "sum(rate(training_jobs_submitted_total{service=~\"$service\",environment=~\"$environment\"}[$__rate_interval]))", "legendFormat": "submitted", "range": true, "refId": "A"},
+        {"editorMode": "code", "expr": "sum(rate(training_jobs_completed_total{service=~\"$service\",environment=~\"$environment\"}[$__rate_interval]))", "legendFormat": "completed", "range": true, "refId": "B"},
+        {"editorMode": "code", "expr": "sum(rate(training_jobs_failed_total{service=~\"$service\",environment=~\"$environment\"}[$__rate_interval]))", "legendFormat": "failed", "range": true, "refId": "C"}
+      ],
+      "title": "Training jobs",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+      "id": 6,
+      "options": {"legend": {"displayMode": "list", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [
+        {"editorMode": "code", "expr": "sum(rate(prediction_requests_total{service=~\"$service\",environment=~\"$environment\"}[$__rate_interval]))", "legendFormat": "requests", "range": true, "refId": "A"},
+        {"editorMode": "code", "expr": "sum(rate(prediction_rows_total{service=~\"$service\",environment=~\"$environment\"}[$__rate_interval]))", "legendFormat": "rows", "range": true, "refId": "B"}
+      ],
+      "title": "Prediction request and row rate",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 24},
+      "id": 7,
+      "options": {"legend": {"displayMode": "list", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"editorMode": "code", "expr": "sum by (final_status) (rate(monitoring_evaluations_total{service=~\"$service\",environment=~\"$environment\"}[$__rate_interval]))", "legendFormat": "{{final_status}}", "range": true, "refId": "A"}],
+      "title": "Monitoring evaluation count",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 24},
+      "id": 8,
+      "options": {"legend": {"displayMode": "list", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"editorMode": "code", "expr": "histogram_quantile(0.95, sum by (le) (rate(monitoring_evaluation_duration_seconds_bucket{service=~\"$service\",environment=~\"$environment\"}[$__rate_interval])))", "legendFormat": "P95", "range": true, "refId": "A"}],
+      "title": "Monitoring evaluation duration",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 32},
+      "id": 9,
+      "options": {"legend": {"displayMode": "list", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"editorMode": "code", "expr": "sum by (severity) (rate(monitoring_alerts_created_total{service=~\"$service\",environment=~\"$environment\"}[$__rate_interval]))", "legendFormat": "{{severity}}", "range": true, "refId": "A"}],
+      "title": "Open alert creation rate",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "percentunit"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 32},
+      "id": 10,
+      "options": {"legend": {"displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"editorMode": "code", "expr": "sum by (container_label_com_docker_compose_service) (rate(container_cpu_usage_seconds_total{image!=\"\"}[$__rate_interval]))", "legendFormat": "{{container_label_com_docker_compose_service}}", "range": true, "refId": "A"}],
+      "title": "Container CPU usage",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "bytes"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 40},
+      "id": 11,
+      "options": {"legend": {"displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"editorMode": "code", "expr": "sum by (container_label_com_docker_compose_service) (container_memory_working_set_bytes{image!=\"\"})", "legendFormat": "{{container_label_com_docker_compose_service}}", "range": true, "refId": "A"}],
+      "title": "Container memory usage",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"mappings": [{"options": {"0": {"color": "red", "text": "DOWN"}, "1": {"color": "green", "text": "UP"}}, "type": "value"}], "max": 1, "min": 0}, "overrides": []},
+      "gridPos": {"h": 8, "w": 6, "x": 12, "y": 40},
+      "id": 12,
+      "options": {"colorMode": "background", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto", "wideLayout": true},
+      "targets": [{"editorMode": "code", "expr": "max(up{job=\"postgres-exporter\"})", "legendFormat": "PostgreSQL", "range": true, "refId": "A"}],
+      "title": "PostgreSQL availability",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"mappings": [{"options": {"0": {"color": "red", "text": "DOWN"}, "1": {"color": "green", "text": "UP"}}, "type": "value"}], "max": 1, "min": 0}, "overrides": []},
+      "gridPos": {"h": 8, "w": 6, "x": 18, "y": 40},
+      "id": 13,
+      "options": {"colorMode": "background", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto", "wideLayout": true},
+      "targets": [{"editorMode": "code", "expr": "max(up{job=\"redis-exporter\"})", "legendFormat": "Redis", "range": true, "refId": "A"}],
+      "title": "Redis availability",
+      "type": "stat"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 41,
+  "tags": ["platform", "observability"],
+  "templating": {
+    "list": [
+      {"current": {"text": "All", "value": "$__all"}, "datasource": {"type": "prometheus", "uid": "prometheus"}, "definition": "label_values(http_requests_total, service)", "includeAll": true, "label": "Service", "name": "service", "options": [], "query": {"query": "label_values(http_requests_total, service)", "refId": "PrometheusVariableQueryEditor-VariableQuery"}, "refresh": 1, "regex": "", "type": "query"},
+      {"current": {"text": "All", "value": "$__all"}, "datasource": {"type": "prometheus", "uid": "prometheus"}, "definition": "label_values(http_requests_total{service=~\"$service\"}, environment)", "includeAll": true, "label": "Environment", "name": "environment", "options": [], "query": {"query": "label_values(http_requests_total{service=~\"$service\"}, environment)", "refId": "PrometheusVariableQueryEditor-VariableQuery"}, "refresh": 1, "regex": "", "type": "query"}
+    ]
+  },
+  "time": {"from": "now-6h", "to": "now"},
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Platform Overview",
+  "uid": "platform-overview",
+  "version": 1
+}

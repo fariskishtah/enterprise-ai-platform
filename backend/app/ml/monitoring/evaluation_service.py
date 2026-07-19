@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from time import perf_counter
 from uuid import UUID, uuid4
 
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
@@ -36,6 +37,11 @@ from app.ml.monitoring.models import (
 from app.ml.monitoring.service import PredictionMonitoringService
 from app.ml.registry import BaseModelRegistry, RegisteredModelVersion
 from app.ml.registry.exceptions import ModelRegistryError
+from app.observability.metrics import (
+    record_monitoring_alert_created,
+    record_monitoring_alert_resolved,
+    record_monitoring_evaluation,
+)
 from app.repositories.monitoring_evaluations import MonitoringEvaluationRepository
 from app.utils.security import utc_now
 
@@ -78,6 +84,41 @@ class MonitoringEvaluationService:
         trigger: MonitoringEvaluationTrigger,
         idempotency_key: str | None = None,
     ) -> ModelMonitoringEvaluation:
+        started_clock = perf_counter()
+        try:
+            evaluation = await self._evaluate_once(
+                registered_model_name=registered_model_name,
+                version_or_alias=version_or_alias,
+                window_start=window_start,
+                window_end=window_end,
+                trigger=trigger,
+                idempotency_key=idempotency_key,
+            )
+        except Exception:
+            record_monitoring_evaluation(
+                trigger=trigger.value,
+                final_status="failed",
+                duration_seconds=max(perf_counter() - started_clock, 0.0),
+            )
+            raise
+        record_monitoring_evaluation(
+            trigger=trigger.value,
+            final_status=evaluation.overall_status.value,
+            duration_seconds=max(perf_counter() - started_clock, 0.0),
+        )
+        return evaluation
+
+    async def _evaluate_once(
+        self,
+        *,
+        registered_model_name: str,
+        version_or_alias: str,
+        window_start: datetime | None,
+        window_end: datetime | None,
+        trigger: MonitoringEvaluationTrigger,
+        idempotency_key: str | None = None,
+    ) -> ModelMonitoringEvaluation:
+        """Execute the existing idempotent evaluation boundary once."""
         version = self._registry.resolve(registered_model_name, version_or_alias)
         start, end = self._window(window_start, window_end)
         key = idempotency_key or monitoring_evaluation_idempotency_key(
@@ -262,8 +303,18 @@ class MonitoringEvaluationService:
     ) -> ModelMonitoringEvaluation:
         try:
             persisted = await self._repository.create(evaluation)
-            await self._alerts.process_evaluation(persisted)
+            alert_changes = await self._alerts.process_evaluation(persisted)
             await self._repository.commit()
+            for alert in alert_changes.created:
+                record_monitoring_alert_created(
+                    alert_type=alert.alert_type.value,
+                    severity=alert.severity.value,
+                )
+            for alert in alert_changes.resolved:
+                record_monitoring_alert_resolved(
+                    alert_type=alert.alert_type.value,
+                    severity=alert.severity.value,
+                )
             return persisted
         except IntegrityError:
             await self._repository.rollback()

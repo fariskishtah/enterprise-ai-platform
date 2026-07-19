@@ -30,6 +30,7 @@ from app.ml.monitoring.reconcile import reconcile_missing_reference_profiles
 from app.ml.monitoring.retention import retain_prediction_events
 from app.ml.monitoring.scheduled import run_scheduled_monitoring
 from app.ml.retraining.reconcile import reconcile_retraining_requests
+from app.observability.worker import WorkerPrometheusMiddleware
 
 _settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -41,6 +42,14 @@ class _RedisBrokerFactory(Protocol):
 
 _redis_broker_factory = cast(_RedisBrokerFactory, RedisBroker)
 broker = _redis_broker_factory(url=_settings.redis_url)
+broker.add_middleware(
+    WorkerPrometheusMiddleware(
+        enabled=_settings.observability_metrics_enabled,
+        service=_settings.observability_service_name,
+        environment=_settings.observability_environment,
+        port=_settings.observability_worker_metrics_port,
+    )
+)
 dramatiq.set_broker(broker)
 
 

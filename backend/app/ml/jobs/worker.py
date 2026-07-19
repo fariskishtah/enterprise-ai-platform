@@ -6,6 +6,7 @@ import logging
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
+from time import perf_counter
 from uuid import UUID, uuid4
 
 import numpy as np
@@ -59,6 +60,7 @@ from app.ml.trainers.random_forest.types import (
     RegressionPredictionArray,
     RegressionTargetArray,
 )
+from app.observability.metrics import record_training_job_finished
 from app.repositories.ai_governance import TrainingJobRepository
 from app.repositories.ai_monitoring import PredictionMonitoringRepository
 from app.utils.security import utc_now
@@ -107,6 +109,7 @@ class TrainingJobWorker:
 
     async def execute(self, job_id: UUID) -> WorkerExecutionState:
         """Process one at-least-once delivery using persistent state as authority."""
+        started_clock = perf_counter()
         async with self._session_factory() as session:
             repository = TrainingJobRepository(session)
             claimed = await repository.claim_queued(
@@ -117,6 +120,20 @@ class TrainingJobWorker:
                 await repository.rollback()
                 return WorkerExecutionState.SKIPPED
             await repository.commit()
+
+        def finished(state: WorkerExecutionState) -> WorkerExecutionState:
+            if state in {WorkerExecutionState.SUCCEEDED, WorkerExecutionState.TERMINAL}:
+                record_training_job_finished(
+                    task_type=claimed.key.task_type.value,
+                    algorithm=claimed.key.algorithm.value,
+                    final_status=(
+                        "succeeded"
+                        if state is WorkerExecutionState.SUCCEEDED
+                        else "failed"
+                    ),
+                    duration_seconds=max(perf_counter() - started_clock, 0.0),
+                )
+            return state
 
         expected_version = claimed.state_version
         try:
@@ -155,13 +172,15 @@ class TrainingJobWorker:
             ValueError,
         ):
             logger.exception("Deterministic training job failure for %s", job_id)
-            return await self._fail(
-                job_id=job_id,
-                expected_version=expected_version,
-                error_code="training_validation_failed",
-                safe_error_message=(
-                    "The persisted training request could not be executed."
-                ),
+            return finished(
+                await self._fail(
+                    job_id=job_id,
+                    expected_version=expected_version,
+                    error_code="training_validation_failed",
+                    safe_error_message=(
+                        "The persisted training request could not be executed."
+                    ),
+                )
             )
         except (
             ExperimentTrackingError,
@@ -179,19 +198,25 @@ class TrainingJobWorker:
                         "A temporary training integration failure occurred."
                     ),
                 )
-            return await self._fail(
-                job_id=job_id,
-                expected_version=expected_version,
-                error_code="retry_exhausted",
-                safe_error_message="Training failed after the configured retry limit.",
+            return finished(
+                await self._fail(
+                    job_id=job_id,
+                    expected_version=expected_version,
+                    error_code="retry_exhausted",
+                    safe_error_message=(
+                        "Training failed after the configured retry limit."
+                    ),
+                )
             )
         except Exception:
             logger.exception("Unexpected training job failure for %s", job_id)
-            return await self._fail(
-                job_id=job_id,
-                expected_version=expected_version,
-                error_code="training_execution_failed",
-                safe_error_message="The training job failed during execution.",
+            return finished(
+                await self._fail(
+                    job_id=job_id,
+                    expected_version=expected_version,
+                    error_code="training_execution_failed",
+                    safe_error_message="The training job failed during execution.",
+                )
             )
 
         await self._persist_reference_profile(
@@ -216,7 +241,7 @@ class TrainingJobWorker:
                 logger.error("Job %s changed before successful completion", job_id)
                 return WorkerExecutionState.SKIPPED
             await repository.commit()
-        return WorkerExecutionState.SUCCEEDED
+        return finished(WorkerExecutionState.SUCCEEDED)
 
     async def _persist_reference_profile(
         self,
