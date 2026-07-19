@@ -1,0 +1,76 @@
+{
+  "annotations": {"list": []},
+  "editable": false,
+  "graphTooltip": 1,
+  "panels": [
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "reqps"}, "overrides": []},
+      "gridPos": {"h": 9, "w": 24, "x": 0, "y": 0},
+      "id": 1,
+      "options": {"legend": {"displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"editorMode": "code", "expr": "sum by (method, route) (rate(http_requests_total{service=~\"$service\",environment=~\"$environment\"}[$__rate_interval]))", "legendFormat": "{{method}} {{route}}", "range": true, "refId": "A"}],
+      "title": "Request rate by normalized route",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "reqps"}, "overrides": []},
+      "gridPos": {"h": 9, "w": 12, "x": 0, "y": 9},
+      "id": 2,
+      "options": {"legend": {"displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"editorMode": "code", "expr": "sum by (status_code) (rate(http_requests_total{service=~\"$service\",environment=~\"$environment\"}[$__rate_interval]))", "legendFormat": "{{status_code}}", "range": true, "refId": "A"}],
+      "title": "Response status breakdown",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
+      "gridPos": {"h": 9, "w": 12, "x": 12, "y": 9},
+      "id": 3,
+      "options": {"legend": {"displayMode": "list", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [
+        {"editorMode": "code", "expr": "histogram_quantile(0.50, sum by (le) (rate(http_request_duration_seconds_bucket{service=~\"$service\",environment=~\"$environment\"}[$__rate_interval])))", "legendFormat": "P50", "range": true, "refId": "A"},
+        {"editorMode": "code", "expr": "histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{service=~\"$service\",environment=~\"$environment\"}[$__rate_interval])))", "legendFormat": "P95", "range": true, "refId": "B"},
+        {"editorMode": "code", "expr": "histogram_quantile(0.99, sum by (le) (rate(http_request_duration_seconds_bucket{service=~\"$service\",environment=~\"$environment\"}[$__rate_interval])))", "legendFormat": "P99", "range": true, "refId": "C"}
+      ],
+      "title": "Latency percentiles",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
+      "gridPos": {"h": 10, "w": 18, "x": 0, "y": 18},
+      "id": 4,
+      "options": {"legend": {"displayMode": "table", "placement": "right", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"editorMode": "code", "expr": "topk(10, histogram_quantile(0.95, sum by (le, method, route) (rate(http_request_duration_seconds_bucket{service=~\"$service\",environment=~\"$environment\"}[$__rate_interval]))))", "legendFormat": "{{method}} {{route}}", "range": true, "refId": "A"}],
+      "title": "Slowest normalized routes (P95)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+      "gridPos": {"h": 10, "w": 6, "x": 18, "y": 18},
+      "id": 5,
+      "options": {"colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto", "wideLayout": true},
+      "targets": [{"editorMode": "code", "expr": "sum(http_requests_in_progress{service=~\"$service\",environment=~\"$environment\"})", "legendFormat": "in progress", "range": true, "refId": "A"}],
+      "title": "In-progress requests",
+      "type": "stat"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 41,
+  "tags": ["backend", "api", "observability"],
+  "templating": {
+    "list": [
+      {"current": {"text": "All", "value": "$__all"}, "datasource": {"type": "prometheus", "uid": "prometheus"}, "definition": "label_values(http_requests_total, service)", "includeAll": true, "label": "Service", "name": "service", "options": [], "query": {"query": "label_values(http_requests_total, service)", "refId": "PrometheusVariableQueryEditor-VariableQuery"}, "refresh": 1, "regex": "", "type": "query"},
+      {"current": {"text": "All", "value": "$__all"}, "datasource": {"type": "prometheus", "uid": "prometheus"}, "definition": "label_values(http_requests_total{service=~\"$service\"}, environment)", "includeAll": true, "label": "Environment", "name": "environment", "options": [], "query": {"query": "label_values(http_requests_total{service=~\"$service\"}, environment)", "refId": "PrometheusVariableQueryEditor-VariableQuery"}, "refresh": 1, "regex": "", "type": "query"}
+    ]
+  },
+  "time": {"from": "now-6h", "to": "now"},
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Backend API",
+  "uid": "backend-api",
+  "version": 1
+}

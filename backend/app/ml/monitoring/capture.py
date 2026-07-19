@@ -41,6 +41,7 @@ from app.ml.trainers.random_forest.types import (
     FeatureArray,
     RegressionPredictionArray,
 )
+from app.observability.metrics import record_prediction
 from app.utils.security import utc_now
 
 logger = logging.getLogger(__name__)
@@ -147,6 +148,14 @@ class MonitoredPredictionService:
         except Exception as exc:
             duration_ms = _duration_ms(started_clock)
             completed_at = utc_now()
+            record_prediction(
+                task_type=plan.key.task_type.value,
+                algorithm=plan.key.algorithm.value,
+                final_status="failed",
+                row_count=(
+                    request.features.shape[0] if request.features.ndim >= 1 else 0
+                ),
+            )
             await self._record_failure(
                 plan=plan,
                 request=request,
@@ -160,6 +169,12 @@ class MonitoredPredictionService:
             raise
         duration_ms = _duration_ms(started_clock)
         completed_at = utc_now()
+        record_prediction(
+            task_type=plan.key.task_type.value,
+            algorithm=plan.key.algorithm.value,
+            final_status="succeeded",
+            row_count=request.features.shape[0],
+        )
         await self._record_success(
             request=request,
             context=context,

@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Configurable FastAPI and Dramatiq Prometheus metrics with normalized HTTP route
+  labels and bounded AI-operation dimensions.
+- A local Prometheus, Grafana, PostgreSQL exporter, Redis exporter, and cAdvisor
+  stack with provisioned Platform Overview, Backend API, and AI Operations
+  dashboards.
 - Persisted exact-version monitoring evaluations with bounded reports,
   deterministic status, database idempotency, and authenticated history APIs.
 - Deduplicated internal monitoring alerts with acknowledgement, automatic

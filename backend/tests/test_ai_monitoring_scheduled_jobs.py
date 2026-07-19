@@ -251,25 +251,31 @@ async def test_stale_alert_reconciliation_is_bounded_and_idempotent(
         await repository.commit()
 
         assert (
-            await repository.resolve_stale(
-                last_detected_before=cutoff,
-                limit=2,
+            len(
+                await repository.resolve_stale(
+                    last_detected_before=cutoff,
+                    limit=2,
+                )
             )
             == 2
         )
         await repository.commit()
         assert (
-            await repository.resolve_stale(
-                last_detected_before=cutoff,
-                limit=2,
+            len(
+                await repository.resolve_stale(
+                    last_detected_before=cutoff,
+                    limit=2,
+                )
             )
             == 1
         )
         await repository.commit()
         assert (
-            await repository.resolve_stale(
-                last_detected_before=cutoff,
-                limit=2,
+            len(
+                await repository.resolve_stale(
+                    last_detected_before=cutoff,
+                    limit=2,
+                )
             )
             == 0
         )

@@ -23,6 +23,7 @@ from app.ml.jobs.models import (
     TrainingJobSubmission,
 )
 from app.ml.jobs.queue import TrainingJobQueue
+from app.observability.metrics import record_training_job_submitted
 from app.repositories.ai_governance import TrainingJobPage, TrainingJobRepository
 from app.utils.security import utc_now
 
@@ -144,6 +145,10 @@ class TrainingJobService:
             raise TrainingJobQueuePersistenceError(
                 "The queued job requires message identifier reconciliation.",
             ) from exc
+        record_training_job_submitted(
+            task_type=key.task_type.value,
+            algorithm=key.algorithm.value,
+        )
         return TrainingJobSubmission(job=persisted, created=True)
 
     async def _record_queue_identifier_pending(

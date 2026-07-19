@@ -52,6 +52,7 @@ from app.ml.retraining.policy import (
     RetrainingPolicyEvaluator,
 )
 from app.ml.retraining.specification import build_retraining_specification
+from app.observability.metrics import record_retraining_decision
 from app.repositories.ai_retraining import (
     RetrainingAuditPage,
     RetrainingRepository,
@@ -462,6 +463,16 @@ class RetrainingService:
             raise RetrainingPersistenceError(
                 "Retraining audit storage is unavailable."
             ) from exc
+        record_retraining_decision(
+            trigger=trigger.trigger_type.value,
+            final_status=decision.status.value,
+            request_created=(
+                decision.eligible
+                and submit_if_eligible
+                and duplicate is None
+                and request is not None
+            ),
+        )
         if (
             request is not None
             and request.training_job_id is None

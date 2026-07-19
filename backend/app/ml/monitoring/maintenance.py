@@ -9,6 +9,7 @@ from datetime import timedelta
 
 from app.config.settings import Settings, get_settings
 from app.db.session import build_session_factory
+from app.observability.metrics import record_monitoring_alert_resolved
 from app.repositories.monitoring_alerts import MonitoringAlertRepository
 from app.repositories.monitoring_evaluations import MonitoringEvaluationRepository
 from app.utils.security import utc_now
@@ -56,7 +57,12 @@ async def reconcile_stale_alerts(
             limit=settings.monitoring_evaluation_retention_batch_size,
         )
         await repository.commit()
-    return StaleAlertReconciliationResult(resolved)
+        for alert in resolved:
+            record_monitoring_alert_resolved(
+                alert_type=alert.alert_type.value,
+                severity=alert.severity.value,
+            )
+    return StaleAlertReconciliationResult(len(resolved))
 
 
 def main() -> None:

@@ -43,6 +43,21 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: PositiveInt = 15
     refresh_token_expire_days: PositiveInt = 30
+    observability_metrics_enabled: bool = True
+    observability_metrics_path: str = Field(
+        default="/metrics",
+        min_length=2,
+        max_length=128,
+        pattern=r"^/[A-Za-z0-9/_-]+$",
+    )
+    observability_service_name: str = Field(
+        default="ai-manufacturing-backend",
+        min_length=1,
+        max_length=64,
+        pattern=r"^[A-Za-z0-9_.-]+$",
+    )
+    observability_environment: EnvironmentName = "local"
+    observability_worker_metrics_port: int = Field(default=9191, ge=1024, le=65535)
     etl_chunk_size: PositiveInt = 50_000
     etl_float_precision: PositiveInt = 6
     etl_outlier_z_score_threshold: PositiveFloat = 3.0
