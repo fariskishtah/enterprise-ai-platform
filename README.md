@@ -1,6 +1,11 @@
 # AI Manufacturing Platform
 
-Production-grade monorepo foundation for an AI Manufacturing Platform. Sprint 1 created the platform skeleton, Sprint 2 added authentication and user management, Sprint 3 added the core manufacturing domain, Sprint 4 added sensor management, Sprint 5 added the backend sensor data platform, Sprint 6 added CSV ETL and data validation, Sprint 7 added backend feature engineering dataset exports, and Sprint 8 added MLOps experiment management infrastructure. AI Core now connects typed local Random Forest training to persistent Redis-backed jobs, dedicated workers, MLflow experiment tracking, fitted-model registration, controlled alias promotion, auditable governance, registered-model prediction, privacy-preserving prediction events, persisted exact-version monitoring evaluations, internal alerts, mature outcomes, and controlled candidate retraining. An initial single-VM Google Cloud Docker Compose deployment is prepared; automated provisioning, multi-node deployment, external alert delivery, RAG, computer vision, MQTT, and Kafka are not implemented.
+Version 1.0.0 of the AI Manufacturing Platform is a Docker-based reference
+platform for authenticated manufacturing data workflows and governed local
+machine learning. It models companies, factories, machines, sensors, and sensor
+readings, then connects bounded Random Forest training jobs to MLflow model
+versioning, exact-version prediction, privacy-preserving monitoring, drift
+analysis, and controlled candidate retraining.
 
 ## Project Overview
 
@@ -24,6 +29,16 @@ Random Forest regression and integer-label classification are the only supported
 
 ## AI Core Guides
 
+- [Architecture](docs/architecture.md) summarizes the runtime components and
+  main request, training, and telemetry flows.
+- [v1.0.0 changelog](CHANGELOG.md) records the release scope without implying
+  unsupported capabilities.
+- [Release checklist](docs/release-checklist.md) defines the evidence required
+  before tagging and after publishing.
+- [Local reviewer demo](docs/demo-guide.md) creates a deterministic demo user,
+  manufacturing hierarchy, readings, model, prediction, and audit record.
+- [End-to-end testing](docs/end-to-end-testing.md) documents the focused primary
+  workflow test and its resource limits.
 - [AI Core API](docs/ai-core-api.md) documents authentication, request and
   response contracts, hyperparameters, metrics, failure behavior, and curl flows.
 - [AI Core local demo](docs/ai-core-local-demo.md) covers Docker and direct Python
@@ -102,7 +117,7 @@ ai-manufacturing-platform/
   .github/workflows/
 ```
 
-## How To Run
+## Local quick start
 
 Create a local environment file:
 
@@ -110,10 +125,24 @@ Create a local environment file:
 cp .env.example .env
 ```
 
-Run the full stack:
+Build the stack, apply migrations, and verify health:
 
 ```bash
-docker compose up --build
+docker compose up --build -d
+docker compose exec backend alembic upgrade head
+curl --fail http://localhost:8000/health
+```
+
+Create or reuse the bounded local reviewer demo:
+
+```bash
+./scripts/seed-demo.sh
+```
+
+Run the focused primary workflow test:
+
+```bash
+cd backend && pytest -q tests/test_end_to_end_workflow.py
 ```
 
 The backend container runs from `/app`. Docker Compose therefore overrides the
@@ -169,6 +198,13 @@ docker compose logs -f backend
 docker compose exec backend alembic upgrade head
 docker compose exec backend alembic current
 ```
+
+## Production deployment
+
+The supported release entry point is the reviewed single-VM Compose runbook:
+[Google Cloud production deployment](docs/google-cloud-production-deployment.md).
+It uses `docker-compose.prod.yml` plus the deploy and verification scripts; it
+does not provision cloud infrastructure or provide high availability.
 
 ## Backups and restore verification
 
@@ -353,3 +389,21 @@ Public registration creates `operator` users. Admins have full manufacturing acc
 - Passwords are hashed with pwdlib using Argon2 through the recommended password hash profile.
 - The frontend uses React Router immediately so route ownership is explicit even with only the Dashboard page.
 - CI runs backend linting, formatting, type checking, and tests, plus frontend lint, build, formatting, and audit checks before changes can merge.
+
+## Major limitations
+
+- The production topology is a single Docker host with local PostgreSQL, Redis,
+  MLflow, model artifacts, and telemetry volumes; it is not highly available.
+- HTTPS certificate automation, managed secrets, off-host state, automatic
+  failover, external paging, and production-scale capacity evidence are not
+  included.
+- Training supports bounded Random Forest regression and integer-label
+  classification only. Prediction probabilities, RAG, computer vision, MQTT,
+  Kafka, and automatic model promotion are not implemented.
+- The frontend is a lightweight landing surface; complete workflows are exposed
+  through the authenticated API and local Swagger documentation.
+- The repository currently has no selected license or contribution guide. No
+  reuse rights should be inferred until the owner chooses and adds a license.
+- Package and runtime version declarations have not yet been consolidated into
+  one canonical source; this release is identified as `v1.0.0` in release
+  documentation.
