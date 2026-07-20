@@ -44,6 +44,9 @@ Random Forest regression and integer-label classification are the only supported
 - [Platform observability](docs/platform-observability.md) documents Prometheus
   metrics, exporters, cAdvisor, provisioned Grafana dashboards, privacy rules,
   and production hardening guidance.
+- [Structured logging and Loki](docs/structured-logging-and-loki.md) documents
+  safe JSON logs, request and worker correlation, Alloy collection, Loki
+  retention, LogQL, dashboards, and production hardening.
 - [AI Core MVP release checkpoint](docs/releases/ai-core-mvp.md) records delivered
   capabilities, quality evidence, architectural decisions, and known limitations.
 - [`examples/ai-core/`](examples/ai-core/) contains Pydantic-validated JSON request
@@ -135,6 +138,8 @@ Local observability endpoints:
 ```text
 Backend metrics  http://localhost:8000/metrics
 Prometheus       http://localhost:9090
+Loki             http://localhost:3100/ready
+Alloy            http://localhost:12345/-/ready
 Grafana          http://localhost:3000
 ```
 

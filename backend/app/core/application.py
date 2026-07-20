@@ -6,6 +6,8 @@ from app.api.router import api_router
 from app.config.settings import Settings, get_settings
 from app.observability import (
     PrometheusMetricsMiddleware,
+    RequestContextLoggingMiddleware,
+    configure_logging,
     configure_metrics,
     metrics_response,
 )
@@ -56,6 +58,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     """Create and configure a FastAPI application instance."""
     resolved_settings = settings if settings is not None else get_settings()
     docs_url = "/docs" if resolved_settings.environment != "production" else None
+    configure_logging(
+        enabled=resolved_settings.structured_logging_enabled,
+        log_format=resolved_settings.log_format,
+        log_level=resolved_settings.log_level,
+        service=resolved_settings.log_service_name,
+        environment=resolved_settings.log_environment,
+        access_logging_enabled=resolved_settings.http_access_logging_enabled,
+    )
 
     application = FastAPI(
         title=resolved_settings.project_name,
@@ -95,6 +105,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             include_in_schema=False,
             name="prometheus-metrics",
         )
+    noisy_paths = frozenset(
+        {
+            resolved_settings.observability_metrics_path,
+            "/docs",
+            "/openapi.json",
+            "/health",
+        }
+    )
+    application.add_middleware(
+        RequestContextLoggingMiddleware,
+        request_id_header=resolved_settings.request_id_header,
+        correlation_id_header=resolved_settings.correlation_id_header,
+        access_logging_enabled=resolved_settings.http_access_logging_enabled,
+        excluded_paths=noisy_paths,
+    )
     if settings is not None:
         application.dependency_overrides[get_settings] = lambda: resolved_settings
     application.include_router(api_router)

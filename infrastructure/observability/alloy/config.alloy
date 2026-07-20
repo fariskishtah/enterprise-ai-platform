@@ -1,0 +1,57 @@
+logging {
+	level  = "info"
+	format = "logfmt"
+}
+
+discovery.docker "project_containers" {
+	host             = "unix:///var/run/docker.sock"
+	refresh_interval = "5s"
+
+	filter {
+		name   = "label"
+		values = ["com.docker.compose.project=" + sys.env("COMPOSE_PROJECT_NAME")]
+	}
+}
+
+discovery.relabel "project_containers" {
+	targets = discovery.docker.project_containers.targets
+
+	rule {
+		source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+		target_label  = "service"
+	}
+
+	rule {
+		source_labels = ["__meta_docker_container_name"]
+		regex         = "/(.*)"
+		replacement   = "$1"
+		target_label  = "container"
+	}
+
+	rule {
+		target_label = "environment"
+		replacement  = sys.env("LOG_ENVIRONMENT")
+	}
+}
+
+loki.source.docker "project_containers" {
+	host             = "unix:///var/run/docker.sock"
+	targets          = discovery.relabel.project_containers.output
+	labels           = {"stream" = "docker"}
+	refresh_interval = "5s"
+	forward_to       = [loki.process.bounded_labels.receiver]
+}
+
+loki.process "bounded_labels" {
+	stage.label_keep {
+		values = ["service", "container", "environment", "stream"]
+	}
+
+	forward_to = [loki.write.local.receiver]
+}
+
+loki.write "local" {
+	endpoint {
+		url = "http://loki:3100/loki/api/v1/push"
+	}
+}

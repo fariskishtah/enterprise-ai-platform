@@ -13,18 +13,9 @@ from app.observability.metrics import (
     configure_metrics,
     record_background_job_failure,
 )
+from app.observability.worker_logging import worker_job_name
 
 logger = logging.getLogger(__name__)
-
-_ACTOR_JOB_NAMES = {
-    "execute_training_job": "training",
-    "execute_scheduled_monitoring": "monitoring_evaluation",
-    "execute_prediction_event_retention": "prediction_event_retention",
-    "execute_monitoring_evaluation_retention": "monitoring_evaluation_retention",
-    "execute_reference_profile_reconciliation": "reference_profile_reconciliation",
-    "execute_retraining_reconciliation": "retraining_reconciliation",
-    "execute_stale_alert_reconciliation": "stale_alert_reconciliation",
-}
 
 
 class WorkerPrometheusMiddleware(Middleware):
@@ -68,6 +59,6 @@ class WorkerPrometheusMiddleware(Middleware):
         _ = (broker, result)
         if exception is None:
             return
-        job_name = _ACTOR_JOB_NAMES.get(message.actor_name)
+        job_name = worker_job_name(message.actor_name)
         if job_name is not None:
             record_background_job_failure(job_name=job_name)

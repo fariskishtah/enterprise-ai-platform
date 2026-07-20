@@ -1,0 +1,51 @@
+{
+  "annotations": {"list": []},
+  "editable": false,
+  "graphTooltip": 1,
+  "panels": [
+    {
+      "datasource": {"type": "loki", "uid": "loki"},
+      "gridPos": {"h": 13, "w": 24, "x": 0, "y": 0},
+      "id": 1,
+      "options": {"dedupStrategy": "none", "enableLogDetails": true, "prettifyLogMessage": true, "showCommonLabels": false, "showLabels": false, "showTime": true, "sortOrder": "Ascending", "wrapLogMessage": true},
+      "targets": [{"direction": "backward", "editorMode": "code", "expr": "{stream=\"docker\",service=~\"${service:regex}\",environment=~\"${environment:regex}\"} | json | __error__=\"\" | request_id=~\"$request_id\" | correlation_id=~\"$correlation_id\"", "queryType": "range", "refId": "A"}],
+      "title": "Matching request and correlation logs",
+      "type": "logs"
+    },
+    {
+      "datasource": {"type": "loki", "uid": "loki"},
+      "gridPos": {"h": 10, "w": 12, "x": 0, "y": 13},
+      "id": 2,
+      "options": {"dedupStrategy": "none", "enableLogDetails": true, "prettifyLogMessage": true, "showCommonLabels": false, "showLabels": false, "showTime": true, "sortOrder": "Ascending", "wrapLogMessage": true},
+      "targets": [{"direction": "backward", "editorMode": "code", "expr": "{stream=\"docker\",service=~\"${service:regex}\",environment=~\"${environment:regex}\"} | json | __error__=\"\" | message=\"http_request_completed\" | request_id=~\"$request_id\"", "queryType": "range", "refId": "A"}],
+      "title": "HTTP request completion",
+      "type": "logs"
+    },
+    {
+      "datasource": {"type": "loki", "uid": "loki"},
+      "gridPos": {"h": 10, "w": 12, "x": 12, "y": 13},
+      "id": 3,
+      "options": {"dedupStrategy": "none", "enableLogDetails": true, "prettifyLogMessage": true, "showCommonLabels": false, "showLabels": false, "showTime": true, "sortOrder": "Ascending", "wrapLogMessage": true},
+      "targets": [{"direction": "backward", "editorMode": "code", "expr": "{stream=\"docker\",service=~\"${service:regex}\",environment=~\"${environment:regex}\"} | json | __error__=\"\" | correlation_id=~\"$correlation_id\" | message=\"background_job_lifecycle\"", "queryType": "range", "refId": "A"}],
+      "title": "Correlated background jobs",
+      "type": "logs"
+    }
+  ],
+  "refresh": "10s",
+  "schemaVersion": 41,
+  "tags": ["logs", "correlation", "observability"],
+  "templating": {
+    "list": [
+      {"allValue": ".*", "current": {"text": "All", "value": "$__all"}, "datasource": {"type": "loki", "uid": "loki"}, "definition": "label_values({stream=\"docker\"}, service)", "includeAll": true, "label": "Service", "multi": true, "name": "service", "options": [], "query": {"label": "service", "refId": "LokiVariableQuery", "stream": "{stream=\"docker\"}", "type": 1}, "refresh": 1, "regex": "", "type": "query"},
+      {"allValue": ".*", "current": {"text": "All", "value": "$__all"}, "datasource": {"type": "loki", "uid": "loki"}, "definition": "label_values({stream=\"docker\",service=~\"${service:regex}\"}, environment)", "includeAll": true, "label": "Environment", "multi": true, "name": "environment", "options": [], "query": {"label": "environment", "refId": "LokiVariableQuery", "stream": "{stream=\"docker\",service=~\"${service:regex}\"}", "type": 1}, "refresh": 1, "regex": "", "type": "query"},
+      {"current": {"text": ".*", "value": ".*"}, "label": "Request ID regex", "name": "request_id", "options": [{"selected": true, "text": ".*", "value": ".*"}], "query": ".*", "type": "textbox"},
+      {"current": {"text": ".*", "value": ".*"}, "label": "Correlation ID regex", "name": "correlation_id", "options": [{"selected": true, "text": ".*", "value": ".*"}], "query": ".*", "type": "textbox"}
+    ]
+  },
+  "time": {"from": "now-1h", "to": "now"},
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Request Correlation",
+  "uid": "request-correlation",
+  "version": 2
+}

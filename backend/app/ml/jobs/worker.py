@@ -60,6 +60,7 @@ from app.ml.trainers.random_forest.types import (
     RegressionPredictionArray,
     RegressionTargetArray,
 )
+from app.observability.logging import emit_safe
 from app.observability.metrics import record_training_job_finished
 from app.repositories.ai_governance import TrainingJobRepository
 from app.repositories.ai_monitoring import PredictionMonitoringRepository
@@ -123,15 +124,30 @@ class TrainingJobWorker:
 
         def finished(state: WorkerExecutionState) -> WorkerExecutionState:
             if state in {WorkerExecutionState.SUCCEEDED, WorkerExecutionState.TERMINAL}:
+                final_status = (
+                    "succeeded" if state is WorkerExecutionState.SUCCEEDED else "failed"
+                )
                 record_training_job_finished(
                     task_type=claimed.key.task_type.value,
                     algorithm=claimed.key.algorithm.value,
-                    final_status=(
-                        "succeeded"
-                        if state is WorkerExecutionState.SUCCEEDED
-                        else "failed"
-                    ),
+                    final_status=final_status,
                     duration_seconds=max(perf_counter() - started_clock, 0.0),
+                )
+                emit_safe(
+                    logger,
+                    logging.INFO,
+                    "training_job_outcome",
+                    extra={
+                        "job_name": "training",
+                        "task_type": claimed.key.task_type.value,
+                        "algorithm": claimed.key.algorithm.value,
+                        "lifecycle_status": final_status,
+                        "attempt_number": claimed.attempt_count,
+                        "duration_ms": round(
+                            max(perf_counter() - started_clock, 0.0) * 1000,
+                            3,
+                        ),
+                    },
                 )
             return state
 
@@ -171,7 +187,19 @@ class TrainingJobWorker:
             ValidationError,
             ValueError,
         ):
-            logger.exception("Deterministic training job failure for %s", job_id)
+            emit_safe(
+                logger,
+                logging.ERROR,
+                "training_job_execution_failed",
+                extra={
+                    "job_name": "training",
+                    "task_type": claimed.key.task_type.value,
+                    "algorithm": claimed.key.algorithm.value,
+                    "lifecycle_status": "validation_failed",
+                    "attempt_number": claimed.attempt_count,
+                },
+                exc_info=True,
+            )
             return finished(
                 await self._fail(
                     job_id=job_id,
@@ -188,7 +216,19 @@ class TrainingJobWorker:
             RegisteredModelVersionNotFoundError,
             OSError,
         ):
-            logger.exception("Transient training job failure for %s", job_id)
+            emit_safe(
+                logger,
+                logging.ERROR,
+                "training_job_execution_failed",
+                extra={
+                    "job_name": "training",
+                    "task_type": claimed.key.task_type.value,
+                    "algorithm": claimed.key.algorithm.value,
+                    "lifecycle_status": "retryable_failure",
+                    "attempt_number": claimed.attempt_count,
+                },
+                exc_info=True,
+            )
             if claimed.attempt_count < claimed.max_attempts:
                 return await self._retry(
                     job_id=job_id,
@@ -209,7 +249,19 @@ class TrainingJobWorker:
                 )
             )
         except Exception:
-            logger.exception("Unexpected training job failure for %s", job_id)
+            emit_safe(
+                logger,
+                logging.ERROR,
+                "training_job_execution_failed",
+                extra={
+                    "job_name": "training",
+                    "task_type": claimed.key.task_type.value,
+                    "algorithm": claimed.key.algorithm.value,
+                    "lifecycle_status": "unexpected_failure",
+                    "attempt_number": claimed.attempt_count,
+                },
+                exc_info=True,
+            )
             return finished(
                 await self._fail(
                     job_id=job_id,
@@ -238,7 +290,18 @@ class TrainingJobWorker:
             )
             if completed is None:
                 await repository.rollback()
-                logger.error("Job %s changed before successful completion", job_id)
+                emit_safe(
+                    logger,
+                    logging.WARNING,
+                    "training_job_completion_conflict",
+                    extra={
+                        "job_name": "training",
+                        "task_type": claimed.key.task_type.value,
+                        "algorithm": claimed.key.algorithm.value,
+                        "lifecycle_status": "skipped",
+                        "attempt_number": claimed.attempt_count,
+                    },
+                )
                 return WorkerExecutionState.SKIPPED
             await repository.commit()
         return finished(WorkerExecutionState.SUCCEEDED)
@@ -260,17 +323,28 @@ class TrainingJobWorker:
                 )
                 await repository.commit()
             except Exception:
-                logger.exception(
-                    "Reference profile persistence failed for training job %s; "
-                    "bounded reconciliation is required.",
-                    job_id,
+                emit_safe(
+                    logger,
+                    logging.ERROR,
+                    "reference_profile_persistence_failed",
+                    extra={
+                        "job_name": "training",
+                        "lifecycle_status": "checkpoint_failed",
+                    },
+                    exc_info=True,
                 )
                 try:
                     await repository.rollback()
                 except Exception:
-                    logger.exception(
-                        "Reference profile rollback also failed for job %s.",
-                        job_id,
+                    emit_safe(
+                        logger,
+                        logging.ERROR,
+                        "reference_profile_rollback_failed",
+                        extra={
+                            "job_name": "training",
+                            "lifecycle_status": "rollback_failed",
+                        },
+                        exc_info=True,
                     )
 
     async def _retry(
@@ -493,11 +567,17 @@ def _safe_reference_profile(
             created_at=utc_now(),
         )
     except Exception:
-        logger.exception(
-            "Reference profile construction failed for %s version %s; "
-            "bounded reconciliation is required.",
-            registered_model_name,
-            model_version,
+        emit_safe(
+            logger,
+            logging.ERROR,
+            "reference_profile_construction_failed",
+            extra={
+                "job_name": "training",
+                "task_type": key.task_type.value,
+                "algorithm": key.algorithm.value,
+                "lifecycle_status": "profile_degraded",
+            },
+            exc_info=True,
         )
         return None
 
