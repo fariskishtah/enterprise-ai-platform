@@ -34,6 +34,8 @@ class TokenClaims(BaseModel):
     sub: UUID
     jti: UUID
     typ: TokenType
+    iss: str
+    aud: str
     exp: int
     iat: int
     email: str | None = None
@@ -55,6 +57,8 @@ def create_jwt_token(
     token_type: TokenType,
     secret_key: str,
     algorithm: str,
+    issuer: str,
+    audience: str,
     expires_delta: timedelta,
     additional_claims: dict[str, str] | None = None,
 ) -> CreatedToken:
@@ -63,14 +67,15 @@ def create_jwt_token(
     expires_at = now + expires_delta
     jti = uuid4()
     payload: dict[str, Any] = {
+        **(additional_claims or {}),
         "sub": str(subject),
         "jti": str(jti),
         "typ": token_type.value,
+        "iss": issuer,
+        "aud": audience,
         "iat": int(now.timestamp()),
         "exp": int(expires_at.timestamp()),
     }
-    if additional_claims is not None:
-        payload.update(additional_claims)
 
     token = jwt.encode(payload, secret_key, algorithm=algorithm)
     return CreatedToken(
@@ -85,11 +90,20 @@ def decode_jwt_token(
     token: str,
     secret_key: str,
     algorithm: str,
+    issuer: str,
+    audience: str,
     expected_type: TokenType,
 ) -> TokenClaims:
     """Decode and validate a signed JWT."""
     try:
-        payload = jwt.decode(token, secret_key, algorithms=[algorithm])
+        payload = jwt.decode(
+            token,
+            secret_key,
+            algorithms=[algorithm],
+            issuer=issuer,
+            audience=audience,
+            options={"require": ["sub", "jti", "typ", "iss", "aud", "iat", "exp"]},
+        )
         claims = TokenClaims.model_validate(payload)
     except (jwt.PyJWTError, ValidationError) as exc:
         msg = "Invalid authentication token."

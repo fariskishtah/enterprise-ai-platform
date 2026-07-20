@@ -1,19 +1,13 @@
 # Security Documentation
 
-This document describes the security model in version `0.3.0`.
+This document describes the platform security model.
 
 ## Password Hashing
 
 Passwords are hashed with `pwdlib[argon2]` using `PasswordHash.recommended()`. Plaintext passwords are accepted only at registration and login boundaries and are never persisted.
 
-The password policy requires:
-
-- 12 to 128 characters.
-- At least one lowercase letter.
-- At least one uppercase letter.
-- At least one number.
-- At least one special character.
-- No whitespace.
+The password policy requires 12 to 128 characters. It deliberately permits spaces
+and does not impose composition rules, so long passphrases are supported.
 
 ## JWT
 
@@ -27,10 +21,14 @@ JWTs include:
 - `sub`: user UUID.
 - `jti`: token UUID.
 - `typ`: token purpose.
+- `iss`: configured platform issuer.
+- `aud`: configured API audience.
 - `iat`: issued-at timestamp.
 - `exp`: expiration timestamp.
 
-Access tokens also include `email` and `role` claims. Protected routes validate the access token signature, expected token purpose, active user state, and RBAC role.
+Access tokens also include `email` and `role` claims. Protected routes validate the
+signature, issuer, audience, expiry, required claims, expected token purpose, active
+user state, and RBAC role. Access and refresh tokens are not interchangeable.
 
 ## Refresh Tokens
 
@@ -56,13 +54,27 @@ Supported roles:
 
 RBAC is enforced through the `require_roles` FastAPI dependency.
 
+## API Boundary Hardening
+
+- Registration, login, and token refresh have a narrow Redis-backed per-client
+  fixed-window rate limit. Redis failures preserve authentication availability and
+  emit a bounded operational error without request data.
+- CORS uses an explicit settings-driven origin allowlist; wildcard origins are not
+  accepted and production settings reject local origins.
+- API responses receive clickjacking, MIME-sniffing, referrer, permissions, and CSP
+  protections. Development documentation paths omit CSP so Swagger remains usable.
+- Authentication responses use `Cache-Control: no-store`.
+- Structured security audit events cover login outcomes, rate-limit denials, and
+  privileged authorization denials without user identifiers or secrets.
+
 ## Threat Model
 
 Primary risks addressed:
 
 - Credential theft: password hashes use Argon2 rather than plaintext or fast hashes.
 - Refresh-token replay: refresh tokens rotate and old tokens are revoked.
-- Token tampering: JWT signatures are validated before claims are trusted.
+- Token tampering or cross-use: JWT signature, issuer, audience, expiry, and purpose
+  are validated before claims are trusted.
 - Unauthorized access: protected routes require valid bearer access tokens.
 - Privilege misuse: manufacturing mutations are role-gated.
 - Duplicate company identity: company names are normalized and uniquely indexed.

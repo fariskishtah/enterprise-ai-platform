@@ -1,9 +1,11 @@
 """FastAPI application factory."""
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.router import api_router
 from app.config.settings import Settings, get_settings
+from app.core.security_headers import SecurityHeadersMiddleware
 from app.observability import (
     FastAPITracingMiddleware,
     PrometheusMetricsMiddleware,
@@ -84,6 +86,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
 
     application = FastAPI(
+        debug=False,
         title=resolved_settings.project_name,
         version=resolved_settings.app_version,
         description=(
@@ -95,6 +98,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         docs_url=docs_url,
         openapi_tags=OPENAPI_TAGS,
         redoc_url=None,
+    )
+    application.add_middleware(
+        CORSMiddleware,
+        allow_origins=list(resolved_settings.cors_allowed_origins),
+        allow_credentials=resolved_settings.cors_allow_credentials,
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=[
+            "Authorization",
+            "Content-Type",
+            resolved_settings.request_id_header,
+            resolved_settings.correlation_id_header,
+        ],
+        expose_headers=[
+            "Retry-After",
+            resolved_settings.request_id_header,
+            resolved_settings.correlation_id_header,
+        ],
     )
     configure_metrics(
         enabled=resolved_settings.observability_metrics_enabled,
@@ -141,6 +161,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     if settings is not None:
         application.dependency_overrides[get_settings] = lambda: resolved_settings
     application.include_router(api_router)
+    application.add_middleware(SecurityHeadersMiddleware)
     application.add_middleware(
         FastAPITracingMiddleware,
         enabled=resolved_settings.tracing_enabled,

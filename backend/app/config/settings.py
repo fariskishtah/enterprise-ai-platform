@@ -13,6 +13,7 @@ from pydantic import (
     PositiveInt,
     SecretStr,
     StringConstraints,
+    field_validator,
     model_validator,
 )
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -42,11 +43,31 @@ class Settings(BaseSettings):
     app_version: str = "0.8.0"
     database_url: str = Field(min_length=1)
     redis_url: str = Field(min_length=1)
-    secret_key: SecretStr
+    secret_key: SecretStr = Field(min_length=32)
     environment: EnvironmentName = "local"
-    jwt_algorithm: str = "HS256"
+    jwt_algorithm: Literal["HS256"] = "HS256"
+    jwt_issuer: str = Field(
+        default="ai-manufacturing-platform",
+        min_length=1,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9._:-]+$",
+    )
+    jwt_audience: str = Field(
+        default="ai-manufacturing-api",
+        min_length=1,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9._:-]+$",
+    )
     access_token_expire_minutes: PositiveInt = 15
     refresh_token_expire_days: PositiveInt = 30
+    auth_rate_limit_enabled: bool = True
+    auth_rate_limit_requests: PositiveInt = Field(default=10, le=1000)
+    auth_rate_limit_window_seconds: PositiveInt = Field(default=60, le=3600)
+    cors_allowed_origins: tuple[str, ...] = (
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    )
+    cors_allow_credentials: bool = False
     structured_logging_enabled: bool = True
     log_format: LogFormat = "json"
     log_level: LogLevel = "INFO"
@@ -243,9 +264,39 @@ class Settings(BaseSettings):
     retraining_allow_truncated_drift: bool = True
     optuna_storage_url: str | None = None
 
+    @field_validator("cors_allowed_origins")
+    @classmethod
+    def validate_cors_allowed_origins(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        """Require an explicit, credential-free HTTP(S) origin allowlist."""
+        normalized_origins: list[str] = []
+        for origin in value:
+            parsed = urlsplit(origin)
+            if (
+                parsed.scheme not in {"http", "https"}
+                or not parsed.hostname
+                or parsed.username is not None
+                or parsed.password is not None
+                or parsed.path not in {"", "/"}
+                or parsed.query
+                or parsed.fragment
+                or origin == "*"
+            ):
+                raise ValueError("cors_allowed_origins contains an invalid origin.")
+            normalized = f"{parsed.scheme}://{parsed.netloc}"
+            if normalized not in normalized_origins:
+                normalized_origins.append(normalized)
+        return tuple(normalized_origins)
+
     @model_validator(mode="after")
     def validate_drift_threshold_order(self) -> Self:
         """Require the operational warning threshold below critical."""
+        if self.environment == "production" and any(
+            urlsplit(origin).hostname in {"localhost", "127.0.0.1", "::1"}
+            for origin in self.cors_allowed_origins
+        ):
+            raise ValueError(
+                "production cors_allowed_origins must not contain local origins."
+            )
         otlp_endpoint = urlsplit(self.otel_exporter_otlp_endpoint)
         if (
             otlp_endpoint.scheme not in {"http", "https"}

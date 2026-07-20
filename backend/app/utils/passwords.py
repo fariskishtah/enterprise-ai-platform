@@ -1,7 +1,5 @@
 """Password hashing and password policy utilities."""
 
-import re
-
 from pwdlib import PasswordHash
 
 
@@ -25,25 +23,10 @@ class PasswordHasher:
 
 
 def validate_password_strength(password: str) -> None:
-    """Validate the minimum password strength policy."""
+    """Require a practical passphrase length without composition rules."""
     if len(password) < 12:
         msg = "Password must be at least 12 characters long."
         raise PasswordPolicyError(msg)
     if len(password) > 128:
         msg = "Password must be at most 128 characters long."
-        raise PasswordPolicyError(msg)
-    if any(character.isspace() for character in password):
-        msg = "Password must not contain whitespace."
-        raise PasswordPolicyError(msg)
-    if re.search(r"[a-z]", password) is None:
-        msg = "Password must include a lowercase letter."
-        raise PasswordPolicyError(msg)
-    if re.search(r"[A-Z]", password) is None:
-        msg = "Password must include an uppercase letter."
-        raise PasswordPolicyError(msg)
-    if re.search(r"\d", password) is None:
-        msg = "Password must include a number."
-        raise PasswordPolicyError(msg)
-    if re.search(r"[^A-Za-z0-9]", password) is None:
-        msg = "Password must include a special character."
         raise PasswordPolicyError(msg)

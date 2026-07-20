@@ -31,10 +31,14 @@ _EMAIL_PATTERN: Final = re.compile(
     r"(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+\b"
 )
 _BEARER_PATTERN: Final = re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._~+/=-]+")
+_SENSITIVE_HEADER_PATTERN: Final = re.compile(
+    r"(?im)\b(authorization|cookie|set-cookie|x-api-key)\s*:\s*[^\r\n]+"
+)
 _SECRET_PATTERN: Final = re.compile(
-    r"(?i)\b(authorization|cookie|set-cookie|password|passwd|secret|"
-    r"access[_-]?token|refresh[_-]?token|api[_-]?key)\b"
-    r"\s*[:=]\s*(?:\"[^\"]*\"|'[^']*'|[^\s,;]+)"
+    r"(?i)([\"']?(?:authorization|cookie|set-cookie|password|passwd|secret|"
+    r"client[_-]?secret|access[_-]?token|refresh[_-]?token|"
+    r"(?:x[-_])?api[_-]?key|session[_-]?id)[\"']?\s*[:=]\s*)"
+    r"(?:\"[^\"]*\"|'[^']*'|[^\s,;}]+)"
 )
 _URL_CREDENTIAL_PATTERN: Final = re.compile(r"(?i)(https?://)[^/@\s:]+:[^/@\s]+@")
 _SENSITIVE_PAYLOAD_PATTERN: Final = re.compile(
@@ -56,6 +60,11 @@ _PLATFORM_FIELDS: Final = (
     "lifecycle_status",
     "attempt_number",
     "error_kind",
+    "audit_event",
+    "outcome",
+    "reason",
+    "actor_role",
+    "required_roles",
 )
 
 _configuration_lock = Lock()
@@ -129,9 +138,12 @@ def sanitize_log_text(value: object) -> str:
     except Exception:
         return "log_value_unavailable"
     rendered = _URL_CREDENTIAL_PATTERN.sub(r"\1[REDACTED]@", rendered)
+    rendered = _SENSITIVE_HEADER_PATTERN.sub(
+        lambda match: f"{match.group(1)}: [REDACTED]", rendered
+    )
     rendered = _BEARER_PATTERN.sub("Bearer [REDACTED]", rendered)
     rendered = _SECRET_PATTERN.sub(
-        lambda match: f"{match.group(1)}=[REDACTED]", rendered
+        lambda match: f"{match.group(1)}[REDACTED]", rendered
     )
     rendered = _SENSITIVE_PAYLOAD_PATTERN.sub(
         lambda match: f"{match.group(1)}=[REDACTED]", rendered
@@ -295,6 +307,7 @@ def configure_logging(
 
         for logger_name in (
             "app.access",
+            "app.security.audit",
             "app.worker",
             "uvicorn",
             "uvicorn.error",
