@@ -1,6 +1,6 @@
 # AI Manufacturing Platform
 
-Production-grade monorepo foundation for an AI Manufacturing Platform. Sprint 1 created the platform skeleton, Sprint 2 added authentication and user management, Sprint 3 added the core manufacturing domain, Sprint 4 added sensor management, Sprint 5 added the backend sensor data platform, Sprint 6 added CSV ETL and data validation, Sprint 7 added backend feature engineering dataset exports, and Sprint 8 added MLOps experiment management infrastructure. AI Core now connects typed local Random Forest training to persistent Redis-backed jobs, dedicated workers, MLflow experiment tracking, fitted-model registration, controlled alias promotion, auditable governance, registered-model prediction, privacy-preserving prediction events, persisted exact-version monitoring evaluations, internal alerts, mature outcomes, and controlled candidate retraining. Cloud deployment, external alert delivery, RAG, computer vision, MQTT, and Kafka are not implemented.
+Production-grade monorepo foundation for an AI Manufacturing Platform. Sprint 1 created the platform skeleton, Sprint 2 added authentication and user management, Sprint 3 added the core manufacturing domain, Sprint 4 added sensor management, Sprint 5 added the backend sensor data platform, Sprint 6 added CSV ETL and data validation, Sprint 7 added backend feature engineering dataset exports, and Sprint 8 added MLOps experiment management infrastructure. AI Core now connects typed local Random Forest training to persistent Redis-backed jobs, dedicated workers, MLflow experiment tracking, fitted-model registration, controlled alias promotion, auditable governance, registered-model prediction, privacy-preserving prediction events, persisted exact-version monitoring evaluations, internal alerts, mature outcomes, and controlled candidate retraining. An initial single-VM Google Cloud Docker Compose deployment is prepared; automated provisioning, multi-node deployment, external alert delivery, RAG, computer vision, MQTT, and Kafka are not implemented.
 
 ## Project Overview
 
@@ -59,6 +59,9 @@ Random Forest regression and integer-label classification are the only supported
 - [Performance and load testing](docs/performance-and-load-testing.md) documents
   bounded k6 smoke, API, authentication, and opt-in training-job scenarios,
   thresholds, result interpretation, and pinned Docker commands.
+- [Google Cloud production deployment](docs/google-cloud-production-deployment.md)
+  documents the single-VM Compose topology, one-shot migrations, verification,
+  HTTPS preparation, backups, rollback, monitoring, and billing safeguards.
 - [AI Core MVP release checkpoint](docs/releases/ai-core-mvp.md) records delivered
   capabilities, quality evidence, architectural decisions, and known limitations.
 - [`examples/ai-core/`](examples/ai-core/) contains Pydantic-validated JSON request

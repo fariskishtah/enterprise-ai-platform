@@ -1,0 +1,24 @@
+# Deployment-local HTTPS server example. Copy this file outside source control,
+# replace the certificate directory placeholder, mount it as a .conf file, and
+# publish reverse-proxy container port 8443 as host port 443.
+server {
+    listen 8443 ssl;
+    listen [::]:8443 ssl;
+    server_name _;
+
+    ssl_certificate /etc/letsencrypt/live/replace-with-domain/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/replace-with-domain/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_session_cache shared:TLS:10m;
+    ssl_session_timeout 1d;
+
+    add_header Strict-Transport-Security "max-age=31536000" always;
+
+    location = /healthz {
+        access_log off;
+        default_type text/plain;
+        return 200 "ok\n";
+    }
+
+    include /etc/nginx/routes.inc;
+}

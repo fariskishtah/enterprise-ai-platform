@@ -215,6 +215,7 @@ services:
     build:
       context: .
       dockerfile: docker/frontend/Dockerfile
+      target: development
     depends_on:
       - backend
     ports:
