@@ -20,7 +20,6 @@ export interface NavigationItem {
   readonly roles?: readonly NavigationRole[];
 }
 
-// Role filtering is intentionally deferred until authenticated role data exists.
 export const navigationItems: readonly NavigationItem[] = [
   {
     description: "Operational overview and platform status.",

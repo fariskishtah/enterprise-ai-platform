@@ -1,5 +1,6 @@
 import type { RefObject, ReactElement } from "react";
 
+import { useAuth } from "../auth/useAuth";
 import { Icon } from "./Icon";
 
 interface TopbarProps {
@@ -9,13 +10,15 @@ interface TopbarProps {
 }
 
 const PLACEHOLDER_CONTEXT = "Northstar · Alexandria";
-const PLACEHOLDER_USER = "Demo Operator";
 
 export function Topbar({
   menuButtonRef,
   onOpenNavigation,
   title,
 }: TopbarProps): ReactElement {
+  const { logout, role, user } = useAuth();
+  const initials = user?.email.slice(0, 2).toUpperCase() ?? "US";
+
   return (
     <header className="sticky top-0 z-20 flex h-16 shrink-0 items-center border-b border-neutral-200 bg-white px-4 sm:px-6 lg:px-8">
       <button
@@ -48,19 +51,25 @@ export function Topbar({
           </span>
         </button>
         <button
-          aria-label={`${PLACEHOLDER_USER} user menu. User actions are not available yet.`}
-          className="flex h-9 w-9 items-center justify-center rounded-full border border-neutral-200 bg-neutral-100 text-xs font-bold text-neutral-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700 sm:w-auto sm:gap-2 sm:rounded-md sm:px-2.5"
-          title="User menu will be available in a later phase"
+          aria-label={`Sign out ${user?.email ?? "current user"}`}
+          className="flex h-9 items-center justify-center gap-2 rounded-md border border-neutral-200 bg-neutral-100 px-2.5 text-xs font-bold text-neutral-700 hover:bg-neutral-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700"
+          onClick={() => void logout()}
+          title="Sign out"
           type="button"
         >
           <span
             aria-hidden="true"
             className="flex h-6 w-6 items-center justify-center rounded-full bg-teal-700 text-[10px] text-white"
           >
-            DO
+            {initials}
           </span>
-          <span className="hidden text-sm font-medium sm:inline">
-            {PLACEHOLDER_USER}
+          <span className="hidden min-w-0 text-left sm:block">
+            <span className="block max-w-40 truncate text-sm font-medium">
+              {user?.email}
+            </span>
+            <span className="block text-[10px] font-medium uppercase tracking-wider text-neutral-500">
+              {role}
+            </span>
           </span>
         </button>
       </div>
