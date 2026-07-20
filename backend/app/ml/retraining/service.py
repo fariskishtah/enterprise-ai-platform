@@ -55,6 +55,7 @@ from app.ml.retraining.policy import (
 from app.ml.retraining.specification import build_retraining_specification
 from app.observability.logging import emit_safe
 from app.observability.metrics import record_retraining_decision
+from app.observability.tracing import traced_async_operation
 from app.repositories.ai_retraining import (
     RetrainingAuditPage,
     RetrainingRepository,
@@ -365,6 +366,10 @@ class RetrainingService:
             monitoring_evaluation_id=evaluation.id,
         )
 
+    @traced_async_operation(
+        "retraining.decision",
+        attributes={"trigger": "controlled"},
+    )
     async def _evaluate(
         self,
         *,

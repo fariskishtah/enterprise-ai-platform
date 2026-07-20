@@ -47,6 +47,9 @@ Random Forest regression and integer-label classification are the only supported
 - [Structured logging and Loki](docs/structured-logging-and-loki.md) documents
   safe JSON logs, request and worker correlation, Alloy collection, Loki
   retention, LogQL, dashboards, and production hardening.
+- [Distributed tracing and Tempo](docs/distributed-tracing-and-tempo.md) documents
+  OpenTelemetry server/client/domain spans, W3C Dramatiq propagation, Tempo,
+  trace/log/metric links, privacy, sampling, and production limitations.
 - [AI Core MVP release checkpoint](docs/releases/ai-core-mvp.md) records delivered
   capabilities, quality evidence, architectural decisions, and known limitations.
 - [`examples/ai-core/`](examples/ai-core/) contains Pydantic-validated JSON request
@@ -140,6 +143,7 @@ Backend metrics  http://localhost:8000/metrics
 Prometheus       http://localhost:9090
 Loki             http://localhost:3100/ready
 Alloy            http://localhost:12345/-/ready
+Tempo            http://localhost:3200/ready
 Grafana          http://localhost:3000
 ```
 

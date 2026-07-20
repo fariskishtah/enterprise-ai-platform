@@ -1,10 +1,10 @@
 # Platform Observability
 
-This phase adds local and production-oriented metrics and logs without changing
-API, training, prediction, monitoring, retraining, MLflow, or worker business
-behavior. Tempo, OpenTelemetry tracing, Alertmanager, and external alert
-delivery are not included. Logging details are in
-[Structured logging and Loki](structured-logging-and-loki.md).
+This phase provides local and production-oriented metrics, logs, and distributed
+traces without changing API contracts or AI business behavior. Alertmanager and
+external alert delivery are not included. Logging details are in
+[Structured logging and Loki](structured-logging-and-loki.md); tracing details
+are in [Distributed tracing and Tempo](distributed-tracing-and-tempo.md).
 
 ## Architecture
 
@@ -17,6 +17,9 @@ cAdvisor ───────────────────────�
 Prometheus self-metrics ────────┘
 
 Backend / worker stdout ──► Alloy ──► Loki ──► Grafana
+
+FastAPI / SQLAlchemy / Redis ──► OTLP ──► Tempo ──► Grafana
+              Dramatiq W3C context ──────┘
 ```
 
 The FastAPI process exposes the required unauthenticated metrics route. The
@@ -50,6 +53,7 @@ need. The local endpoints are:
 | Prometheus targets | <http://localhost:9090/targets> |
 | Loki readiness | <http://localhost:3100/ready> |
 | Alloy readiness | <http://localhost:12345/-/ready> |
+| Tempo readiness | <http://localhost:3200/ready> |
 | Grafana | <http://localhost:3000> |
 
 Grafana uses `GRAFANA_ADMIN_USER` and `GRAFANA_ADMIN_PASSWORD`. The example
@@ -63,6 +67,7 @@ curl --fail http://localhost:8000/metrics
 curl --fail http://localhost:9090/-/healthy
 curl --fail http://localhost:3100/ready
 curl --fail http://localhost:12345/-/ready
+curl --fail http://localhost:3200/ready
 curl --fail http://localhost:3000/api/health
 curl --fail http://localhost:9090/api/v1/targets
 ```
@@ -126,6 +131,10 @@ The automatically provisioned `Platform Observability` folder contains:
   completions, worker lifecycles, and monitoring/retraining failures.
 - **Request Correlation**: request-ID and correlation-ID text filters across API
   and worker logs without making either identifier a Loki label.
+- **Distributed Tracing Overview**: TraceQL span rate, error rate, latency
+  percentiles, service grouping, and recent/slow trace searches.
+- **Trace Correlation**: backend-to-worker continuity, Dramatiq producer/consumer
+  spans, database/Redis spans, and error trace searches.
 
 Provisioned dashboards are read-only in the UI. Change the JSON files and
 restart Grafana to make durable updates.
@@ -138,9 +147,19 @@ OBSERVABILITY_METRICS_PATH=/metrics
 OBSERVABILITY_SERVICE_NAME=ai-manufacturing-backend
 OBSERVABILITY_ENVIRONMENT=local
 OBSERVABILITY_WORKER_METRICS_PORT=9191
+TRACING_ENABLED=true
+OTEL_SERVICE_NAME=ai-manufacturing-backend
+OTEL_WORKER_SERVICE_NAME=ai-manufacturing-training-worker
+OTEL_SERVICE_NAMESPACE=ai-manufacturing-platform
+OTEL_ENVIRONMENT=local
+OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo:4317
+OTEL_EXPORTER_OTLP_INSECURE=true
+OTEL_TRACES_SAMPLER=parentbased_traceidratio
+OTEL_TRACES_SAMPLER_ARG=1.0
 PROMETHEUS_PORT=9090
 LOKI_PORT=3100
 ALLOY_PORT=12345
+TEMPO_PORT=3200
 GRAFANA_PORT=3000
 GRAFANA_ADMIN_USER=admin
 GRAFANA_ADMIN_PASSWORD=replace-with-a-local-password
@@ -158,8 +177,9 @@ it. It exposes process aggregates and fixed labels only; it never reads or emits
 request bodies, authorization headers, credentials, raw features, raw
 predictions, emails, user IDs, model identities, or stored monitoring reports.
 
-Prometheus, Loki, Alloy, and Grafana host ports bind to `127.0.0.1`. Exporters,
-cAdvisor, and worker metrics have internal Compose ports only. PostgreSQL
+Prometheus, Loki, Alloy, Tempo, and Grafana host ports bind to `127.0.0.1`.
+Exporters, cAdvisor, OTLP receivers, and worker metrics have internal Compose
+ports only. PostgreSQL
 exporter credentials reuse local database environment variables and are not
 written to Prometheus or Grafana provisioning files. Alloy receives a read-only
 Docker socket mount to discover this Compose project's logs; do not expose its
@@ -172,7 +192,7 @@ Validate configuration and inspect services:
 ```bash
 docker compose config -q
 docker compose ps
-docker compose logs prometheus loki alloy grafana postgres-exporter redis-exporter cadvisor
+docker compose logs prometheus loki alloy tempo grafana postgres-exporter redis-exporter cadvisor
 docker compose exec prometheus promtool check config /etc/prometheus/prometheus.yml
 ```
 
@@ -193,8 +213,10 @@ operation occurs.
   fewer host/container details than native Linux.
 - The PostgreSQL exporter uses the application database account for local
   convenience.
-- There are no alert rules, Alertmanager, traces, SLOs, or external alert
-  destinations in this phase.
+- Tempo is a single local binary with filesystem storage and direct OTLP export;
+  it is not a production HA, authenticated, multitenant collector topology.
+- There are no alert rules, Alertmanager, SLOs, or external alert destinations
+  in this phase.
 
 ## Production recommendations
 

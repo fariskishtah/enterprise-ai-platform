@@ -116,12 +116,20 @@ scraping, exporters, cAdvisor, and provisioned Grafana dashboards.
 The [structured logging and Loki guide](../docs/structured-logging-and-loki.md)
 covers the safe log schema, request/correlation headers, Dramatiq propagation,
 Alloy collection, Loki queries, privacy controls, and troubleshooting.
+The [distributed tracing and Tempo guide](../docs/distributed-tracing-and-tempo.md)
+covers OpenTelemetry startup, normalized server spans, SQLAlchemy/Redis client
+spans, W3C Dramatiq propagation, Grafana correlation, sampling, and privacy.
 
 The API returns validated `X-Request-ID` and `X-Correlation-ID` headers on normal
 responses and emits one completion log per non-noisy request. JSON is the
 container default; set `LOG_FORMAT=text` for readable local output. Access logs
 exclude `/metrics`, `/health`, `/docs`, and `/openapi.json`, and Uvicorn's access
 logger is disabled while the application completion logger is enabled.
+During a valid active OpenTelemetry span, the same JSON schema populates
+`trace_id` from span context. It stays `null` outside a span and remains
+independent from request and correlation IDs. Tracing excludes the same noisy
+paths plus `/redoc` and never captures bodies, query strings, or arbitrary
+headers.
 
 ## Local Development
 

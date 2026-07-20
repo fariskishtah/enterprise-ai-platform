@@ -1,0 +1,77 @@
+{
+  "annotations": {"list": []},
+  "editable": false,
+  "graphTooltip": 1,
+  "panels": [
+    {
+      "datasource": {"type": "tempo", "uid": "tempo"},
+      "fieldConfig": {"defaults": {}, "overrides": []},
+      "gridPos": {"h": 10, "w": 24, "x": 0, "y": 0},
+      "id": 1,
+      "options": {"cellHeight": "sm", "showHeader": true},
+      "targets": [{"datasource": {"type": "tempo", "uid": "tempo"}, "filters": [], "limit": 50, "query": "{ resource.service.name = \"ai-manufacturing-backend\" } >> { resource.service.name = \"ai-manufacturing-training-worker\" } with (most_recent=true)", "queryType": "traceql", "refId": "A", "spss": 10, "tableType": "traces"}],
+      "title": "Backend to worker trace continuity",
+      "type": "table"
+    },
+    {
+      "datasource": {"type": "tempo", "uid": "tempo"},
+      "fieldConfig": {"defaults": {}, "overrides": []},
+      "gridPos": {"h": 10, "w": 12, "x": 0, "y": 10},
+      "id": 2,
+      "options": {"cellHeight": "sm", "showHeader": true},
+      "targets": [{"datasource": {"type": "tempo", "uid": "tempo"}, "filters": [], "limit": 50, "query": "{ resource.service.name = \"ai-manufacturing-backend\" && kind = server } with (most_recent=true)", "queryType": "traceql", "refId": "A", "spss": 5, "tableType": "spans"}],
+      "title": "Backend server spans",
+      "type": "table"
+    },
+    {
+      "datasource": {"type": "tempo", "uid": "tempo"},
+      "fieldConfig": {"defaults": {}, "overrides": []},
+      "gridPos": {"h": 10, "w": 12, "x": 12, "y": 10},
+      "id": 3,
+      "options": {"cellHeight": "sm", "showHeader": true},
+      "targets": [{"datasource": {"type": "tempo", "uid": "tempo"}, "filters": [], "limit": 50, "query": "{ resource.service.name = \"ai-manufacturing-training-worker\" && kind = consumer } with (most_recent=true)", "queryType": "traceql", "refId": "A", "spss": 5, "tableType": "spans"}],
+      "title": "Worker consumer spans",
+      "type": "table"
+    },
+    {
+      "datasource": {"type": "tempo", "uid": "tempo"},
+      "fieldConfig": {"defaults": {}, "overrides": []},
+      "gridPos": {"h": 10, "w": 12, "x": 0, "y": 20},
+      "id": 4,
+      "options": {"cellHeight": "sm", "showHeader": true},
+      "targets": [{"datasource": {"type": "tempo", "uid": "tempo"}, "filters": [], "limit": 50, "query": "{ name =~ \"dramatiq .*\" } with (most_recent=true)", "queryType": "traceql", "refId": "A", "spss": 10, "tableType": "spans"}],
+      "title": "Dramatiq producer and consumer spans",
+      "type": "table"
+    },
+    {
+      "datasource": {"type": "tempo", "uid": "tempo"},
+      "fieldConfig": {"defaults": {}, "overrides": []},
+      "gridPos": {"h": 10, "w": 12, "x": 12, "y": 20},
+      "id": 5,
+      "options": {"cellHeight": "sm", "showHeader": true},
+      "targets": [{"datasource": {"type": "tempo", "uid": "tempo"}, "filters": [], "limit": 50, "query": "{ kind = client } with (most_recent=true)", "queryType": "traceql", "refId": "A", "spss": 10, "tableType": "spans"}],
+      "title": "Database and Redis client spans",
+      "type": "table"
+    },
+    {
+      "datasource": {"type": "tempo", "uid": "tempo"},
+      "fieldConfig": {"defaults": {}, "overrides": []},
+      "gridPos": {"h": 10, "w": 24, "x": 0, "y": 30},
+      "id": 6,
+      "options": {"cellHeight": "sm", "showHeader": true},
+      "targets": [{"datasource": {"type": "tempo", "uid": "tempo"}, "filters": [], "limit": 50, "query": "{ status = error } with (most_recent=true)", "queryType": "traceql", "refId": "A", "spss": 10, "tableType": "traces"}],
+      "title": "Error traces",
+      "type": "table"
+    }
+  ],
+  "refresh": "15s",
+  "schemaVersion": 41,
+  "tags": ["tracing", "tempo", "correlation"],
+  "templating": {"list": []},
+  "time": {"from": "now-6h", "to": "now"},
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Trace Correlation",
+  "uid": "trace-correlation",
+  "version": 1
+}

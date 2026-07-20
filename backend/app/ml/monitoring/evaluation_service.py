@@ -44,6 +44,7 @@ from app.observability.metrics import (
     record_monitoring_alert_resolved,
     record_monitoring_evaluation,
 )
+from app.observability.tracing import traced_async_operation
 from app.repositories.monitoring_evaluations import MonitoringEvaluationRepository
 from app.utils.security import utc_now
 
@@ -77,6 +78,7 @@ class MonitoringEvaluationService:
         self._failure_critical = failure_rate_critical_threshold
         self._clock = clock
 
+    @traced_async_operation("monitoring.evaluation", attributes={"trigger": "api"})
     async def evaluate(
         self,
         *,
