@@ -1,7 +1,9 @@
 import { createBrowserRouter } from "react-router-dom";
 
+import { ProtectedRoute, PublicOnlyRoute } from "../auth/RouteGuards";
 import { AppShell } from "../components/AppShell";
 import { Dashboard } from "../pages/Dashboard";
+import { LoginPage } from "../pages/LoginPage";
 import { PlaceholderPage } from "../pages/PlaceholderPage";
 import { NotFoundPage, RouteErrorPage } from "../pages/RouteErrorPages";
 
@@ -19,15 +21,26 @@ const placeholderRoutes = [
 
 export const router = createBrowserRouter([
   {
+    children: [{ element: <LoginPage />, path: "login" }],
+    element: <PublicOnlyRoute />,
+    errorElement: <RouteErrorPage />,
+    path: "/",
+  },
+  {
     children: [
-      { element: <Dashboard />, index: true },
-      ...placeholderRoutes.map(([path, title, description]) => ({
-        element: <PlaceholderPage description={description} title={title} />,
-        path,
-      })),
-      { element: <NotFoundPage />, path: "*" },
+      {
+        children: [
+          { element: <Dashboard />, index: true },
+          ...placeholderRoutes.map(([path, title, description]) => ({
+            element: <PlaceholderPage description={description} title={title} />,
+            path,
+          })),
+          { element: <NotFoundPage />, path: "*" },
+        ],
+        element: <AppShell />,
+      },
     ],
-    element: <AppShell />,
+    element: <ProtectedRoute />,
     errorElement: <RouteErrorPage />,
     path: "/",
   },

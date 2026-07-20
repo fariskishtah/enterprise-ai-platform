@@ -1,6 +1,7 @@
 import type { RefObject, ReactElement } from "react";
 import { NavLink } from "react-router-dom";
 
+import { useAuth } from "../auth/useAuth";
 import { navigationItems } from "../navigation";
 import { Icon } from "./Icon";
 
@@ -21,6 +22,11 @@ export function Sidebar({
   onNavigate,
   onToggleCollapsed,
 }: SidebarProps): ReactElement {
+  const { role } = useAuth();
+  const visibleNavigationItems = navigationItems.filter(
+    (item) => item.roles === undefined || (role !== null && item.roles.includes(role)),
+  );
+
   return (
     <div className="flex h-full flex-col border-r border-neutral-200 bg-neutral-950 text-neutral-100">
       <div className="flex h-16 shrink-0 items-center justify-between border-b border-neutral-800 px-4">
@@ -55,7 +61,7 @@ export function Sidebar({
         className="min-h-0 flex-1 overflow-y-auto px-3 py-4"
       >
         <ul className="space-y-1">
-          {navigationItems.map((item) => (
+          {visibleNavigationItems.map((item) => (
             <li key={item.path}>
               <NavLink
                 className={({ isActive }) =>
