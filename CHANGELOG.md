@@ -8,6 +8,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Pinned local Alertmanager with persistent state, localhost-only access,
+  severity routing, null receivers, grouping, and duplicate inhibition.
+- Five 30-day SLOs with stable multi-window recording rules, error-budget
+  dashboards, fast/medium/slow/ticket burn alerts, and bounded application,
+  dependency, resource, and observability alerts.
+- Alerting and SLO documentation plus operator runbooks for API, worker,
+  training, monitoring/retraining, database/cache, telemetry services, resource
+  pressure, and burn-rate response.
+- A bounded terminal-outcome Dramatiq metric supporting an exact background-job
+  success denominator without exposing job, tenant, model, or payload identity.
 - Explicit bounded OpenTelemetry dependencies, typed trace settings, idempotent
   backend/worker providers, OTLP/gRPC export, and active-span JSON `trace_id`
   correlation.

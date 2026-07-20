@@ -2,19 +2,24 @@
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from types import SimpleNamespace
 
 import app.observability.metrics as metrics_module
+import app.observability.worker as worker_module
 import pytest
 from app.config.settings import Settings
 from app.core.application import create_app
 from app.observability.metrics import (
+    BACKGROUND_JOBS_PROCESSED,
     HTTP_REQUESTS,
     TRAINING_JOBS_SUBMITTED,
     configure_metrics,
+    record_background_job_processed,
     record_monitoring_evaluation,
     record_prediction,
     record_training_job_submitted,
 )
+from app.observability.worker import WorkerPrometheusMiddleware
 from httpx import ASGITransport, AsyncClient
 
 
@@ -125,8 +130,54 @@ def test_custom_metric_recorders_increment_bounded_series() -> None:
         final_status="healthy",
         duration_seconds=0.25,
     )
+    processed = _background_processed_value()
+    record_background_job_processed(
+        job_name="monitoring_evaluation",
+        final_status="completed",
+    )
 
     assert _submitted_value() == submitted + 1
+    assert _background_processed_value() == processed + 1
+
+
+def test_worker_middleware_records_bounded_terminal_outcomes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    outcomes: list[tuple[str, str]] = []
+    failures: list[str] = []
+    middleware = WorkerPrometheusMiddleware(
+        enabled=True,
+        service="worker-middleware-test",
+        environment="test",
+        port=9191,
+    )
+    message = SimpleNamespace(actor_name="execute_scheduled_monitoring")
+
+    monkeypatch.setattr(
+        worker_module,
+        "record_background_job_processed",
+        lambda *, job_name, final_status: outcomes.append((job_name, final_status)),
+    )
+    monkeypatch.setattr(
+        worker_module,
+        "record_background_job_failure",
+        lambda *, job_name: failures.append(job_name),
+    )
+
+    middleware.after_process_message(object(), message)
+    middleware.after_process_message(
+        object(),
+        message,
+        exception=RuntimeError("safe test failure"),
+    )
+    middleware.after_skip_message(object(), message)
+
+    assert outcomes == [
+        ("monitoring_evaluation", "completed"),
+        ("monitoring_evaluation", "failed"),
+        ("monitoring_evaluation", "skipped"),
+    ]
+    assert failures == ["monitoring_evaluation"]
 
 
 def _submitted_value() -> float:
@@ -141,6 +192,21 @@ def _submitted_value() -> float:
         for metric in counter.collect()
         for sample in metric.samples
         if sample.name == "training_jobs_submitted_total"
+    )
+
+
+def _background_processed_value() -> float:
+    counter = BACKGROUND_JOBS_PROCESSED.labels(
+        service="custom-counter-test",
+        environment="test",
+        job_name="monitoring_evaluation",
+        final_status="completed",
+    )
+    return next(
+        sample.value
+        for metric in counter.collect()
+        for sample in metric.samples
+        if sample.name == "background_jobs_processed_total"
     )
 
 

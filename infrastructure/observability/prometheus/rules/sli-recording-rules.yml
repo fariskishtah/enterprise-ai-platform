@@ -1,0 +1,941 @@
+# Generated as explicit rules so promtool can validate every SLO/window pair.
+groups:
+  - name: sli-and-slo-recording-rules
+    interval: 30s
+    rules:
+      - record: slo:http_availability:error_ratio_rate5m
+        expr: |
+          (
+            sum by (service, environment) (
+              rate(http_requests_total{status_code=~"5.."}[5m])
+            )
+            or
+            sum by (service, environment) (
+              0 * rate(http_requests_total[5m])
+            )
+          )
+          /
+          clamp_min(
+            sum by (service, environment) (
+              rate(http_requests_total[5m])
+            ),
+            1e-12
+          )
+      - record: slo:http_availability:burn_rate5m
+        expr: slo:http_availability:error_ratio_rate5m / 0.001
+      - record: slo:http_availability:error_ratio_rate30m
+        expr: |
+          (
+            sum by (service, environment) (
+              rate(http_requests_total{status_code=~"5.."}[30m])
+            )
+            or
+            sum by (service, environment) (
+              0 * rate(http_requests_total[30m])
+            )
+          )
+          /
+          clamp_min(
+            sum by (service, environment) (
+              rate(http_requests_total[30m])
+            ),
+            1e-12
+          )
+      - record: slo:http_availability:burn_rate30m
+        expr: slo:http_availability:error_ratio_rate30m / 0.001
+      - record: slo:http_availability:error_ratio_rate1h
+        expr: |
+          (
+            sum by (service, environment) (
+              rate(http_requests_total{status_code=~"5.."}[1h])
+            )
+            or
+            sum by (service, environment) (
+              0 * rate(http_requests_total[1h])
+            )
+          )
+          /
+          clamp_min(
+            sum by (service, environment) (
+              rate(http_requests_total[1h])
+            ),
+            1e-12
+          )
+      - record: slo:http_availability:burn_rate1h
+        expr: slo:http_availability:error_ratio_rate1h / 0.001
+      - record: slo:http_availability:error_ratio_rate2h
+        expr: |
+          (
+            sum by (service, environment) (
+              rate(http_requests_total{status_code=~"5.."}[2h])
+            )
+            or
+            sum by (service, environment) (
+              0 * rate(http_requests_total[2h])
+            )
+          )
+          /
+          clamp_min(
+            sum by (service, environment) (
+              rate(http_requests_total[2h])
+            ),
+            1e-12
+          )
+      - record: slo:http_availability:burn_rate2h
+        expr: slo:http_availability:error_ratio_rate2h / 0.001
+      - record: slo:http_availability:error_ratio_rate6h
+        expr: |
+          (
+            sum by (service, environment) (
+              rate(http_requests_total{status_code=~"5.."}[6h])
+            )
+            or
+            sum by (service, environment) (
+              0 * rate(http_requests_total[6h])
+            )
+          )
+          /
+          clamp_min(
+            sum by (service, environment) (
+              rate(http_requests_total[6h])
+            ),
+            1e-12
+          )
+      - record: slo:http_availability:burn_rate6h
+        expr: slo:http_availability:error_ratio_rate6h / 0.001
+      - record: slo:http_availability:error_ratio_rate1d
+        expr: |
+          (
+            sum by (service, environment) (
+              rate(http_requests_total{status_code=~"5.."}[1d])
+            )
+            or
+            sum by (service, environment) (
+              0 * rate(http_requests_total[1d])
+            )
+          )
+          /
+          clamp_min(
+            sum by (service, environment) (
+              rate(http_requests_total[1d])
+            ),
+            1e-12
+          )
+      - record: slo:http_availability:burn_rate1d
+        expr: slo:http_availability:error_ratio_rate1d / 0.001
+      - record: slo:http_availability:error_ratio_rate3d
+        expr: |
+          (
+            sum by (service, environment) (
+              rate(http_requests_total{status_code=~"5.."}[3d])
+            )
+            or
+            sum by (service, environment) (
+              0 * rate(http_requests_total[3d])
+            )
+          )
+          /
+          clamp_min(
+            sum by (service, environment) (
+              rate(http_requests_total[3d])
+            ),
+            1e-12
+          )
+      - record: slo:http_availability:burn_rate3d
+        expr: slo:http_availability:error_ratio_rate3d / 0.001
+      - record: slo:http_availability:error_ratio_rate30d
+        expr: |
+          (
+            sum by (service, environment) (
+              rate(http_requests_total{status_code=~"5.."}[30d])
+            )
+            or
+            sum by (service, environment) (
+              0 * rate(http_requests_total[30d])
+            )
+          )
+          /
+          clamp_min(
+            sum by (service, environment) (
+              rate(http_requests_total[30d])
+            ),
+            1e-12
+          )
+      - record: slo:http_availability:burn_rate30d
+        expr: slo:http_availability:error_ratio_rate30d / 0.001
+      - record: slo:http_availability:good_ratio30d
+        expr: 1 - slo:http_availability:error_ratio_rate30d
+      - record: slo:http_availability:error_budget_remaining_ratio30d
+        expr: |
+          clamp_max(
+            clamp_min(
+              1 - (slo:http_availability:error_ratio_rate30d / 0.001),
+              0
+            ),
+            1
+          )
+      - record: slo:http_latency:error_ratio_rate5m
+        expr: |
+          (
+            sum by (service, environment) (
+              rate(http_request_duration_seconds_count[5m])
+            )
+            -
+            sum by (service, environment) (
+              rate(http_request_duration_seconds_bucket{le="0.5"}[5m])
+            )
+          )
+          /
+          clamp_min(
+            sum by (service, environment) (
+              rate(http_request_duration_seconds_count[5m])
+            ),
+            1e-12
+          )
+      - record: slo:http_latency:burn_rate5m
+        expr: slo:http_latency:error_ratio_rate5m / 0.01
+      - record: slo:http_latency:error_ratio_rate30m
+        expr: |
+          (
+            sum by (service, environment) (
+              rate(http_request_duration_seconds_count[30m])
+            )
+            -
+            sum by (service, environment) (
+              rate(http_request_duration_seconds_bucket{le="0.5"}[30m])
+            )
+          )
+          /
+          clamp_min(
+            sum by (service, environment) (
+              rate(http_request_duration_seconds_count[30m])
+            ),
+            1e-12
+          )
+      - record: slo:http_latency:burn_rate30m
+        expr: slo:http_latency:error_ratio_rate30m / 0.01
+      - record: slo:http_latency:error_ratio_rate1h
+        expr: |
+          (
+            sum by (service, environment) (
+              rate(http_request_duration_seconds_count[1h])
+            )
+            -
+            sum by (service, environment) (
+              rate(http_request_duration_seconds_bucket{le="0.5"}[1h])
+            )
+          )
+          /
+          clamp_min(
+            sum by (service, environment) (
+              rate(http_request_duration_seconds_count[1h])
+            ),
+            1e-12
+          )
+      - record: slo:http_latency:burn_rate1h
+        expr: slo:http_latency:error_ratio_rate1h / 0.01
+      - record: slo:http_latency:error_ratio_rate2h
+        expr: |
+          (
+            sum by (service, environment) (
+              rate(http_request_duration_seconds_count[2h])
+            )
+            -
+            sum by (service, environment) (
+              rate(http_request_duration_seconds_bucket{le="0.5"}[2h])
+            )
+          )
+          /
+          clamp_min(
+            sum by (service, environment) (
+              rate(http_request_duration_seconds_count[2h])
+            ),
+            1e-12
+          )
+      - record: slo:http_latency:burn_rate2h
+        expr: slo:http_latency:error_ratio_rate2h / 0.01
+      - record: slo:http_latency:error_ratio_rate6h
+        expr: |
+          (
+            sum by (service, environment) (
+              rate(http_request_duration_seconds_count[6h])
+            )
+            -
+            sum by (service, environment) (
+              rate(http_request_duration_seconds_bucket{le="0.5"}[6h])
+            )
+          )
+          /
+          clamp_min(
+            sum by (service, environment) (
+              rate(http_request_duration_seconds_count[6h])
+            ),
+            1e-12
+          )
+      - record: slo:http_latency:burn_rate6h
+        expr: slo:http_latency:error_ratio_rate6h / 0.01
+      - record: slo:http_latency:error_ratio_rate1d
+        expr: |
+          (
+            sum by (service, environment) (
+              rate(http_request_duration_seconds_count[1d])
+            )
+            -
+            sum by (service, environment) (
+              rate(http_request_duration_seconds_bucket{le="0.5"}[1d])
+            )
+          )
+          /
+          clamp_min(
+            sum by (service, environment) (
+              rate(http_request_duration_seconds_count[1d])
+            ),
+            1e-12
+          )
+      - record: slo:http_latency:burn_rate1d
+        expr: slo:http_latency:error_ratio_rate1d / 0.01
+      - record: slo:http_latency:error_ratio_rate3d
+        expr: |
+          (
+            sum by (service, environment) (
+              rate(http_request_duration_seconds_count[3d])
+            )
+            -
+            sum by (service, environment) (
+              rate(http_request_duration_seconds_bucket{le="0.5"}[3d])
+            )
+          )
+          /
+          clamp_min(
+            sum by (service, environment) (
+              rate(http_request_duration_seconds_count[3d])
+            ),
+            1e-12
+          )
+      - record: slo:http_latency:burn_rate3d
+        expr: slo:http_latency:error_ratio_rate3d / 0.01
+      - record: slo:http_latency:error_ratio_rate30d
+        expr: |
+          (
+            sum by (service, environment) (
+              rate(http_request_duration_seconds_count[30d])
+            )
+            -
+            sum by (service, environment) (
+              rate(http_request_duration_seconds_bucket{le="0.5"}[30d])
+            )
+          )
+          /
+          clamp_min(
+            sum by (service, environment) (
+              rate(http_request_duration_seconds_count[30d])
+            ),
+            1e-12
+          )
+      - record: slo:http_latency:burn_rate30d
+        expr: slo:http_latency:error_ratio_rate30d / 0.01
+      - record: slo:http_latency:good_ratio30d
+        expr: 1 - slo:http_latency:error_ratio_rate30d
+      - record: slo:http_latency:error_budget_remaining_ratio30d
+        expr: |
+          clamp_max(
+            clamp_min(
+              1 - (slo:http_latency:error_ratio_rate30d / 0.01),
+              0
+            ),
+            1
+          )
+      - record: slo:background_job_success:error_ratio_rate5m
+        expr: |
+          (
+            sum by (service, environment) (
+              rate(background_jobs_processed_total{final_status="failed"}[5m])
+            )
+            or
+            sum by (service, environment) (
+              0 * rate(
+                background_jobs_processed_total{final_status=~"completed|failed"}[5m]
+              )
+            )
+          )
+          /
+          clamp_min(
+            sum by (service, environment) (
+              rate(
+                background_jobs_processed_total{final_status=~"completed|failed"}[5m]
+              )
+            ),
+            1e-12
+          )
+      - record: slo:background_job_success:burn_rate5m
+        expr: slo:background_job_success:error_ratio_rate5m / 0.01
+      - record: slo:background_job_success:error_ratio_rate30m
+        expr: |
+          (
+            sum by (service, environment) (
+              rate(background_jobs_processed_total{final_status="failed"}[30m])
+            )
+            or
+            sum by (service, environment) (
+              0 * rate(
+                background_jobs_processed_total{final_status=~"completed|failed"}[30m]
+              )
+            )
+          )
+          /
+          clamp_min(
+            sum by (service, environment) (
+              rate(
+                background_jobs_processed_total{final_status=~"completed|failed"}[30m]
+              )
+            ),
+            1e-12
+          )
+      - record: slo:background_job_success:burn_rate30m
+        expr: slo:background_job_success:error_ratio_rate30m / 0.01
+      - record: slo:background_job_success:error_ratio_rate1h
+        expr: |
+          (
+            sum by (service, environment) (
+              rate(background_jobs_processed_total{final_status="failed"}[1h])
+            )
+            or
+            sum by (service, environment) (
+              0 * rate(
+                background_jobs_processed_total{final_status=~"completed|failed"}[1h]
+              )
+            )
+          )
+          /
+          clamp_min(
+            sum by (service, environment) (
+              rate(
+                background_jobs_processed_total{final_status=~"completed|failed"}[1h]
+              )
+            ),
+            1e-12
+          )
+      - record: slo:background_job_success:burn_rate1h
+        expr: slo:background_job_success:error_ratio_rate1h / 0.01
+      - record: slo:background_job_success:error_ratio_rate2h
+        expr: |
+          (
+            sum by (service, environment) (
+              rate(background_jobs_processed_total{final_status="failed"}[2h])
+            )
+            or
+            sum by (service, environment) (
+              0 * rate(
+                background_jobs_processed_total{final_status=~"completed|failed"}[2h]
+              )
+            )
+          )
+          /
+          clamp_min(
+            sum by (service, environment) (
+              rate(
+                background_jobs_processed_total{final_status=~"completed|failed"}[2h]
+              )
+            ),
+            1e-12
+          )
+      - record: slo:background_job_success:burn_rate2h
+        expr: slo:background_job_success:error_ratio_rate2h / 0.01
+      - record: slo:background_job_success:error_ratio_rate6h
+        expr: |
+          (
+            sum by (service, environment) (
+              rate(background_jobs_processed_total{final_status="failed"}[6h])
+            )
+            or
+            sum by (service, environment) (
+              0 * rate(
+                background_jobs_processed_total{final_status=~"completed|failed"}[6h]
+              )
+            )
+          )
+          /
+          clamp_min(
+            sum by (service, environment) (
+              rate(
+                background_jobs_processed_total{final_status=~"completed|failed"}[6h]
+              )
+            ),
+            1e-12
+          )
+      - record: slo:background_job_success:burn_rate6h
+        expr: slo:background_job_success:error_ratio_rate6h / 0.01
+      - record: slo:background_job_success:error_ratio_rate1d
+        expr: |
+          (
+            sum by (service, environment) (
+              rate(background_jobs_processed_total{final_status="failed"}[1d])
+            )
+            or
+            sum by (service, environment) (
+              0 * rate(
+                background_jobs_processed_total{final_status=~"completed|failed"}[1d]
+              )
+            )
+          )
+          /
+          clamp_min(
+            sum by (service, environment) (
+              rate(
+                background_jobs_processed_total{final_status=~"completed|failed"}[1d]
+              )
+            ),
+            1e-12
+          )
+      - record: slo:background_job_success:burn_rate1d
+        expr: slo:background_job_success:error_ratio_rate1d / 0.01
+      - record: slo:background_job_success:error_ratio_rate3d
+        expr: |
+          (
+            sum by (service, environment) (
+              rate(background_jobs_processed_total{final_status="failed"}[3d])
+            )
+            or
+            sum by (service, environment) (
+              0 * rate(
+                background_jobs_processed_total{final_status=~"completed|failed"}[3d]
+              )
+            )
+          )
+          /
+          clamp_min(
+            sum by (service, environment) (
+              rate(
+                background_jobs_processed_total{final_status=~"completed|failed"}[3d]
+              )
+            ),
+            1e-12
+          )
+      - record: slo:background_job_success:burn_rate3d
+        expr: slo:background_job_success:error_ratio_rate3d / 0.01
+      - record: slo:background_job_success:error_ratio_rate30d
+        expr: |
+          (
+            sum by (service, environment) (
+              rate(background_jobs_processed_total{final_status="failed"}[30d])
+            )
+            or
+            sum by (service, environment) (
+              0 * rate(
+                background_jobs_processed_total{final_status=~"completed|failed"}[30d]
+              )
+            )
+          )
+          /
+          clamp_min(
+            sum by (service, environment) (
+              rate(
+                background_jobs_processed_total{final_status=~"completed|failed"}[30d]
+              )
+            ),
+            1e-12
+          )
+      - record: slo:background_job_success:burn_rate30d
+        expr: slo:background_job_success:error_ratio_rate30d / 0.01
+      - record: slo:background_job_success:good_ratio30d
+        expr: 1 - slo:background_job_success:error_ratio_rate30d
+      - record: slo:background_job_success:error_budget_remaining_ratio30d
+        expr: |
+          clamp_max(
+            clamp_min(
+              1 - (slo:background_job_success:error_ratio_rate30d / 0.01),
+              0
+            ),
+            1
+          )
+      - record: slo:training_success:error_ratio_rate5m
+        expr: |
+          (
+            sum by (service, environment) (
+              rate(training_jobs_failed_total[5m])
+            )
+            or
+            sum by (service, environment) (
+              0 * (
+                rate(training_jobs_completed_total[5m])
+                or
+                rate(training_jobs_failed_total[5m])
+              )
+            )
+          )
+          /
+          clamp_min(
+            sum by (service, environment) (
+              rate(training_jobs_completed_total[5m])
+              or
+              rate(training_jobs_failed_total[5m])
+            ),
+            1e-12
+          )
+      - record: slo:training_success:burn_rate5m
+        expr: slo:training_success:error_ratio_rate5m / 0.05
+      - record: slo:training_success:error_ratio_rate30m
+        expr: |
+          (
+            sum by (service, environment) (
+              rate(training_jobs_failed_total[30m])
+            )
+            or
+            sum by (service, environment) (
+              0 * (
+                rate(training_jobs_completed_total[30m])
+                or
+                rate(training_jobs_failed_total[30m])
+              )
+            )
+          )
+          /
+          clamp_min(
+            sum by (service, environment) (
+              rate(training_jobs_completed_total[30m])
+              or
+              rate(training_jobs_failed_total[30m])
+            ),
+            1e-12
+          )
+      - record: slo:training_success:burn_rate30m
+        expr: slo:training_success:error_ratio_rate30m / 0.05
+      - record: slo:training_success:error_ratio_rate1h
+        expr: |
+          (
+            sum by (service, environment) (
+              rate(training_jobs_failed_total[1h])
+            )
+            or
+            sum by (service, environment) (
+              0 * (
+                rate(training_jobs_completed_total[1h])
+                or
+                rate(training_jobs_failed_total[1h])
+              )
+            )
+          )
+          /
+          clamp_min(
+            sum by (service, environment) (
+              rate(training_jobs_completed_total[1h])
+              or
+              rate(training_jobs_failed_total[1h])
+            ),
+            1e-12
+          )
+      - record: slo:training_success:burn_rate1h
+        expr: slo:training_success:error_ratio_rate1h / 0.05
+      - record: slo:training_success:error_ratio_rate2h
+        expr: |
+          (
+            sum by (service, environment) (
+              rate(training_jobs_failed_total[2h])
+            )
+            or
+            sum by (service, environment) (
+              0 * (
+                rate(training_jobs_completed_total[2h])
+                or
+                rate(training_jobs_failed_total[2h])
+              )
+            )
+          )
+          /
+          clamp_min(
+            sum by (service, environment) (
+              rate(training_jobs_completed_total[2h])
+              or
+              rate(training_jobs_failed_total[2h])
+            ),
+            1e-12
+          )
+      - record: slo:training_success:burn_rate2h
+        expr: slo:training_success:error_ratio_rate2h / 0.05
+      - record: slo:training_success:error_ratio_rate6h
+        expr: |
+          (
+            sum by (service, environment) (
+              rate(training_jobs_failed_total[6h])
+            )
+            or
+            sum by (service, environment) (
+              0 * (
+                rate(training_jobs_completed_total[6h])
+                or
+                rate(training_jobs_failed_total[6h])
+              )
+            )
+          )
+          /
+          clamp_min(
+            sum by (service, environment) (
+              rate(training_jobs_completed_total[6h])
+              or
+              rate(training_jobs_failed_total[6h])
+            ),
+            1e-12
+          )
+      - record: slo:training_success:burn_rate6h
+        expr: slo:training_success:error_ratio_rate6h / 0.05
+      - record: slo:training_success:error_ratio_rate1d
+        expr: |
+          (
+            sum by (service, environment) (
+              rate(training_jobs_failed_total[1d])
+            )
+            or
+            sum by (service, environment) (
+              0 * (
+                rate(training_jobs_completed_total[1d])
+                or
+                rate(training_jobs_failed_total[1d])
+              )
+            )
+          )
+          /
+          clamp_min(
+            sum by (service, environment) (
+              rate(training_jobs_completed_total[1d])
+              or
+              rate(training_jobs_failed_total[1d])
+            ),
+            1e-12
+          )
+      - record: slo:training_success:burn_rate1d
+        expr: slo:training_success:error_ratio_rate1d / 0.05
+      - record: slo:training_success:error_ratio_rate3d
+        expr: |
+          (
+            sum by (service, environment) (
+              rate(training_jobs_failed_total[3d])
+            )
+            or
+            sum by (service, environment) (
+              0 * (
+                rate(training_jobs_completed_total[3d])
+                or
+                rate(training_jobs_failed_total[3d])
+              )
+            )
+          )
+          /
+          clamp_min(
+            sum by (service, environment) (
+              rate(training_jobs_completed_total[3d])
+              or
+              rate(training_jobs_failed_total[3d])
+            ),
+            1e-12
+          )
+      - record: slo:training_success:burn_rate3d
+        expr: slo:training_success:error_ratio_rate3d / 0.05
+      - record: slo:training_success:error_ratio_rate30d
+        expr: |
+          (
+            sum by (service, environment) (
+              rate(training_jobs_failed_total[30d])
+            )
+            or
+            sum by (service, environment) (
+              0 * (
+                rate(training_jobs_completed_total[30d])
+                or
+                rate(training_jobs_failed_total[30d])
+              )
+            )
+          )
+          /
+          clamp_min(
+            sum by (service, environment) (
+              rate(training_jobs_completed_total[30d])
+              or
+              rate(training_jobs_failed_total[30d])
+            ),
+            1e-12
+          )
+      - record: slo:training_success:burn_rate30d
+        expr: slo:training_success:error_ratio_rate30d / 0.05
+      - record: slo:training_success:good_ratio30d
+        expr: 1 - slo:training_success:error_ratio_rate30d
+      - record: slo:training_success:error_budget_remaining_ratio30d
+        expr: |
+          clamp_max(
+            clamp_min(
+              1 - (slo:training_success:error_ratio_rate30d / 0.05),
+              0
+            ),
+            1
+          )
+      - record: slo:monitoring_success:error_ratio_rate5m
+        expr: |
+          (
+            sum by (service, environment) (
+              rate(monitoring_evaluations_total{final_status="failed"}[5m])
+            )
+            or
+            sum by (service, environment) (
+              0 * rate(monitoring_evaluations_total[5m])
+            )
+          )
+          /
+          clamp_min(
+            sum by (service, environment) (
+              rate(monitoring_evaluations_total[5m])
+            ),
+            1e-12
+          )
+      - record: slo:monitoring_success:burn_rate5m
+        expr: slo:monitoring_success:error_ratio_rate5m / 0.01
+      - record: slo:monitoring_success:error_ratio_rate30m
+        expr: |
+          (
+            sum by (service, environment) (
+              rate(monitoring_evaluations_total{final_status="failed"}[30m])
+            )
+            or
+            sum by (service, environment) (
+              0 * rate(monitoring_evaluations_total[30m])
+            )
+          )
+          /
+          clamp_min(
+            sum by (service, environment) (
+              rate(monitoring_evaluations_total[30m])
+            ),
+            1e-12
+          )
+      - record: slo:monitoring_success:burn_rate30m
+        expr: slo:monitoring_success:error_ratio_rate30m / 0.01
+      - record: slo:monitoring_success:error_ratio_rate1h
+        expr: |
+          (
+            sum by (service, environment) (
+              rate(monitoring_evaluations_total{final_status="failed"}[1h])
+            )
+            or
+            sum by (service, environment) (
+              0 * rate(monitoring_evaluations_total[1h])
+            )
+          )
+          /
+          clamp_min(
+            sum by (service, environment) (
+              rate(monitoring_evaluations_total[1h])
+            ),
+            1e-12
+          )
+      - record: slo:monitoring_success:burn_rate1h
+        expr: slo:monitoring_success:error_ratio_rate1h / 0.01
+      - record: slo:monitoring_success:error_ratio_rate2h
+        expr: |
+          (
+            sum by (service, environment) (
+              rate(monitoring_evaluations_total{final_status="failed"}[2h])
+            )
+            or
+            sum by (service, environment) (
+              0 * rate(monitoring_evaluations_total[2h])
+            )
+          )
+          /
+          clamp_min(
+            sum by (service, environment) (
+              rate(monitoring_evaluations_total[2h])
+            ),
+            1e-12
+          )
+      - record: slo:monitoring_success:burn_rate2h
+        expr: slo:monitoring_success:error_ratio_rate2h / 0.01
+      - record: slo:monitoring_success:error_ratio_rate6h
+        expr: |
+          (
+            sum by (service, environment) (
+              rate(monitoring_evaluations_total{final_status="failed"}[6h])
+            )
+            or
+            sum by (service, environment) (
+              0 * rate(monitoring_evaluations_total[6h])
+            )
+          )
+          /
+          clamp_min(
+            sum by (service, environment) (
+              rate(monitoring_evaluations_total[6h])
+            ),
+            1e-12
+          )
+      - record: slo:monitoring_success:burn_rate6h
+        expr: slo:monitoring_success:error_ratio_rate6h / 0.01
+      - record: slo:monitoring_success:error_ratio_rate1d
+        expr: |
+          (
+            sum by (service, environment) (
+              rate(monitoring_evaluations_total{final_status="failed"}[1d])
+            )
+            or
+            sum by (service, environment) (
+              0 * rate(monitoring_evaluations_total[1d])
+            )
+          )
+          /
+          clamp_min(
+            sum by (service, environment) (
+              rate(monitoring_evaluations_total[1d])
+            ),
+            1e-12
+          )
+      - record: slo:monitoring_success:burn_rate1d
+        expr: slo:monitoring_success:error_ratio_rate1d / 0.01
+      - record: slo:monitoring_success:error_ratio_rate3d
+        expr: |
+          (
+            sum by (service, environment) (
+              rate(monitoring_evaluations_total{final_status="failed"}[3d])
+            )
+            or
+            sum by (service, environment) (
+              0 * rate(monitoring_evaluations_total[3d])
+            )
+          )
+          /
+          clamp_min(
+            sum by (service, environment) (
+              rate(monitoring_evaluations_total[3d])
+            ),
+            1e-12
+          )
+      - record: slo:monitoring_success:burn_rate3d
+        expr: slo:monitoring_success:error_ratio_rate3d / 0.01
+      - record: slo:monitoring_success:error_ratio_rate30d
+        expr: |
+          (
+            sum by (service, environment) (
+              rate(monitoring_evaluations_total{final_status="failed"}[30d])
+            )
+            or
+            sum by (service, environment) (
+              0 * rate(monitoring_evaluations_total[30d])
+            )
+          )
+          /
+          clamp_min(
+            sum by (service, environment) (
+              rate(monitoring_evaluations_total[30d])
+            ),
+            1e-12
+          )
+      - record: slo:monitoring_success:burn_rate30d
+        expr: slo:monitoring_success:error_ratio_rate30d / 0.01
+      - record: slo:monitoring_success:good_ratio30d
+        expr: 1 - slo:monitoring_success:error_ratio_rate30d
+      - record: slo:monitoring_success:error_budget_remaining_ratio30d
+        expr: |
+          clamp_max(
+            clamp_min(
+              1 - (slo:monitoring_success:error_ratio_rate30d / 0.01),
+              0
+            ),
+            1
+          )
+

@@ -1,0 +1,345 @@
+groups:
+  - name: multi-window-multi-burn-rate-alerts
+    interval: 30s
+    rules:
+      - alert: APIAvailabilitySLOBurnFast
+        expr: |
+          (slo:http_availability:burn_rate5m > 14.4)
+          and on (service, environment)
+          (slo:http_availability:burn_rate1h > 14.4)
+        for: 2m
+        labels:
+          severity: critical
+          service: '{{ $labels.service }}'
+          component: backend
+          team: platform
+          slo: http-availability
+        annotations:
+          summary: http-availability SLO is burning at the fast threshold
+          description: Error-budget burn is above 14.4x in both the 5m and 1h windows.
+          runbook_url: docs/runbooks/slo-burn-rate.md
+          dashboard_url: http://localhost:3000/d/slo-overview
+      - alert: APIAvailabilitySLOBurnMedium
+        expr: |
+          (slo:http_availability:burn_rate30m > 6)
+          and on (service, environment)
+          (slo:http_availability:burn_rate6h > 6)
+        for: 15m
+        labels:
+          severity: warning
+          service: '{{ $labels.service }}'
+          component: backend
+          team: platform
+          slo: http-availability
+        annotations:
+          summary: http-availability SLO is burning at the medium threshold
+          description: Error-budget burn is above 6x in both the 30m and 6h windows.
+          runbook_url: docs/runbooks/slo-burn-rate.md
+          dashboard_url: http://localhost:3000/d/slo-overview
+      - alert: APIAvailabilitySLOBurnSlow
+        expr: |
+          (slo:http_availability:burn_rate2h > 3)
+          and on (service, environment)
+          (slo:http_availability:burn_rate1d > 3)
+        for: 30m
+        labels:
+          severity: warning
+          service: '{{ $labels.service }}'
+          component: backend
+          team: platform
+          slo: http-availability
+        annotations:
+          summary: http-availability SLO is burning at the slow threshold
+          description: Error-budget burn is above 3x in both the 2h and 1d windows.
+          runbook_url: docs/runbooks/slo-burn-rate.md
+          dashboard_url: http://localhost:3000/d/slo-overview
+      - alert: APIAvailabilitySLOBurnTicket
+        expr: |
+          (slo:http_availability:burn_rate6h > 1)
+          and on (service, environment)
+          (slo:http_availability:burn_rate3d > 1)
+        for: 1h
+        labels:
+          severity: info
+          service: '{{ $labels.service }}'
+          component: backend
+          team: platform
+          slo: http-availability
+        annotations:
+          summary: http-availability SLO is burning at the ticket threshold
+          description: Error-budget burn is above 1x in both the 6h and 3d windows.
+          runbook_url: docs/runbooks/slo-burn-rate.md
+          dashboard_url: http://localhost:3000/d/slo-overview
+      - alert: APILatencySLOBurnFast
+        expr: |
+          (slo:http_latency:burn_rate5m > 14.4)
+          and on (service, environment)
+          (slo:http_latency:burn_rate1h > 14.4)
+        for: 2m
+        labels:
+          severity: critical
+          service: '{{ $labels.service }}'
+          component: backend
+          team: platform
+          slo: http-latency
+        annotations:
+          summary: http-latency SLO is burning at the fast threshold
+          description: Error-budget burn is above 14.4x in both the 5m and 1h windows.
+          runbook_url: docs/runbooks/slo-burn-rate.md
+          dashboard_url: http://localhost:3000/d/slo-overview
+      - alert: APILatencySLOBurnMedium
+        expr: |
+          (slo:http_latency:burn_rate30m > 6)
+          and on (service, environment)
+          (slo:http_latency:burn_rate6h > 6)
+        for: 15m
+        labels:
+          severity: warning
+          service: '{{ $labels.service }}'
+          component: backend
+          team: platform
+          slo: http-latency
+        annotations:
+          summary: http-latency SLO is burning at the medium threshold
+          description: Error-budget burn is above 6x in both the 30m and 6h windows.
+          runbook_url: docs/runbooks/slo-burn-rate.md
+          dashboard_url: http://localhost:3000/d/slo-overview
+      - alert: APILatencySLOBurnSlow
+        expr: |
+          (slo:http_latency:burn_rate2h > 3)
+          and on (service, environment)
+          (slo:http_latency:burn_rate1d > 3)
+        for: 30m
+        labels:
+          severity: warning
+          service: '{{ $labels.service }}'
+          component: backend
+          team: platform
+          slo: http-latency
+        annotations:
+          summary: http-latency SLO is burning at the slow threshold
+          description: Error-budget burn is above 3x in both the 2h and 1d windows.
+          runbook_url: docs/runbooks/slo-burn-rate.md
+          dashboard_url: http://localhost:3000/d/slo-overview
+      - alert: APILatencySLOBurnTicket
+        expr: |
+          (slo:http_latency:burn_rate6h > 1)
+          and on (service, environment)
+          (slo:http_latency:burn_rate3d > 1)
+        for: 1h
+        labels:
+          severity: info
+          service: '{{ $labels.service }}'
+          component: backend
+          team: platform
+          slo: http-latency
+        annotations:
+          summary: http-latency SLO is burning at the ticket threshold
+          description: Error-budget burn is above 1x in both the 6h and 3d windows.
+          runbook_url: docs/runbooks/slo-burn-rate.md
+          dashboard_url: http://localhost:3000/d/slo-overview
+      - alert: BackgroundJobSuccessSLOBurnFast
+        expr: |
+          (slo:background_job_success:burn_rate5m > 14.4)
+          and on (service, environment)
+          (slo:background_job_success:burn_rate1h > 14.4)
+        for: 2m
+        labels:
+          severity: critical
+          service: '{{ $labels.service }}'
+          component: training-worker
+          team: platform
+          slo: background-job-success
+        annotations:
+          summary: background-job-success SLO is burning at the fast threshold
+          description: Error-budget burn is above 14.4x in both the 5m and 1h windows.
+          runbook_url: docs/runbooks/slo-burn-rate.md
+          dashboard_url: http://localhost:3000/d/slo-overview
+      - alert: BackgroundJobSuccessSLOBurnMedium
+        expr: |
+          (slo:background_job_success:burn_rate30m > 6)
+          and on (service, environment)
+          (slo:background_job_success:burn_rate6h > 6)
+        for: 15m
+        labels:
+          severity: warning
+          service: '{{ $labels.service }}'
+          component: training-worker
+          team: platform
+          slo: background-job-success
+        annotations:
+          summary: background-job-success SLO is burning at the medium threshold
+          description: Error-budget burn is above 6x in both the 30m and 6h windows.
+          runbook_url: docs/runbooks/slo-burn-rate.md
+          dashboard_url: http://localhost:3000/d/slo-overview
+      - alert: BackgroundJobSuccessSLOBurnSlow
+        expr: |
+          (slo:background_job_success:burn_rate2h > 3)
+          and on (service, environment)
+          (slo:background_job_success:burn_rate1d > 3)
+        for: 30m
+        labels:
+          severity: warning
+          service: '{{ $labels.service }}'
+          component: training-worker
+          team: platform
+          slo: background-job-success
+        annotations:
+          summary: background-job-success SLO is burning at the slow threshold
+          description: Error-budget burn is above 3x in both the 2h and 1d windows.
+          runbook_url: docs/runbooks/slo-burn-rate.md
+          dashboard_url: http://localhost:3000/d/slo-overview
+      - alert: BackgroundJobSuccessSLOBurnTicket
+        expr: |
+          (slo:background_job_success:burn_rate6h > 1)
+          and on (service, environment)
+          (slo:background_job_success:burn_rate3d > 1)
+        for: 1h
+        labels:
+          severity: info
+          service: '{{ $labels.service }}'
+          component: training-worker
+          team: platform
+          slo: background-job-success
+        annotations:
+          summary: background-job-success SLO is burning at the ticket threshold
+          description: Error-budget burn is above 1x in both the 6h and 3d windows.
+          runbook_url: docs/runbooks/slo-burn-rate.md
+          dashboard_url: http://localhost:3000/d/slo-overview
+      - alert: TrainingSuccessSLOBurnFast
+        expr: |
+          (slo:training_success:burn_rate5m > 14.4)
+          and on (service, environment)
+          (slo:training_success:burn_rate1h > 14.4)
+        for: 2m
+        labels:
+          severity: critical
+          service: '{{ $labels.service }}'
+          component: training-worker
+          team: platform
+          slo: training-success
+        annotations:
+          summary: training-success SLO is burning at the fast threshold
+          description: Error-budget burn is above 14.4x in both the 5m and 1h windows.
+          runbook_url: docs/runbooks/slo-burn-rate.md
+          dashboard_url: http://localhost:3000/d/slo-overview
+      - alert: TrainingSuccessSLOBurnMedium
+        expr: |
+          (slo:training_success:burn_rate30m > 6)
+          and on (service, environment)
+          (slo:training_success:burn_rate6h > 6)
+        for: 15m
+        labels:
+          severity: warning
+          service: '{{ $labels.service }}'
+          component: training-worker
+          team: platform
+          slo: training-success
+        annotations:
+          summary: training-success SLO is burning at the medium threshold
+          description: Error-budget burn is above 6x in both the 30m and 6h windows.
+          runbook_url: docs/runbooks/slo-burn-rate.md
+          dashboard_url: http://localhost:3000/d/slo-overview
+      - alert: TrainingSuccessSLOBurnSlow
+        expr: |
+          (slo:training_success:burn_rate2h > 3)
+          and on (service, environment)
+          (slo:training_success:burn_rate1d > 3)
+        for: 30m
+        labels:
+          severity: warning
+          service: '{{ $labels.service }}'
+          component: training-worker
+          team: platform
+          slo: training-success
+        annotations:
+          summary: training-success SLO is burning at the slow threshold
+          description: Error-budget burn is above 3x in both the 2h and 1d windows.
+          runbook_url: docs/runbooks/slo-burn-rate.md
+          dashboard_url: http://localhost:3000/d/slo-overview
+      - alert: TrainingSuccessSLOBurnTicket
+        expr: |
+          (slo:training_success:burn_rate6h > 1)
+          and on (service, environment)
+          (slo:training_success:burn_rate3d > 1)
+        for: 1h
+        labels:
+          severity: info
+          service: '{{ $labels.service }}'
+          component: training-worker
+          team: platform
+          slo: training-success
+        annotations:
+          summary: training-success SLO is burning at the ticket threshold
+          description: Error-budget burn is above 1x in both the 6h and 3d windows.
+          runbook_url: docs/runbooks/slo-burn-rate.md
+          dashboard_url: http://localhost:3000/d/slo-overview
+      - alert: MonitoringSuccessSLOBurnFast
+        expr: |
+          (slo:monitoring_success:burn_rate5m > 14.4)
+          and on (service, environment)
+          (slo:monitoring_success:burn_rate1h > 14.4)
+        for: 2m
+        labels:
+          severity: critical
+          service: '{{ $labels.service }}'
+          component: monitoring
+          team: platform
+          slo: monitoring-success
+        annotations:
+          summary: monitoring-success SLO is burning at the fast threshold
+          description: Error-budget burn is above 14.4x in both the 5m and 1h windows.
+          runbook_url: docs/runbooks/slo-burn-rate.md
+          dashboard_url: http://localhost:3000/d/slo-overview
+      - alert: MonitoringSuccessSLOBurnMedium
+        expr: |
+          (slo:monitoring_success:burn_rate30m > 6)
+          and on (service, environment)
+          (slo:monitoring_success:burn_rate6h > 6)
+        for: 15m
+        labels:
+          severity: warning
+          service: '{{ $labels.service }}'
+          component: monitoring
+          team: platform
+          slo: monitoring-success
+        annotations:
+          summary: monitoring-success SLO is burning at the medium threshold
+          description: Error-budget burn is above 6x in both the 30m and 6h windows.
+          runbook_url: docs/runbooks/slo-burn-rate.md
+          dashboard_url: http://localhost:3000/d/slo-overview
+      - alert: MonitoringSuccessSLOBurnSlow
+        expr: |
+          (slo:monitoring_success:burn_rate2h > 3)
+          and on (service, environment)
+          (slo:monitoring_success:burn_rate1d > 3)
+        for: 30m
+        labels:
+          severity: warning
+          service: '{{ $labels.service }}'
+          component: monitoring
+          team: platform
+          slo: monitoring-success
+        annotations:
+          summary: monitoring-success SLO is burning at the slow threshold
+          description: Error-budget burn is above 3x in both the 2h and 1d windows.
+          runbook_url: docs/runbooks/slo-burn-rate.md
+          dashboard_url: http://localhost:3000/d/slo-overview
+      - alert: MonitoringSuccessSLOBurnTicket
+        expr: |
+          (slo:monitoring_success:burn_rate6h > 1)
+          and on (service, environment)
+          (slo:monitoring_success:burn_rate3d > 1)
+        for: 1h
+        labels:
+          severity: info
+          service: '{{ $labels.service }}'
+          component: monitoring
+          team: platform
+          slo: monitoring-success
+        annotations:
+          summary: monitoring-success SLO is burning at the ticket threshold
+          description: Error-budget burn is above 1x in both the 6h and 3d windows.
+          runbook_url: docs/runbooks/slo-burn-rate.md
+          dashboard_url: http://localhost:3000/d/slo-overview
+

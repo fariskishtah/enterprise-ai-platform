@@ -44,6 +44,9 @@ Random Forest regression and integer-label classification are the only supported
 - [Platform observability](docs/platform-observability.md) documents Prometheus
   metrics, exporters, cAdvisor, provisioned Grafana dashboards, privacy rules,
   and production hardening guidance.
+- [Alerting, SLOs, and runbooks](docs/alerting-slos-and-runbooks.md) defines five
+  30-day objectives, multi-window burn alerts, local Alertmanager routing,
+  dashboards, validation, and operator response.
 - [Structured logging and Loki](docs/structured-logging-and-loki.md) documents
   safe JSON logs, request and worker correlation, Alloy collection, Loki
   retention, LogQL, dashboards, and production hardening.
@@ -141,6 +144,7 @@ Local observability endpoints:
 ```text
 Backend metrics  http://localhost:8000/metrics
 Prometheus       http://localhost:9090
+Alertmanager     http://localhost:9093
 Loki             http://localhost:3100/ready
 Alloy            http://localhost:12345/-/ready
 Tempo            http://localhost:3200/ready

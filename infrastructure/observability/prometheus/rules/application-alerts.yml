@@ -1,0 +1,102 @@
+groups:
+  - name: application-alerts
+    interval: 30s
+    rules:
+      - alert: APIHighErrorRate
+        expr: slo:http_availability:error_ratio_rate5m > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          service: '{{ $labels.service }}'
+          component: backend
+          team: platform
+          slo: http-availability
+        annotations:
+          summary: Backend API 5xx ratio is above 5%
+          description: Eligible backend requests have exceeded a 5% server-error ratio for five minutes.
+          runbook_url: docs/runbooks/api-high-error-rate.md
+          dashboard_url: http://localhost:3000/d/backend-api
+
+      - alert: APILatencyDegradation
+        expr: slo:http_latency:error_ratio_rate5m > 0.20
+        for: 10m
+        labels:
+          severity: warning
+          service: '{{ $labels.service }}'
+          component: backend
+          team: platform
+          slo: http-latency
+        annotations:
+          summary: More than 20% of API requests exceed 500 ms
+          description: The API latency SLI has remained materially below its objective for ten minutes.
+          runbook_url: docs/runbooks/api-latency-degradation.md
+          dashboard_url: http://localhost:3000/d/backend-api
+
+      - alert: BackgroundJobFailureBurst
+        expr: |
+          sum by (service, environment) (
+            increase(background_jobs_processed_total{final_status="failed"}[15m])
+          ) >= 3
+        for: 5m
+        labels:
+          severity: warning
+          service: '{{ $labels.service }}'
+          component: training-worker
+          team: platform
+          slo: background-job-success
+        annotations:
+          summary: Background actors are failing repeatedly
+          description: At least three bounded Dramatiq actor executions failed in the last 15 minutes.
+          runbook_url: docs/runbooks/background-job-failures.md
+          dashboard_url: http://localhost:3000/d/ai-operations
+
+      - alert: TrainingFailures
+        expr: |
+          sum by (service, environment) (
+            increase(training_jobs_failed_total[30m])
+          ) >= 3
+        for: 5m
+        labels:
+          severity: warning
+          service: '{{ $labels.service }}'
+          component: training-worker
+          team: ai-platform
+          slo: training-success
+        annotations:
+          summary: Training workflows are failing repeatedly
+          description: At least three training jobs reached a terminal failed state in the last 30 minutes.
+          runbook_url: docs/runbooks/training-failures.md
+          dashboard_url: http://localhost:3000/d/ai-operations
+
+      - alert: MonitoringRetrainingFailures
+        expr: |
+          (
+            sum by (service, environment) (
+              increase(
+                monitoring_evaluations_total{final_status="failed"}[30m]
+              )
+            ) >= 3
+          )
+          or
+          (
+            sum by (service, environment) (
+              increase(
+                background_jobs_processed_total{
+                  final_status="failed",
+                  job_name=~"monitoring_evaluation|retraining_reconciliation"
+                }[30m]
+              )
+            ) >= 3
+          )
+        for: 5m
+        labels:
+          severity: warning
+          service: '{{ $labels.service }}'
+          component: monitoring
+          team: ai-platform
+          slo: monitoring-success
+        annotations:
+          summary: Monitoring or retraining orchestration is failing
+          description: Repeated evaluation or reconciliation failures were observed during the last 30 minutes.
+          runbook_url: docs/runbooks/monitoring-retraining-failures.md
+          dashboard_url: http://localhost:3000/d/ai-operations

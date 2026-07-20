@@ -1,0 +1,108 @@
+groups:
+  - name: observability-stack-alerts
+    interval: 30s
+    rules:
+      - alert: AlertmanagerDown
+        expr: up{job="alertmanager"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: alertmanager
+          component: alert-routing
+          team: platform
+          slo: observability
+        annotations:
+          summary: Alertmanager is unavailable
+          description: Prometheus cannot deliver grouped alerts to the local Alertmanager target.
+          runbook_url: docs/runbooks/alertmanager-down.md
+          dashboard_url: http://localhost:3000/d/alerting-overview
+
+      - alert: AlertmanagerConfigReloadFailed
+        expr: alertmanager_config_last_reload_successful == 0
+        for: 5m
+        labels:
+          severity: warning
+          service: alertmanager
+          component: alert-routing
+          team: platform
+          slo: observability
+        annotations:
+          summary: Alertmanager rejected its most recent configuration reload
+          description: Alert routing remains on the last valid configuration and requires operator review.
+          runbook_url: docs/runbooks/alertmanager-down.md
+          dashboard_url: http://localhost:3000/d/alerting-overview
+
+      - alert: LokiDown
+        expr: up{job="loki"} == 0
+        for: 5m
+        labels:
+          severity: warning
+          service: loki
+          component: logs
+          team: platform
+          slo: observability
+        annotations:
+          summary: Loki metrics target is unavailable
+          description: Central log queries and log correlation may be unavailable.
+          runbook_url: docs/runbooks/loki-down.md
+          dashboard_url: http://localhost:3000/d/logs-overview
+
+      - alert: TempoDown
+        expr: up{job="tempo"} == 0
+        for: 5m
+        labels:
+          severity: warning
+          service: tempo
+          component: traces
+          team: platform
+          slo: observability
+        annotations:
+          summary: Tempo metrics target is unavailable
+          description: Trace search and request-to-trace correlation may be unavailable.
+          runbook_url: docs/runbooks/tempo-down.md
+          dashboard_url: http://localhost:3000/d/distributed-tracing-overview
+
+      - alert: GrafanaDown
+        expr: up{job="grafana"} == 0
+        for: 5m
+        labels:
+          severity: warning
+          service: grafana
+          component: visualization
+          team: platform
+          slo: observability
+        annotations:
+          summary: Grafana metrics target is unavailable
+          description: Provisioned dashboards and datasource exploration may be unavailable.
+          runbook_url: docs/runbooks/grafana-down.md
+          dashboard_url: http://localhost:3000/d/alerting-overview
+
+      - alert: PrometheusRuleEvaluationFailures
+        expr: increase(prometheus_rule_evaluation_failures_total[10m]) > 0
+        for: 5m
+        labels:
+          severity: critical
+          service: prometheus
+          component: rule-evaluation
+          team: platform
+          slo: observability
+        annotations:
+          summary: Prometheus rule evaluation is failing
+          description: One or more recording or alerting rules failed to evaluate in the last ten minutes.
+          runbook_url: docs/runbooks/alertmanager-down.md
+          dashboard_url: http://localhost:3000/d/alerting-overview
+
+      - alert: PrometheusAlertDeliveryFailures
+        expr: increase(prometheus_notifications_errors_total[10m]) > 0
+        for: 5m
+        labels:
+          severity: critical
+          service: prometheus
+          component: alert-delivery
+          team: platform
+          slo: observability
+        annotations:
+          summary: Prometheus cannot deliver alerts
+          description: Alert delivery to configured Alertmanager targets has failed during the last ten minutes.
+          runbook_url: docs/runbooks/alertmanager-down.md
+          dashboard_url: http://localhost:3000/d/alerting-overview

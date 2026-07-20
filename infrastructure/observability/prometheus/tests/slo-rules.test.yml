@@ -1,0 +1,29 @@
+rule_files:
+  - ../rules/sli-recording-rules.yml
+
+evaluation_interval: 30s
+
+tests:
+  - interval: 30s
+    input_series:
+      - series: 'http_requests_total{service="healthy-api",environment="test",method="GET",route="/probe",status_code="200"}'
+        values: 0+10x10
+      - series: 'http_requests_total{service="burning-api",environment="test",method="GET",route="/probe",status_code="200"}'
+        values: 0+10x10
+      - series: 'http_requests_total{service="burning-api",environment="test",method="GET",route="/probe",status_code="500"}'
+        values: 0+1x10
+    promql_expr_test:
+      - expr: slo:http_availability:good_ratio30d
+        eval_time: 5m
+        exp_samples:
+          - labels: 'slo:http_availability:good_ratio30d{service="healthy-api",environment="test"}'
+            value: 1
+          - labels: 'slo:http_availability:good_ratio30d{service="burning-api",environment="test"}'
+            value: 0.9090909090909091
+      - expr: slo:http_availability:error_budget_remaining_ratio30d
+        eval_time: 5m
+        exp_samples:
+          - labels: 'slo:http_availability:error_budget_remaining_ratio30d{service="healthy-api",environment="test"}'
+            value: 1
+          - labels: 'slo:http_availability:error_budget_remaining_ratio30d{service="burning-api",environment="test"}'
+            value: 0
