@@ -30,6 +30,7 @@ def settings() -> Settings:
         secret_key="test-secret-key-with-sufficient-entropy",
         environment="test",
         tracing_enabled=False,
+        auth_rate_limit_enabled=False,
         access_token_expire_minutes=15,
         refresh_token_expire_days=30,
     )

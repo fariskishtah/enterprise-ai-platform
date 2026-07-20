@@ -22,6 +22,7 @@ from app.observability.logging import (
     current_request_id,
     emit_safe,
     reset_log_context,
+    sanitize_log_text,
 )
 from app.observability.worker_logging import WorkerLoggingMiddleware, worker_job_name
 from dramatiq import Message
@@ -127,6 +128,38 @@ def test_formatter_failure_returns_valid_fallback_json() -> None:
 
     assert payload["message"] == "log_message_unavailable"
     assert "unsafe-value" not in json.dumps(payload)
+
+
+def test_log_sanitizer_redacts_authentication_and_session_material() -> None:
+    """Headers, JSON credentials, API keys, and session IDs are redacted."""
+    sensitive_values = (
+        "authorization-secret",
+        "cookie-secret",
+        "set-cookie-secret",
+        "password-secret",
+        "access-secret",
+        "refresh-secret",
+        "api-secret",
+        "session-secret",
+    )
+    message = "\n".join(
+        (
+            f"Authorization: Bearer {sensitive_values[0]}",
+            f"Cookie: session={sensitive_values[1]}",
+            f"Set-Cookie: session={sensitive_values[2]}",
+            f'{{"password":"{sensitive_values[3]}"}}',
+            f"access_token={sensitive_values[4]}",
+            f'refresh-token="{sensitive_values[5]}"',
+            f"X-API-Key: {sensitive_values[6]}",
+            f'session_id="{sensitive_values[7]}"',
+        )
+    )
+
+    rendered = sanitize_log_text(message)
+
+    assert rendered.count("[REDACTED]") == len(sensitive_values)
+    for sensitive in sensitive_values:
+        assert sensitive not in rendered
 
 
 def test_text_format_and_log_level_are_configurable() -> None:

@@ -126,6 +126,8 @@ class AuthenticationService:
             token_type=TokenType.ACCESS,
             secret_key=self._settings.secret_key.get_secret_value(),
             algorithm=self._settings.jwt_algorithm,
+            issuer=self._settings.jwt_issuer,
+            audience=self._settings.jwt_audience,
             expires_delta=timedelta(
                 minutes=self._settings.access_token_expire_minutes,
             ),
@@ -137,6 +139,8 @@ class AuthenticationService:
             token_type=TokenType.REFRESH,
             secret_key=self._settings.secret_key.get_secret_value(),
             algorithm=self._settings.jwt_algorithm,
+            issuer=self._settings.jwt_issuer,
+            audience=self._settings.jwt_audience,
             expires_delta=refresh_expiration,
         )
         await self._repository.create_refresh_token(
@@ -160,6 +164,8 @@ class AuthenticationService:
                 token=refresh_token,
                 secret_key=self._settings.secret_key.get_secret_value(),
                 algorithm=self._settings.jwt_algorithm,
+                issuer=self._settings.jwt_issuer,
+                audience=self._settings.jwt_audience,
                 expected_type=TokenType.REFRESH,
             )
         except TokenDecodeError as exc:

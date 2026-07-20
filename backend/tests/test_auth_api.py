@@ -1,5 +1,8 @@
 """Authentication API tests."""
 
+import logging
+from uuid import uuid4
+
 import pytest
 from httpx import AsyncClient
 
@@ -171,6 +174,97 @@ async def test_users_me_requires_access_token(api_client: AsyncClient) -> None:
     response = await api_client.get("/users/me")
 
     assert response.status_code == 401
+
+
+@pytest.mark.anyio
+async def test_invalid_and_missing_access_tokens_have_consistent_failures(
+    api_client: AsyncClient,
+) -> None:
+    """Missing and malformed bearer tokens share safe 401 semantics."""
+    missing = await api_client.get("/users/me")
+    malformed = await api_client.get(
+        "/users/me",
+        headers={"Authorization": "Bearer not-a-jwt"},
+    )
+
+    assert missing.status_code == malformed.status_code == 401
+    assert missing.json() == malformed.json()
+    assert missing.headers["WWW-Authenticate"] == "Bearer"
+    assert malformed.headers["WWW-Authenticate"] == "Bearer"
+
+
+@pytest.mark.anyio
+async def test_access_and_refresh_tokens_are_rejected_cross_endpoint(
+    api_client: AsyncClient,
+) -> None:
+    """Each protected endpoint accepts only its intended JWT purpose."""
+    await register_user(api_client)
+    tokens = await login_user(api_client)
+
+    refresh_with_access = await api_client.post(
+        "/auth/refresh",
+        json={"refresh_token": tokens["access_token"]},
+    )
+    access_with_refresh = await api_client.get(
+        "/users/me",
+        headers={"Authorization": f"Bearer {tokens['refresh_token']}"},
+    )
+
+    assert refresh_with_access.status_code == 401
+    assert access_with_refresh.status_code == 401
+
+
+@pytest.mark.anyio
+async def test_privileged_route_distinguishes_unauthenticated_and_forbidden(
+    api_client: AsyncClient,
+) -> None:
+    """Admin-only operations return 401 without auth and 403 for operators."""
+    machine_id = uuid4()
+    unauthenticated = await api_client.delete(f"/machines/{machine_id}")
+    await register_user(api_client)
+    tokens = await login_user(api_client)
+    forbidden = await api_client.delete(
+        f"/machines/{machine_id}",
+        headers={"Authorization": f"Bearer {tokens['access_token']}"},
+    )
+
+    assert unauthenticated.status_code == 401
+    assert forbidden.status_code == 403
+
+
+@pytest.mark.anyio
+async def test_authentication_audit_logs_are_bounded_and_secret_free(
+    api_client: AsyncClient,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Login audit records contain bounded outcomes and no submitted credentials."""
+    await register_user(api_client)
+    caplog.clear()
+    caplog.set_level(logging.INFO, logger="app.security.audit")
+    submitted_password = "submitted-private-password"
+
+    failed = await api_client.post(
+        "/auth/login",
+        json={"email": "user@example.com", "password": submitted_password},
+    )
+    succeeded = await api_client.post(
+        "/auth/login",
+        json={"email": "user@example.com", "password": VALID_PASSWORD},
+    )
+
+    records = [
+        record
+        for record in caplog.records
+        if record.name == "app.security.audit" and record.audit_event == "login"
+    ]
+    assert failed.status_code == 401
+    assert succeeded.status_code == 200
+    assert [record.outcome for record in records] == ["failure", "success"]
+    rendered = " ".join(str(record.__dict__) for record in records)
+    assert "user@example.com" not in rendered
+    assert submitted_password not in rendered
+    assert str(succeeded.json()["access_token"]) not in rendered
+    assert str(succeeded.json()["refresh_token"]) not in rendered
 
 
 @pytest.mark.anyio
