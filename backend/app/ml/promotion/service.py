@@ -39,6 +39,7 @@ from app.ml.registry import (
     validate_registered_model_name,
 )
 from app.models.user import UserRole
+from app.observability.tracing import traced_async_operation
 from app.repositories.ai_governance import (
     ModelPromotionAuditRepository,
     PromotionAuditPage,
@@ -67,6 +68,7 @@ class ModelPromotionService:
             TaskType.CLASSIFICATION: classification_policy,
         }
 
+    @traced_async_operation("promotion.decision", attributes={"trigger": "api"})
     async def promote(
         self,
         request: ModelPromotionRequest,

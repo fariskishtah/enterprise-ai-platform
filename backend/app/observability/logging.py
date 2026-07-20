@@ -15,11 +15,10 @@ from types import TracebackType
 from typing import IO, Final, Literal, TypeGuard
 from uuid import uuid4
 
-type LogContextTokens = tuple[Token[str | None], Token[str | None], Token[str | None]]
+type LogContextTokens = tuple[Token[str | None], Token[str | None]]
 
 _REQUEST_ID: ContextVar[str | None] = ContextVar("request_id", default=None)
 _CORRELATION_ID: ContextVar[str | None] = ContextVar("correlation_id", default=None)
-_TRACE_ID: ContextVar[str | None] = ContextVar("trace_id", default=None)
 
 _IDENTIFIER_PATTERN: Final = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
 _UUID_PATTERN: Final = re.compile(
@@ -91,7 +90,6 @@ def bind_log_context(
     *,
     request_id: str | None = None,
     correlation_id: str | None = None,
-    trace_id: str | None = None,
 ) -> LogContextTokens:
     """Bind validated context for the current async task or worker thread."""
     return (
@@ -99,14 +97,12 @@ def bind_log_context(
         _CORRELATION_ID.set(
             correlation_id if is_valid_log_identifier(correlation_id) else None
         ),
-        _TRACE_ID.set(trace_id if is_valid_log_identifier(trace_id) else None),
     )
 
 
 def reset_log_context(tokens: LogContextTokens) -> None:
     """Restore the previous context even after failed requests or jobs."""
-    request_token, correlation_token, trace_token = tokens
-    _TRACE_ID.reset(trace_token)
+    request_token, correlation_token = tokens
     _CORRELATION_ID.reset(correlation_token)
     _REQUEST_ID.reset(request_token)
 
@@ -120,7 +116,10 @@ def current_correlation_id() -> str | None:
 
 
 def current_trace_id() -> str | None:
-    return _TRACE_ID.get()
+    """Read trace identity only from the currently active OpenTelemetry span."""
+    from app.observability.tracing import current_trace_id as active_trace_id
+
+    return active_trace_id()
 
 
 def sanitize_log_text(value: object) -> str:

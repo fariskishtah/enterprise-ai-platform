@@ -29,6 +29,7 @@ def settings() -> Settings:
         redis_url="redis://localhost:6379/0",
         secret_key="test-secret-key-with-sufficient-entropy",
         environment="test",
+        tracing_enabled=False,
         access_token_expire_minutes=15,
         refresh_token_expire_days=30,
     )

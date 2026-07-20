@@ -2,6 +2,7 @@
 
 from functools import lru_cache
 from typing import Annotated, Literal, Self
+from urllib.parse import urlsplit
 from uuid import UUID
 
 from pydantic import (
@@ -19,6 +20,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 EnvironmentName = Literal["local", "development", "staging", "production", "test"]
 LogFormat = Literal["json", "text"]
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+OtelTracesSampler = Literal["parentbased_traceidratio"]
 RegisteredModelPrefix = Annotated[
     str,
     StringConstraints(pattern=r"^[a-z][a-z0-9_]{1,63}$"),
@@ -83,6 +85,34 @@ class Settings(BaseSettings):
     )
     observability_environment: EnvironmentName = "local"
     observability_worker_metrics_port: int = Field(default=9191, ge=1024, le=65535)
+    tracing_enabled: bool = True
+    otel_service_name: str = Field(
+        default="ai-manufacturing-backend",
+        min_length=1,
+        max_length=64,
+        pattern=r"^[A-Za-z0-9_.-]+$",
+    )
+    otel_worker_service_name: str = Field(
+        default="ai-manufacturing-training-worker",
+        min_length=1,
+        max_length=64,
+        pattern=r"^[A-Za-z0-9_.-]+$",
+    )
+    otel_service_namespace: str = Field(
+        default="ai-manufacturing-platform",
+        min_length=1,
+        max_length=64,
+        pattern=r"^[A-Za-z0-9_.-]+$",
+    )
+    otel_environment: EnvironmentName = "local"
+    otel_exporter_otlp_endpoint: str = Field(
+        default="http://tempo:4317",
+        min_length=1,
+        max_length=512,
+    )
+    otel_exporter_otlp_insecure: bool = True
+    otel_traces_sampler: OtelTracesSampler = "parentbased_traceidratio"
+    otel_traces_sampler_arg: float = Field(default=1.0, ge=0, le=1)
     etl_chunk_size: PositiveInt = 50_000
     etl_float_precision: PositiveInt = 6
     etl_outlier_z_score_threshold: PositiveFloat = 3.0
@@ -216,6 +246,18 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def validate_drift_threshold_order(self) -> Self:
         """Require the operational warning threshold below critical."""
+        otlp_endpoint = urlsplit(self.otel_exporter_otlp_endpoint)
+        if (
+            otlp_endpoint.scheme not in {"http", "https"}
+            or not otlp_endpoint.hostname
+            or otlp_endpoint.username is not None
+            or otlp_endpoint.password is not None
+            or otlp_endpoint.query
+            or otlp_endpoint.fragment
+        ):
+            raise ValueError(
+                "otel_exporter_otlp_endpoint must be a credential-free URL."
+            )
         if self.drift_psi_warning_threshold >= self.drift_psi_critical_threshold:
             raise ValueError(
                 "drift_psi_warning_threshold must be below the critical threshold.",

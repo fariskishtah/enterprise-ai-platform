@@ -3,6 +3,8 @@
 from typing import Protocol
 from uuid import UUID
 
+from app.observability.tracing import start_dramatiq_producer_span
+
 
 class TrainingJobQueue(Protocol):
     """Enqueue only the stable identifier of a persisted training job."""
@@ -18,5 +20,6 @@ class DramatiqTrainingJobQueue:
         """Enqueue one job without copying its dataset into Redis."""
         from app.ml.jobs.tasks import execute_training_job
 
-        message = execute_training_job.send(str(training_job_id))
+        with start_dramatiq_producer_span("training"):
+            message = execute_training_job.send(str(training_job_id))
         return message.message_id

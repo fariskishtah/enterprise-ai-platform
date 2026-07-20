@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import pytest
+import yaml
 
 _REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 _DASHBOARD_PATHS = (
@@ -16,6 +17,21 @@ _DASHBOARD_PATHS = (
     / "infrastructure/observability/grafana/dashboards/request-correlation.json",
 )
 _LOKI_DATASOURCE = {"type": "loki", "uid": "loki"}
+_TEMPO_DATASOURCE = {"type": "tempo", "uid": "tempo"}
+_TRACING_DASHBOARD_PATHS = (
+    _REPOSITORY_ROOT
+    / (
+        "infrastructure/observability/grafana/dashboards/"
+        "distributed-tracing-overview.json"
+    ),
+    _REPOSITORY_ROOT
+    / "infrastructure/observability/grafana/dashboards/trace-correlation.json",
+)
+_DATASOURCE_PATH = (
+    _REPOSITORY_ROOT
+    / "infrastructure/observability/grafana/provisioning/datasources/prometheus.yml"
+)
+_ALLOY_PATH = _REPOSITORY_ROOT / "infrastructure/observability/alloy/config.alloy"
 
 
 def _load_dashboard(path: Path) -> dict[str, Any]:
@@ -67,3 +83,45 @@ def test_logs_overview_stat_queries_render_zero_for_empty_results() -> None:
 
     for title in ("Errors", "Warnings"):
         assert panels[title]["targets"][0]["expr"].endswith(" or vector(0)")
+
+
+@pytest.mark.parametrize("dashboard_path", _TRACING_DASHBOARD_PATHS)
+def test_tracing_dashboards_reference_tempo_explicitly(
+    dashboard_path: Path,
+) -> None:
+    dashboard = _load_dashboard(dashboard_path)
+
+    assert dashboard["uid"] in {
+        "distributed-tracing-overview",
+        "trace-correlation",
+    }
+    for panel in dashboard["panels"]:
+        assert panel["datasource"] == _TEMPO_DATASOURCE
+        assert panel["targets"]
+        for target in panel["targets"]:
+            assert target["datasource"] == _TEMPO_DATASOURCE
+            assert target["queryType"] == "traceql"
+            assert target["filters"] == []
+
+
+def test_tempo_datasource_and_bidirectional_log_correlation_are_fixed() -> None:
+    provisioning = yaml.safe_load(_DATASOURCE_PATH.read_text(encoding="utf-8"))
+    datasources = {item["uid"]: item for item in provisioning["datasources"]}
+
+    assert set(datasources) == {"prometheus", "loki", "tempo"}
+    tempo = datasources["tempo"]
+    assert tempo["type"] == "tempo"
+    assert tempo["url"] == "http://tempo:3200"
+    assert tempo["jsonData"]["tracesToLogsV2"]["datasourceUid"] == "loki"
+    assert tempo["jsonData"]["tracesToMetrics"]["datasourceUid"] == "prometheus"
+    derived_field = datasources["loki"]["jsonData"]["derivedFields"][0]
+    assert derived_field["datasourceUid"] == "tempo"
+    assert "trace_id" in derived_field["matcherRegex"]
+
+
+def test_trace_identity_is_not_an_alloy_or_loki_label() -> None:
+    alloy = _ALLOY_PATH.read_text(encoding="utf-8")
+
+    assert "trace_id" not in alloy
+    for required_label in ("service", "container", "environment", "stream"):
+        assert required_label in alloy

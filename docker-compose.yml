@@ -8,6 +8,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      tempo:
+        condition: service_healthy
     environment:
       DATABASE_URL: ${DATABASE_URL}
       ENVIRONMENT: ${ENVIRONMENT}
@@ -81,6 +83,15 @@ services:
       OBSERVABILITY_SERVICE_NAME: ${OBSERVABILITY_SERVICE_NAME:-ai-manufacturing-backend}
       OBSERVABILITY_ENVIRONMENT: ${OBSERVABILITY_ENVIRONMENT:-local}
       OBSERVABILITY_WORKER_METRICS_PORT: ${OBSERVABILITY_WORKER_METRICS_PORT:-9191}
+      TRACING_ENABLED: ${TRACING_ENABLED:-true}
+      OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-ai-manufacturing-backend}
+      OTEL_WORKER_SERVICE_NAME: ${OTEL_WORKER_SERVICE_NAME:-ai-manufacturing-training-worker}
+      OTEL_SERVICE_NAMESPACE: ${OTEL_SERVICE_NAMESPACE:-ai-manufacturing-platform}
+      OTEL_ENVIRONMENT: ${OTEL_ENVIRONMENT:-local}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://tempo:4317}
+      OTEL_EXPORTER_OTLP_INSECURE: ${OTEL_EXPORTER_OTLP_INSECURE:-true}
+      OTEL_TRACES_SAMPLER: ${OTEL_TRACES_SAMPLER:-parentbased_traceidratio}
+      OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG:-1.0}
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     volumes:
@@ -104,6 +115,8 @@ services:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      tempo:
         condition: service_healthy
     environment:
       DATABASE_URL: ${DATABASE_URL}
@@ -175,6 +188,15 @@ services:
       OBSERVABILITY_SERVICE_NAME: ${OBSERVABILITY_SERVICE_NAME:-ai-manufacturing-backend}
       OBSERVABILITY_ENVIRONMENT: ${OBSERVABILITY_ENVIRONMENT:-local}
       OBSERVABILITY_WORKER_METRICS_PORT: ${OBSERVABILITY_WORKER_METRICS_PORT:-9191}
+      TRACING_ENABLED: ${TRACING_ENABLED:-true}
+      OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-ai-manufacturing-backend}
+      OTEL_WORKER_SERVICE_NAME: ${OTEL_WORKER_SERVICE_NAME:-ai-manufacturing-training-worker}
+      OTEL_SERVICE_NAMESPACE: ${OTEL_SERVICE_NAMESPACE:-ai-manufacturing-platform}
+      OTEL_ENVIRONMENT: ${OTEL_ENVIRONMENT:-local}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://tempo:4317}
+      OTEL_EXPORTER_OTLP_INSECURE: ${OTEL_EXPORTER_OTLP_INSECURE:-true}
+      OTEL_TRACES_SAMPLER: ${OTEL_TRACES_SAMPLER:-parentbased_traceidratio}
+      OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG:-1.0}
     expose:
       - "9191"
     volumes:
@@ -342,12 +364,42 @@ services:
     cpus: 0.5
     restart: unless-stopped
 
+  tempo:
+    image: grafana/tempo:2.10.5
+    command:
+      - -config.file=/etc/tempo/tempo.yml
+    healthcheck:
+      test:
+        - CMD
+        - /tempo
+        - -config.file=/etc/tempo/tempo.yml
+        - -config.verify=true
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    ports:
+      - "127.0.0.1:${TEMPO_PORT:-3200}:3200"
+    expose:
+      - "4317"
+      - "4318"
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - ./infrastructure/observability/tempo/tempo.yml:/etc/tempo/tempo.yml:ro
+      - tempo-data:/var/tempo
+    mem_limit: 768m
+    cpus: 1.0
+    restart: unless-stopped
+
   grafana:
     image: grafana/grafana:13.1.0
     depends_on:
       prometheus:
         condition: service_healthy
       loki:
+        condition: service_healthy
+      tempo:
         condition: service_healthy
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
@@ -376,3 +428,4 @@ volumes:
   grafana-data:
   loki-data:
   alloy-data:
+  tempo-data:

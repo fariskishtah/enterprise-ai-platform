@@ -3,14 +3,20 @@
 from __future__ import annotations
 
 import logging
+import re
+from contextvars import Token
 from dataclasses import dataclass
 from threading import Lock
 from time import perf_counter
-from typing import Any
+from typing import Any, Final
 
 from dramatiq import Message
 from dramatiq.broker import Broker, MessageProxy
 from dramatiq.middleware import Middleware
+from opentelemetry import context as otel_context
+from opentelemetry import trace
+from opentelemetry.context import Context as OtelContext
+from opentelemetry.trace import Span, SpanKind
 
 from app.config.settings import LogFormat, LogLevel
 from app.observability.logging import (
@@ -22,6 +28,13 @@ from app.observability.logging import (
     is_valid_log_identifier,
     new_log_identifier,
     reset_log_context,
+)
+from app.observability.tracing import (
+    TracingConfig,
+    configure_tracing,
+    extract_w3c_trace_context,
+    inject_w3c_trace_context,
+    record_safe_span_error,
 )
 
 logger = logging.getLogger("app.worker")
@@ -35,6 +48,9 @@ _ACTOR_JOB_NAMES = {
     "execute_retraining_reconciliation": "retraining_reconciliation",
     "execute_stale_alert_reconciliation": "stale_alert_reconciliation",
 }
+_TRACE_CONTEXT_OPTION: Final = "otel_trace_context"
+_TRACEPARENT_PATTERN: Final = re.compile(r"^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$")
+_TRACESTATE_PATTERN: Final = re.compile(r"^[\x20-\x7e]{1,512}$")
 
 
 def worker_job_name(actor_name: str) -> str | None:
@@ -55,10 +71,12 @@ class _WorkerLogState:
     tokens: LogContextTokens
     job_name: str
     attempt_number: int
+    span: Span
+    context_token: Token[OtelContext]
 
 
 class WorkerLoggingMiddleware(Middleware):
-    """Propagate only correlation IDs and log each known actor lifecycle."""
+    """Propagate independent correlation and W3C contexts for known actors."""
 
     def __init__(
         self,
@@ -68,23 +86,40 @@ class WorkerLoggingMiddleware(Middleware):
         log_level: LogLevel,
         service: str,
         environment: str,
+        tracing_config: TracingConfig | None = None,
     ) -> None:
         self._enabled = enabled
         self._log_format = log_format
         self._log_level = log_level
         self._service = service
         self._environment = environment
+        self._tracing_config = tracing_config
         self._active: dict[str, _WorkerLogState] = {}
         self._lock = Lock()
 
     def before_enqueue(self, broker: Broker, message: Message[Any], delay: int) -> None:
         _ = (broker, delay)
         existing = message.options.get("correlation_id")
-        if is_valid_log_identifier(existing):
+        if not is_valid_log_identifier(existing):
+            message.options["correlation_id"] = (
+                current_correlation_id() or new_log_identifier()
+            )
+
+        job_name = worker_job_name(message.actor_name)
+        if job_name is None:
             return
-        message.options["correlation_id"] = (
-            current_correlation_id() or new_log_identifier()
+        existing_trace_context = _safe_trace_carrier(
+            message.options.get(_TRACE_CONTEXT_OPTION)
         )
+        if existing_trace_context:
+            return
+        carrier: dict[str, str] = {}
+        inject_w3c_trace_context(carrier)
+        safe_carrier = _safe_trace_carrier(carrier)
+        if safe_carrier:
+            message.options[_TRACE_CONTEXT_OPTION] = safe_carrier
+        else:
+            message.options.pop(_TRACE_CONTEXT_OPTION, None)
 
     def after_process_boot(self, broker: Broker) -> None:
         _ = broker
@@ -96,6 +131,8 @@ class WorkerLoggingMiddleware(Middleware):
             environment=self._environment,
             access_logging_enabled=False,
         )
+        if self._tracing_config is not None:
+            configure_tracing(self._tracing_config)
 
     def before_process_message(self, broker: Broker, message: MessageProxy) -> None:
         _ = broker
@@ -108,12 +145,35 @@ class WorkerLoggingMiddleware(Middleware):
             if is_valid_log_identifier(correlation_id)
             else new_log_identifier()
         )
-        tokens = bind_log_context(correlation_id=safe_correlation_id)
+        parent_context = extract_w3c_trace_context(
+            _safe_trace_carrier(message.options.get(_TRACE_CONTEXT_OPTION))
+        )
+        span = trace.get_tracer("ai-manufacturing-platform").start_span(
+            f"dramatiq {job_name} process",
+            context=parent_context,
+            kind=SpanKind.CONSUMER,
+            attributes={
+                "messaging.system": "dramatiq",
+                "messaging.operation.type": "process",
+                "messaging.destination.name": job_name,
+            },
+            record_exception=False,
+            set_status_on_exception=False,
+        )
+        context_token = otel_context.attach(trace.set_span_in_context(span))
+        try:
+            tokens = bind_log_context(correlation_id=safe_correlation_id)
+        except BaseException:
+            otel_context.detach(context_token)
+            span.end()
+            raise
         state = _WorkerLogState(
             started=perf_counter(),
             tokens=tokens,
             job_name=job_name,
             attempt_number=_attempt_number(message),
+            span=span,
+            context_token=context_token,
         )
         with self._lock:
             self._active[message.message_id] = state
@@ -163,6 +223,8 @@ class WorkerLoggingMiddleware(Middleware):
             else False
         )
         try:
+            if exception is not None:
+                record_safe_span_error(state.span, exception)
             emit_safe(
                 logger,
                 logging.ERROR if exception is not None else logging.INFO,
@@ -180,3 +242,21 @@ class WorkerLoggingMiddleware(Middleware):
             )
         finally:
             reset_log_context(state.tokens)
+            otel_context.detach(state.context_token)
+            state.span.end()
+
+
+def _safe_trace_carrier(value: object) -> dict[str, str]:
+    if not isinstance(value, dict):
+        return {}
+    traceparent = value.get("traceparent")
+    if (
+        not isinstance(traceparent, str)
+        or _TRACEPARENT_PATTERN.fullmatch(traceparent) is None
+    ):
+        return {}
+    carrier = {"traceparent": traceparent}
+    tracestate = value.get("tracestate")
+    if isinstance(tracestate, str) and _TRACESTATE_PATTERN.fullmatch(tracestate):
+        carrier["tracestate"] = tracestate
+    return carrier

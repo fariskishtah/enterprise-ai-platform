@@ -9,6 +9,7 @@ from app.ml.services.types import (
     RegisteredPredictionRequest,
     RegisteredPredictionResult,
 )
+from app.observability.tracing import traced_operation
 
 
 class PredictionService:
@@ -23,6 +24,10 @@ class PredictionService:
         self._model_registry = model_registry
         self._model_loader = model_loader
 
+    @traced_operation(
+        "prediction.execution",
+        attributes={"algorithm": "random_forest", "trigger": "api"},
+    )
     def predict[
         ModelT, FeaturesT, PredictionsT
     ](

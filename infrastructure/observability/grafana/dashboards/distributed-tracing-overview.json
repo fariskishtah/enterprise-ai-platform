@@ -1,0 +1,77 @@
+{
+  "annotations": {"list": []},
+  "editable": false,
+  "graphTooltip": 1,
+  "panels": [
+    {
+      "datasource": {"type": "tempo", "uid": "tempo"},
+      "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 0},
+      "id": 1,
+      "options": {"legend": {"displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"datasource": {"type": "tempo", "uid": "tempo"}, "exemplars": 20, "filters": [], "metricsQueryType": "range", "query": "{} | rate()", "queryType": "traceql", "refId": "A", "step": "15s"}],
+      "title": "Span rate",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "tempo", "uid": "tempo"},
+      "fieldConfig": {"defaults": {"color": {"fixedColor": "red", "mode": "fixed"}, "unit": "ops"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 0},
+      "id": 2,
+      "options": {"legend": {"displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"datasource": {"type": "tempo", "uid": "tempo"}, "exemplars": 20, "filters": [], "metricsQueryType": "range", "query": "{ status = error } | rate()", "queryType": "traceql", "refId": "A", "step": "15s"}],
+      "title": "Error span rate",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "tempo", "uid": "tempo"},
+      "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 0},
+      "id": 3,
+      "options": {"legend": {"displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"datasource": {"type": "tempo", "uid": "tempo"}, "exemplars": 20, "filters": [], "metricsQueryType": "range", "query": "{} | quantile_over_time(span:duration, .50, .95, .99)", "queryType": "traceql", "refId": "A", "step": "15s"}],
+      "title": "Span latency percentiles",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "tempo", "uid": "tempo"},
+      "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 8},
+      "id": 4,
+      "options": {"legend": {"displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"datasource": {"type": "tempo", "uid": "tempo"}, "exemplars": 20, "filters": [], "metricsQueryType": "range", "query": "{} | rate() by (resource.service.name)", "queryType": "traceql", "refId": "A", "step": "15s"}],
+      "title": "Spans by service",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "tempo", "uid": "tempo"},
+      "fieldConfig": {"defaults": {}, "overrides": []},
+      "gridPos": {"h": 10, "w": 12, "x": 0, "y": 16},
+      "id": 5,
+      "options": {"cellHeight": "sm", "showHeader": true},
+      "targets": [{"datasource": {"type": "tempo", "uid": "tempo"}, "filters": [], "limit": 50, "query": "{} with (most_recent=true)", "queryType": "traceql", "refId": "A", "spss": 3, "tableType": "traces"}],
+      "title": "Recent traces",
+      "type": "table"
+    },
+    {
+      "datasource": {"type": "tempo", "uid": "tempo"},
+      "fieldConfig": {"defaults": {}, "overrides": []},
+      "gridPos": {"h": 10, "w": 12, "x": 12, "y": 16},
+      "id": 6,
+      "options": {"cellHeight": "sm", "showHeader": true},
+      "targets": [{"datasource": {"type": "tempo", "uid": "tempo"}, "filters": [], "limit": 50, "query": "{ duration > 1s } with (most_recent=true)", "queryType": "traceql", "refId": "A", "spss": 3, "tableType": "traces"}],
+      "title": "Slow traces over one second",
+      "type": "table"
+    }
+  ],
+  "refresh": "15s",
+  "schemaVersion": 41,
+  "tags": ["tracing", "tempo", "observability"],
+  "templating": {"list": []},
+  "time": {"from": "now-6h", "to": "now"},
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Distributed Tracing Overview",
+  "uid": "distributed-tracing-overview",
+  "version": 1
+}

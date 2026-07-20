@@ -32,6 +32,7 @@ from app.ml.monitoring.retention import retain_prediction_events
 from app.ml.monitoring.scheduled import run_scheduled_monitoring
 from app.ml.retraining.reconcile import reconcile_retraining_requests
 from app.observability.logging import configure_logging, emit_safe
+from app.observability.tracing import TracingConfig, traced_operation
 from app.observability.worker import WorkerPrometheusMiddleware
 from app.observability.worker_logging import WorkerLoggingMiddleware
 
@@ -60,6 +61,17 @@ broker.add_middleware(
         log_level=_settings.log_level,
         service=_settings.log_service_name,
         environment=_settings.log_environment,
+        tracing_config=TracingConfig(
+            enabled=_settings.tracing_enabled,
+            service_name=_settings.otel_worker_service_name,
+            service_namespace=_settings.otel_service_namespace,
+            environment=_settings.otel_environment,
+            service_version=_settings.app_version,
+            otlp_endpoint=_settings.otel_exporter_otlp_endpoint,
+            otlp_insecure=_settings.otel_exporter_otlp_insecure,
+            sampler=_settings.otel_traces_sampler,
+            sampler_arg=_settings.otel_traces_sampler_arg,
+        ),
     ),
     before=Retries,
 )
@@ -87,6 +99,10 @@ def _worker_session_factory(
     queue_name=_settings.training_queue_name,
     max_retries=_settings.training_job_max_attempts - 1,
     min_backoff=int(_settings.training_job_retry_base_seconds * 1000),
+)
+@traced_operation(
+    "training.execution",
+    attributes={"algorithm": "random_forest", "trigger": "background"},
 )
 def execute_training_job(training_job_id: str) -> None:
     """Load and execute the authoritative persisted job specification."""
@@ -151,6 +167,7 @@ async def _synchronize_retraining_request(training_job_id: UUID) -> None:
     max_retries=_settings.training_job_max_attempts - 1,
     min_backoff=int(_settings.training_job_retry_base_seconds * 1000),
 )
+@traced_operation("monitoring.evaluation", attributes={"trigger": "scheduled"})
 def execute_scheduled_monitoring() -> None:
     """Evaluate eligible aliases only when scheduling is explicitly enabled."""
     if not _settings.monitoring_scheduling_enabled:
@@ -168,6 +185,10 @@ def execute_scheduled_monitoring() -> None:
 
 
 @dramatiq.actor(broker=broker, queue_name=_settings.monitoring_queue_name)
+@traced_operation(
+    "maintenance.prediction_event_retention",
+    attributes={"trigger": "scheduled"},
+)
 def execute_prediction_event_retention() -> None:
     if not _settings.prediction_event_retention_scheduling_enabled:
         emit_safe(
@@ -184,6 +205,10 @@ def execute_prediction_event_retention() -> None:
 
 
 @dramatiq.actor(broker=broker, queue_name=_settings.monitoring_queue_name)
+@traced_operation(
+    "maintenance.monitoring_evaluation_retention",
+    attributes={"trigger": "scheduled"},
+)
 def execute_monitoring_evaluation_retention() -> None:
     if not _settings.monitoring_evaluation_retention_scheduling_enabled:
         emit_safe(
@@ -200,6 +225,10 @@ def execute_monitoring_evaluation_retention() -> None:
 
 
 @dramatiq.actor(broker=broker, queue_name=_settings.monitoring_queue_name)
+@traced_operation(
+    "monitoring.reference_profile_reconciliation",
+    attributes={"trigger": "scheduled"},
+)
 def execute_reference_profile_reconciliation() -> None:
     if not _settings.reference_profile_reconciliation_scheduling_enabled:
         emit_safe(
@@ -216,6 +245,7 @@ def execute_reference_profile_reconciliation() -> None:
 
 
 @dramatiq.actor(broker=broker, queue_name=_settings.monitoring_queue_name)
+@traced_operation("retraining.reconciliation", attributes={"trigger": "scheduled"})
 def execute_retraining_reconciliation() -> None:
     if not _settings.retraining_reconciliation_scheduling_enabled:
         emit_safe(
@@ -232,6 +262,7 @@ def execute_retraining_reconciliation() -> None:
 
 
 @dramatiq.actor(broker=broker, queue_name=_settings.monitoring_queue_name)
+@traced_operation("alert.reconciliation", attributes={"trigger": "scheduled"})
 def execute_stale_alert_reconciliation() -> None:
     if not _settings.stale_alert_reconciliation_scheduling_enabled:
         emit_safe(

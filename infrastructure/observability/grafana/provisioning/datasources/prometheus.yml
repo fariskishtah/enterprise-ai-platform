@@ -26,3 +26,46 @@ datasources:
     jsonData:
       maxLines: 1000
       timeout: 60
+      derivedFields:
+        - name: TraceID
+          matcherRegex: '"trace_id":"([0-9a-f]{32})"'
+          datasourceUid: tempo
+          url: '$${__value.raw}'
+          urlDisplayLabel: View trace
+  - name: Tempo
+    uid: tempo
+    type: tempo
+    access: proxy
+    url: http://tempo:3200
+    editable: false
+    version: 1
+    jsonData:
+      httpMethod: GET
+      nodeGraph:
+        enabled: true
+      search:
+        hide: false
+      traceQuery:
+        timeShiftEnabled: true
+        spanStartTimeShift: -5m
+        spanEndTimeShift: 5m
+      tracesToLogsV2:
+        datasourceUid: loki
+        spanStartTimeShift: -5m
+        spanEndTimeShift: 5m
+        filterByTraceID: true
+        filterBySpanID: false
+        customQuery: true
+        query: '{service=~".+"} | json | trace_id="$${__trace.traceId}"'
+      tracesToMetrics:
+        datasourceUid: prometheus
+        spanStartTimeShift: -5m
+        spanEndTimeShift: 5m
+        tags:
+          - key: service.name
+            value: service
+        queries:
+          - name: HTTP request rate
+            query: 'sum(rate(http_requests_total{$$__tags}[5m]))'
+          - name: HTTP error rate
+            query: 'sum(rate(http_requests_total{$$__tags,status_code=~"5.."}[5m]))'

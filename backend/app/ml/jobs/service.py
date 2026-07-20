@@ -24,6 +24,7 @@ from app.ml.jobs.models import (
 )
 from app.ml.jobs.queue import TrainingJobQueue
 from app.observability.metrics import record_training_job_submitted
+from app.observability.tracing import traced_async_operation
 from app.repositories.ai_governance import TrainingJobPage, TrainingJobRepository
 from app.utils.security import utc_now
 
@@ -50,6 +51,10 @@ class TrainingJobService:
         self._max_attempts = max_attempts
         self._job_id_factory = job_id_factory
 
+    @traced_async_operation(
+        "training.job_submission",
+        attributes={"algorithm": "random_forest", "trigger": "api"},
+    )
     async def submit(
         self,
         *,

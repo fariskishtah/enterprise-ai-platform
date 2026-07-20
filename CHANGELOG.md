@@ -8,6 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Explicit bounded OpenTelemetry dependencies, typed trace settings, idempotent
+  backend/worker providers, OTLP/gRPC export, and active-span JSON `trace_id`
+  correlation.
+- Normalized FastAPI server spans, parameter-safe SQLAlchemy and Redis client
+  spans, bounded AI domain spans, and explicit W3C Dramatiq propagation across
+  producers, consumers, and retries.
+- Pinned local Grafana Tempo with persistent filesystem storage, fixed Grafana
+  datasource UID, bidirectional Loki links, Prometheus links, and two
+  provisioned tracing dashboards.
 - Dependency-free structured JSON/text logging with a stable safe field schema,
   redaction, sanitized exception stacks, configurable levels, and failure
   isolation.

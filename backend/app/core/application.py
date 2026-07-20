@@ -5,10 +5,13 @@ from fastapi import FastAPI
 from app.api.router import api_router
 from app.config.settings import Settings, get_settings
 from app.observability import (
+    FastAPITracingMiddleware,
     PrometheusMetricsMiddleware,
     RequestContextLoggingMiddleware,
+    TracingConfig,
     configure_logging,
     configure_metrics,
+    configure_tracing,
     metrics_response,
 )
 
@@ -66,6 +69,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         environment=resolved_settings.log_environment,
         access_logging_enabled=resolved_settings.http_access_logging_enabled,
     )
+    configure_tracing(
+        TracingConfig(
+            enabled=resolved_settings.tracing_enabled,
+            service_name=resolved_settings.otel_service_name,
+            service_namespace=resolved_settings.otel_service_namespace,
+            environment=resolved_settings.otel_environment,
+            service_version=resolved_settings.app_version,
+            otlp_endpoint=resolved_settings.otel_exporter_otlp_endpoint,
+            otlp_insecure=resolved_settings.otel_exporter_otlp_insecure,
+            sampler=resolved_settings.otel_traces_sampler,
+            sampler_arg=resolved_settings.otel_traces_sampler_arg,
+        )
+    )
 
     application = FastAPI(
         title=resolved_settings.project_name,
@@ -95,6 +111,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     "/docs",
                     "/openapi.json",
                     "/health",
+                    "/redoc",
                 }
             ),
         )
@@ -111,6 +128,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "/docs",
             "/openapi.json",
             "/health",
+            "/redoc",
         }
     )
     application.add_middleware(
@@ -123,4 +141,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     if settings is not None:
         application.dependency_overrides[get_settings] = lambda: resolved_settings
     application.include_router(api_router)
+    application.add_middleware(
+        FastAPITracingMiddleware,
+        enabled=resolved_settings.tracing_enabled,
+        excluded_paths=noisy_paths,
+    )
     return application
