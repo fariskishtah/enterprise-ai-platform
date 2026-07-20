@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactElement } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 
 import {
   deleteSensor,
@@ -28,6 +28,7 @@ export function SensorDetailPage(): ReactElement {
   const { role } = useAuth();
   const canWrite = role === "admin" || role === "engineer";
   const canDelete = role === "admin";
+  const readingsPath = `/factories/${factoryId}/machines/${machineId}/sensors/${sensorId}/readings`;
   const [factory, setFactory] = useState<Factory | null>(null);
   const [machine, setMachine] = useState<Machine | null>(null);
   const [sensor, setSensor] = useState<Sensor | null>(null);
@@ -196,12 +197,39 @@ export function SensorDetailPage(): ReactElement {
           </div>
         )}
       </dl>
-      <aside className="mt-6 rounded-lg border border-blue-200 bg-blue-50 p-5">
-        <h3 className="font-semibold text-blue-950">Readings and monitoring</h3>
+      <section
+        className="mt-6 rounded-lg border border-blue-200 bg-blue-50 p-5"
+        aria-labelledby="sensor-readings-actions"
+      >
+        <h3 className="font-semibold text-blue-950" id="sensor-readings-actions">
+          Sensor readings
+        </h3>
         <p className="mt-1 text-sm leading-6 text-blue-900">
-          Sensor readings, charts, and monitoring will arrive in a later frontend phase.
+          Review timestamped values or add data using the operations supported by the
+          current API.
         </p>
-      </aside>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <Link className={secondaryButtonClassName} to={readingsPath}>
+            View readings
+          </Link>
+          {canWrite ? (
+            <Link
+              className={secondaryButtonClassName}
+              to={`${readingsPath}?action=add`}
+            >
+              Add reading
+            </Link>
+          ) : null}
+          {canWrite ? (
+            <Link
+              className={secondaryButtonClassName}
+              to={`${readingsPath}?action=upload`}
+            >
+              Upload CSV
+            </Link>
+          ) : null}
+        </div>
+      </section>
       {editing ? (
         <SensorFormDialog
           initial={sensor}
