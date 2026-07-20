@@ -142,6 +142,7 @@ jobs:
               for pattern in ("*.yml", "*.yaml")
               for path in Path(".").rglob(pattern)
               if excluded.isdisjoint(path.parts)
+              and not path.name.lower().startswith(("docker-compose", "compose"))
           )
           for path in yaml_paths:
               with path.open(encoding="utf-8") as stream:
