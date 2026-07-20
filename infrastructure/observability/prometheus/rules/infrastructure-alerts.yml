@@ -1,0 +1,144 @@
+groups:
+  - name: infrastructure-alerts
+    interval: 30s
+    rules:
+      - alert: BackendDown
+        expr: up{job="backend"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: backend
+          component: api
+          team: platform
+          slo: http-availability
+        annotations:
+          summary: Backend metrics target is down
+          description: Prometheus cannot scrape the backend metrics endpoint for two minutes.
+          runbook_url: docs/runbooks/backend-down.md
+          dashboard_url: http://localhost:3000/d/platform-overview
+
+      - alert: WorkerDown
+        expr: up{job="training-worker"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: training-worker
+          component: worker
+          team: ai-platform
+          slo: background-job-success
+        annotations:
+          summary: Training worker metrics target is down
+          description: Prometheus cannot scrape the Dramatiq worker metrics listener for two minutes.
+          runbook_url: docs/runbooks/worker-down.md
+          dashboard_url: http://localhost:3000/d/platform-overview
+
+      - alert: PostgresExporterDown
+        expr: up{job="postgres-exporter"} == 0
+        for: 5m
+        labels:
+          severity: warning
+          service: postgres
+          component: database
+          team: platform
+          slo: infrastructure
+        annotations:
+          summary: PostgreSQL telemetry is unavailable
+          description: Prometheus cannot scrape postgres-exporter; database health alerts may be blind.
+          runbook_url: docs/runbooks/postgres-issues.md
+          dashboard_url: http://localhost:3000/d/platform-overview
+
+      - alert: RedisExporterDown
+        expr: up{job="redis-exporter"} == 0
+        for: 5m
+        labels:
+          severity: warning
+          service: redis
+          component: cache
+          team: platform
+          slo: infrastructure
+        annotations:
+          summary: Redis telemetry is unavailable
+          description: Prometheus cannot scrape redis-exporter; broker and cache health alerts may be blind.
+          runbook_url: docs/runbooks/redis-issues.md
+          dashboard_url: http://localhost:3000/d/platform-overview
+
+      - alert: CAdvisorDown
+        expr: up{job="cadvisor"} == 0
+        for: 5m
+        labels:
+          severity: warning
+          service: cadvisor
+          component: container-telemetry
+          team: platform
+          slo: infrastructure
+        annotations:
+          summary: Container resource telemetry is unavailable
+          description: Prometheus cannot scrape cAdvisor; resource-pressure alerts may be blind.
+          runbook_url: docs/runbooks/container-resource-pressure.md
+          dashboard_url: http://localhost:3000/d/platform-overview
+
+      - alert: ContainerCPUQuotaPressure
+        expr: |
+          (
+            sum by (container_label_com_docker_compose_service) (
+              rate(
+                container_cpu_usage_seconds_total{
+                  container_label_com_docker_compose_project="ai-manufacturing-platform"
+                }[5m]
+              )
+            )
+            /
+            (
+              max by (container_label_com_docker_compose_service) (
+                container_spec_cpu_quota{
+                  container_label_com_docker_compose_project="ai-manufacturing-platform"
+                } > 0
+              )
+              /
+              max by (container_label_com_docker_compose_service) (
+                container_spec_cpu_period{
+                  container_label_com_docker_compose_project="ai-manufacturing-platform"
+                }
+              )
+            )
+          ) > 0.90
+        for: 15m
+        labels:
+          severity: warning
+          service: '{{ $labels.container_label_com_docker_compose_service }}'
+          component: container
+          team: platform
+          slo: infrastructure
+        annotations:
+          summary: Container is consuming more than 90% of its CPU quota
+          description: Sustained CPU quota pressure can increase latency and cause background-work delays.
+          runbook_url: docs/runbooks/container-resource-pressure.md
+          dashboard_url: http://localhost:3000/d/platform-overview
+
+      - alert: ContainerMemoryLimitPressure
+        expr: |
+          (
+            max by (container_label_com_docker_compose_service) (
+              container_memory_working_set_bytes{
+                container_label_com_docker_compose_project="ai-manufacturing-platform"
+              }
+            )
+            /
+            max by (container_label_com_docker_compose_service) (
+              container_spec_memory_limit_bytes{
+                container_label_com_docker_compose_project="ai-manufacturing-platform"
+              } > 0
+            )
+          ) > 0.90
+        for: 15m
+        labels:
+          severity: warning
+          service: '{{ $labels.container_label_com_docker_compose_service }}'
+          component: container
+          team: platform
+          slo: infrastructure
+        annotations:
+          summary: Container is consuming more than 90% of its memory limit
+          description: Sustained memory-limit pressure increases the risk of an OOM kill.
+          runbook_url: docs/runbooks/container-resource-pressure.md
+          dashboard_url: http://localhost:3000/d/platform-overview

@@ -119,6 +119,11 @@ BACKGROUND_JOB_FAILURES = Counter(
     "Dramatiq actor executions that raised an exception.",
     ("service", "environment", "job_name"),
 )
+BACKGROUND_JOBS_PROCESSED = Counter(
+    "background_jobs_processed_total",
+    "Dramatiq actor executions that reached a bounded terminal outcome.",
+    ("service", "environment", "job_name", "final_status"),
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -318,6 +323,18 @@ def record_background_job_failure(*, job_name: str) -> None:
         lambda: BACKGROUND_JOB_FAILURES.labels(
             **labels,
             job_name=job_name,
+        ).inc(),
+    )
+
+
+def record_background_job_processed(*, job_name: str, final_status: str) -> None:
+    labels = _base_labels()
+    _safe_record(
+        "background_jobs_processed_total",
+        lambda: BACKGROUND_JOBS_PROCESSED.labels(
+            **labels,
+            job_name=job_name,
+            final_status=final_status,
         ).inc(),
     )
 

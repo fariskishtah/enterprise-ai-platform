@@ -12,6 +12,7 @@ from prometheus_client import start_http_server
 from app.observability.metrics import (
     configure_metrics,
     record_background_job_failure,
+    record_background_job_processed,
 )
 from app.observability.worker_logging import worker_job_name
 
@@ -57,8 +58,22 @@ class WorkerPrometheusMiddleware(Middleware):
         exception: BaseException | None = None,
     ) -> None:
         _ = (broker, result)
-        if exception is None:
+        job_name = worker_job_name(message.actor_name)
+        if job_name is None:
             return
+        final_status = "failed" if exception is not None else "completed"
+        record_background_job_processed(
+            job_name=job_name,
+            final_status=final_status,
+        )
+        if exception is not None:
+            record_background_job_failure(job_name=job_name)
+
+    def after_skip_message(self, broker: Broker, message: MessageProxy) -> None:
+        _ = broker
         job_name = worker_job_name(message.actor_name)
         if job_name is not None:
-            record_background_job_failure(job_name=job_name)
+            record_background_job_processed(
+                job_name=job_name,
+                final_status="skipped",
+            )

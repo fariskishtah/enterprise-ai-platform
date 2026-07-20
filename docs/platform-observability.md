@@ -1,8 +1,10 @@
 # Platform Observability
 
-This phase provides local and production-oriented metrics, logs, and distributed
-traces without changing API contracts or AI business behavior. Alertmanager and
-external alert delivery are not included. Logging details are in
+This phase provides local and production-oriented metrics, alerts, logs, and
+distributed traces without changing API contracts or AI business behavior.
+Alertmanager uses local null receivers; external alert delivery is not included.
+SLIs, SLOs, routing, and runbooks are documented in
+[Alerting, SLOs, and runbooks](alerting-slos-and-runbooks.md). Logging details are in
 [Structured logging and Loki](structured-logging-and-loki.md); tracing details
 are in [Distributed tracing and Tempo](distributed-tracing-and-tempo.md).
 
@@ -12,9 +14,9 @@ are in [Distributed tracing and Tempo](distributed-tracing-and-tempo.md).
 FastAPI /metrics ───────────────┐
 Dramatiq worker :9191/metrics ──┤
 PostgreSQL exporter ────────────┤
-Redis exporter ────────────────►│ Prometheus ──► Grafana
-cAdvisor ───────────────────────┤
-Prometheus self-metrics ────────┘
+Redis exporter ────────────────►│ Prometheus ──► Alertmanager
+cAdvisor / platform services ───┤      │
+Prometheus self-metrics ────────┘      └────────► Grafana
 
 Backend / worker stdout ──► Alloy ──► Loki ──► Grafana
 
@@ -28,8 +30,9 @@ listener only on the internal Compose network. This makes worker-side training
 completion and background-failure counters visible without publishing another
 host port.
 
-Prometheus scrapes every target at 15-second intervals and stores 15 days of
-local data in `prometheus-data`. Grafana stores local state in `grafana-data`,
+Prometheus scrapes every target at 15-second intervals and stores 30 days of
+local data in `prometheus-data`. Alertmanager stores five days of local routing
+state in `alertmanager-data`. Grafana stores local state in `grafana-data`,
 but its datasource, folder, and dashboards remain source-controlled provisioning
 files.
 
@@ -51,6 +54,7 @@ need. The local endpoints are:
 | Backend metrics | <http://localhost:8000/metrics> |
 | Prometheus | <http://localhost:9090> |
 | Prometheus targets | <http://localhost:9090/targets> |
+| Alertmanager | <http://localhost:9093> |
 | Loki readiness | <http://localhost:3100/ready> |
 | Alloy readiness | <http://localhost:12345/-/ready> |
 | Tempo readiness | <http://localhost:3200/ready> |
@@ -65,6 +69,7 @@ Useful health checks:
 ```bash
 curl --fail http://localhost:8000/metrics
 curl --fail http://localhost:9090/-/healthy
+curl --fail http://localhost:9093/-/healthy
 curl --fail http://localhost:3100/ready
 curl --fail http://localhost:12345/-/ready
 curl --fail http://localhost:3200/ready
@@ -100,6 +105,7 @@ Bounded application metrics are:
 - `retraining_requests_total`
 - `retraining_requests_blocked_total`
 - `background_job_failures_total`
+- `background_jobs_processed_total`
 
 Metric updates are failure-isolated. A client-library failure is logged with a
 fixed metric name and cannot fail the business operation.
@@ -135,6 +141,10 @@ The automatically provisioned `Platform Observability` folder contains:
   percentiles, service grouping, and recent/slow trace searches.
 - **Trace Correlation**: backend-to-worker continuity, Dramatiq producer/consumer
   spans, database/Redis spans, and error trace searches.
+- **SLO Overview**: rolling good-event ratios, 30-day error-budget remaining,
+  and multi-window burn rates for five primary objectives.
+- **Alerting Overview**: firing/pending alerts, routing health, rule evaluation,
+  delivery errors, and observability target availability.
 
 Provisioned dashboards are read-only in the UI. Change the JSON files and
 restart Grafana to make durable updates.
@@ -157,6 +167,7 @@ OTEL_EXPORTER_OTLP_INSECURE=true
 OTEL_TRACES_SAMPLER=parentbased_traceidratio
 OTEL_TRACES_SAMPLER_ARG=1.0
 PROMETHEUS_PORT=9090
+ALERTMANAGER_PORT=9093
 LOKI_PORT=3100
 ALLOY_PORT=12345
 TEMPO_PORT=3200
@@ -177,7 +188,8 @@ it. It exposes process aggregates and fixed labels only; it never reads or emits
 request bodies, authorization headers, credentials, raw features, raw
 predictions, emails, user IDs, model identities, or stored monitoring reports.
 
-Prometheus, Loki, Alloy, Tempo, and Grafana host ports bind to `127.0.0.1`.
+Prometheus, Alertmanager, Loki, Alloy, Tempo, and Grafana host ports bind to
+`127.0.0.1`.
 Exporters, cAdvisor, OTLP receivers, and worker metrics have internal Compose
 ports only. PostgreSQL
 exporter credentials reuse local database environment variables and are not
@@ -192,8 +204,10 @@ Validate configuration and inspect services:
 ```bash
 docker compose config -q
 docker compose ps
-docker compose logs prometheus loki alloy tempo grafana postgres-exporter redis-exporter cadvisor
+docker compose logs prometheus alertmanager loki alloy tempo grafana postgres-exporter redis-exporter cadvisor
 docker compose exec prometheus promtool check config /etc/prometheus/prometheus.yml
+docker compose exec prometheus promtool check rules /etc/prometheus/rules/*.yml
+docker compose exec alertmanager amtool check-config /etc/alertmanager/alertmanager.yml
 ```
 
 If a Prometheus target is down, inspect `/targets`, verify the target container
@@ -215,8 +229,10 @@ operation occurs.
   convenience.
 - Tempo is a single local binary with filesystem storage and direct OTLP export;
   it is not a production HA, authenticated, multitenant collector topology.
-- There are no alert rules, Alertmanager, SLOs, or external alert destinations
-  in this phase.
+- Alertmanager receivers are intentionally empty, so no external page or message
+  is sent. This is a testable local routing topology, not an on-call service.
+- Thirty-day SLOs require a 30-day warm-up period before the full objective
+  window is populated.
 
 ## Production recommendations
 
@@ -231,8 +247,8 @@ operation occurs.
 - Use durable monitored storage, retention sized for capacity, backup Grafana
   state where UI-managed content is allowed, and deploy Prometheus/Grafana
   outside the application failure domain.
-- Add recording/alerting rules and SLOs only after baseline traffic and latency
-  distributions are understood.
+- Baseline traffic and latency distributions before changing the reviewed SLO
+  targets, alert windows, or multipliers.
 
 The implementation uses the official Prometheus Python client and Grafana file
 provisioning conventions:

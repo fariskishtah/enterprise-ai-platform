@@ -113,6 +113,9 @@ lineage, retention, and mature outcome performance summaries.
 The [platform observability guide](../docs/platform-observability.md) covers the
 unauthenticated metrics endpoint, bounded labels, worker metrics, Prometheus
 scraping, exporters, cAdvisor, and provisioned Grafana dashboards.
+The [alerting, SLOs, and runbooks guide](../docs/alerting-slos-and-runbooks.md)
+defines API, background, training, and monitoring indicators, 30-day objectives,
+burn alerts, Alertmanager routing, and operational response.
 The [structured logging and Loki guide](../docs/structured-logging-and-loki.md)
 covers the safe log schema, request/correlation headers, Dramatiq propagation,
 Alloy collection, Loki queries, privacy controls, and troubleshooting.

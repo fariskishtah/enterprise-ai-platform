@@ -1,0 +1,42 @@
+groups:
+  - name: database-and-cache-alerts
+    interval: 30s
+    rules:
+      - alert: PostgresConnectionSaturation
+        expr: |
+          sum(pg_stat_activity_count)
+          /
+          scalar(max(pg_settings_max_connections))
+          > 0.80
+        for: 10m
+        labels:
+          severity: warning
+          service: postgres
+          component: database
+          team: platform
+          slo: infrastructure
+        annotations:
+          summary: PostgreSQL connection use is above 80%
+          description: Sustained connection saturation can reject API and worker database operations.
+          runbook_url: docs/runbooks/postgres-issues.md
+          dashboard_url: http://localhost:3000/d/platform-overview
+
+      - alert: RedisMemorySaturation
+        expr: |
+          (
+            redis_memory_used_bytes / redis_memory_max_bytes > 0.85
+          )
+          and
+          (redis_memory_max_bytes > 0)
+        for: 10m
+        labels:
+          severity: warning
+          service: redis
+          component: cache
+          team: platform
+          slo: infrastructure
+        annotations:
+          summary: Redis memory use is above 85% of maxmemory
+          description: This alert is active only when Redis has an explicit non-zero maxmemory limit.
+          runbook_url: docs/runbooks/redis-issues.md
+          dashboard_url: http://localhost:3000/d/platform-overview
