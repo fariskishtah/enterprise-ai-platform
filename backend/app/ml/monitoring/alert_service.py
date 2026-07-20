@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
@@ -24,6 +25,7 @@ from app.ml.monitoring.exceptions import (
     MonitoringPersistenceError,
     MonitoringPreconditionError,
 )
+from app.observability.logging import emit_safe
 from app.observability.metrics import record_monitoring_alert_resolved
 from app.repositories.monitoring_alerts import MonitoringAlertRepository
 from app.utils.security import utc_now
@@ -70,6 +72,7 @@ _ALERT_COPY: dict[MonitoringAlertType, tuple[MonitoringAlertSeverity, str, str]]
         "No completed prediction attempts were found for this active model version.",
     ),
 }
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -234,6 +237,17 @@ class MonitoringAlertService:
             record_monitoring_alert_resolved(
                 alert_type=alert.alert_type.value,
                 severity=alert.severity.value,
+            )
+            emit_safe(
+                logger,
+                logging.INFO,
+                "monitoring_alert_resolved",
+                extra={
+                    "alert_type": alert.alert_type.value,
+                    "severity": alert.severity.value,
+                    "trigger": "manual",
+                    "lifecycle_status": "resolved",
+                },
             )
             return alert
         except SQLAlchemyError as exc:

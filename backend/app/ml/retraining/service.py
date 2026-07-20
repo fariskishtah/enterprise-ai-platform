@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -52,6 +53,7 @@ from app.ml.retraining.policy import (
     RetrainingPolicyEvaluator,
 )
 from app.ml.retraining.specification import build_retraining_specification
+from app.observability.logging import emit_safe
 from app.observability.metrics import record_retraining_decision
 from app.repositories.ai_retraining import (
     RetrainingAuditPage,
@@ -62,6 +64,8 @@ from app.utils.security import utc_now
 
 type Clock = Callable[[], datetime]
 type IdFactory = Callable[[], UUID]
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -472,6 +476,16 @@ class RetrainingService:
                 and duplicate is None
                 and request is not None
             ),
+        )
+        emit_safe(
+            logger,
+            logging.INFO,
+            "retraining_decision_outcome",
+            extra={
+                "job_name": "retraining_reconciliation",
+                "trigger": trigger.trigger_type.value,
+                "lifecycle_status": decision.status.value,
+            },
         )
         if (
             request is not None

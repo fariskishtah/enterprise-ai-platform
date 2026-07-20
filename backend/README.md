@@ -113,6 +113,15 @@ lineage, retention, and mature outcome performance summaries.
 The [platform observability guide](../docs/platform-observability.md) covers the
 unauthenticated metrics endpoint, bounded labels, worker metrics, Prometheus
 scraping, exporters, cAdvisor, and provisioned Grafana dashboards.
+The [structured logging and Loki guide](../docs/structured-logging-and-loki.md)
+covers the safe log schema, request/correlation headers, Dramatiq propagation,
+Alloy collection, Loki queries, privacy controls, and troubleshooting.
+
+The API returns validated `X-Request-ID` and `X-Correlation-ID` headers on normal
+responses and emits one completion log per non-noisy request. JSON is the
+container default; set `LOG_FORMAT=text` for readable local output. Access logs
+exclude `/metrics`, `/health`, `/docs`, and `/openapi.json`, and Uvicorn's access
+logger is disabled while the application completion logger is enabled.
 
 ## Local Development
 

@@ -8,6 +8,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Dependency-free structured JSON/text logging with a stable safe field schema,
+  redaction, sanitized exception stacks, configurable levels, and failure
+  isolation.
+- Validated request and correlation IDs on API responses, normalized HTTP
+  completion logs, and Dramatiq correlation propagation with lifecycle logs for
+  every background actor.
+- Pinned local Loki and Alloy services with seven-day filesystem retention,
+  bounded Docker log labels, persistent positions, and localhost-only ports.
+- Provisioned Grafana Loki datasource plus Logs Overview and Request Correlation
+  dashboards.
 - Configurable FastAPI and Dramatiq Prometheus metrics with normalized HTTP route
   labels and bounded AI-operation dimensions.
 - A local Prometheus, Grafana, PostgreSQL exporter, Redis exporter, and cAdvisor

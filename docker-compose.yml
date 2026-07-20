@@ -68,6 +68,14 @@ services:
       REFRESH_TOKEN_EXPIRE_DAYS: ${REFRESH_TOKEN_EXPIRE_DAYS}
       REDIS_URL: ${REDIS_URL}
       SECRET_KEY: ${SECRET_KEY}
+      STRUCTURED_LOGGING_ENABLED: ${STRUCTURED_LOGGING_ENABLED:-true}
+      LOG_FORMAT: ${LOG_FORMAT:-json}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      HTTP_ACCESS_LOGGING_ENABLED: ${HTTP_ACCESS_LOGGING_ENABLED:-true}
+      REQUEST_ID_HEADER: ${REQUEST_ID_HEADER:-X-Request-ID}
+      CORRELATION_ID_HEADER: ${CORRELATION_ID_HEADER:-X-Correlation-ID}
+      LOG_SERVICE_NAME: ${LOG_SERVICE_NAME:-ai-manufacturing-backend}
+      LOG_ENVIRONMENT: ${LOG_ENVIRONMENT:-local}
       OBSERVABILITY_METRICS_ENABLED: ${OBSERVABILITY_METRICS_ENABLED:-true}
       OBSERVABILITY_METRICS_PATH: ${OBSERVABILITY_METRICS_PATH:-/metrics}
       OBSERVABILITY_SERVICE_NAME: ${OBSERVABILITY_SERVICE_NAME:-ai-manufacturing-backend}
@@ -91,6 +99,7 @@ services:
       - "1"
       - --threads
       - "1"
+      - --skip-logging
     depends_on:
       postgres:
         condition: service_healthy
@@ -153,6 +162,14 @@ services:
       RETRAINING_RECONCILIATION_BATCH_SIZE: ${RETRAINING_RECONCILIATION_BATCH_SIZE:-100}
       RETRAINING_DEFAULT_MINIMUM_DRIFT_STATUS: ${RETRAINING_DEFAULT_MINIMUM_DRIFT_STATUS:-critical}
       RETRAINING_ALLOW_TRUNCATED_DRIFT: ${RETRAINING_ALLOW_TRUNCATED_DRIFT:-true}
+      STRUCTURED_LOGGING_ENABLED: ${STRUCTURED_LOGGING_ENABLED:-true}
+      LOG_FORMAT: ${LOG_FORMAT:-json}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      HTTP_ACCESS_LOGGING_ENABLED: ${HTTP_ACCESS_LOGGING_ENABLED:-true}
+      REQUEST_ID_HEADER: ${REQUEST_ID_HEADER:-X-Request-ID}
+      CORRELATION_ID_HEADER: ${CORRELATION_ID_HEADER:-X-Correlation-ID}
+      LOG_SERVICE_NAME: ${LOG_SERVICE_NAME:-ai-manufacturing-backend}
+      LOG_ENVIRONMENT: ${LOG_ENVIRONMENT:-local}
       OBSERVABILITY_METRICS_ENABLED: ${OBSERVABILITY_METRICS_ENABLED:-true}
       OBSERVABILITY_METRICS_PATH: ${OBSERVABILITY_METRICS_PATH:-/metrics}
       OBSERVABILITY_SERVICE_NAME: ${OBSERVABILITY_SERVICE_NAME:-ai-manufacturing-backend}
@@ -274,10 +291,63 @@ services:
       - prometheus-data:/prometheus
     restart: unless-stopped
 
+  loki:
+    image: grafana/loki:3.7.3
+    command:
+      - -config.file=/etc/loki/loki-config.yml
+    healthcheck:
+      test: ["CMD", "/usr/bin/loki", "-version"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    ports:
+      - "127.0.0.1:${LOKI_PORT:-3100}:3100"
+    volumes:
+      - ./infrastructure/observability/loki/loki-config.yml:/etc/loki/loki-config.yml:ro
+      - loki-data:/loki
+    mem_limit: 768m
+    cpus: 1.0
+    restart: unless-stopped
+
+  alloy:
+    image: grafana/alloy:v1.17.1
+    command:
+      - run
+      - --disable-reporting
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --storage.path=/var/lib/alloy/data
+      - /etc/alloy/config.alloy
+    depends_on:
+      loki:
+        condition: service_healthy
+    environment:
+      COMPOSE_PROJECT_NAME: ${COMPOSE_PROJECT_NAME:-ai-manufacturing-platform}
+      LOG_ENVIRONMENT: ${LOG_ENVIRONMENT:-local}
+    healthcheck:
+      test: ["CMD", "/bin/alloy", "fmt", "--test", "/etc/alloy/config.alloy"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    ports:
+      - "127.0.0.1:${ALLOY_PORT:-12345}:12345"
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - ./infrastructure/observability/alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - alloy-data:/var/lib/alloy/data
+    mem_limit: 256m
+    cpus: 0.5
+    restart: unless-stopped
+
   grafana:
     image: grafana/grafana:13.1.0
     depends_on:
       prometheus:
+        condition: service_healthy
+      loki:
         condition: service_healthy
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
@@ -304,3 +374,5 @@ volumes:
   redis-data:
   prometheus-data:
   grafana-data:
+  loki-data:
+  alloy-data:

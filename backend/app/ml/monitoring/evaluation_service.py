@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from time import perf_counter
@@ -37,6 +38,7 @@ from app.ml.monitoring.models import (
 from app.ml.monitoring.service import PredictionMonitoringService
 from app.ml.registry import BaseModelRegistry, RegisteredModelVersion
 from app.ml.registry.exceptions import ModelRegistryError
+from app.observability.logging import emit_safe
 from app.observability.metrics import (
     record_monitoring_alert_created,
     record_monitoring_alert_resolved,
@@ -46,6 +48,7 @@ from app.repositories.monitoring_evaluations import MonitoringEvaluationReposito
 from app.utils.security import utc_now
 
 REPORT_SCHEMA_VERSION = "1.0"
+logger = logging.getLogger(__name__)
 
 
 class MonitoringEvaluationService:
@@ -310,10 +313,32 @@ class MonitoringEvaluationService:
                     alert_type=alert.alert_type.value,
                     severity=alert.severity.value,
                 )
+                emit_safe(
+                    logger,
+                    logging.WARNING,
+                    "monitoring_alert_created",
+                    extra={
+                        "alert_type": alert.alert_type.value,
+                        "severity": alert.severity.value,
+                        "trigger": evaluation.trigger.value,
+                        "lifecycle_status": "created",
+                    },
+                )
             for alert in alert_changes.resolved:
                 record_monitoring_alert_resolved(
                     alert_type=alert.alert_type.value,
                     severity=alert.severity.value,
+                )
+                emit_safe(
+                    logger,
+                    logging.INFO,
+                    "monitoring_alert_resolved",
+                    extra={
+                        "alert_type": alert.alert_type.value,
+                        "severity": alert.severity.value,
+                        "trigger": evaluation.trigger.value,
+                        "lifecycle_status": "resolved",
+                    },
                 )
             return persisted
         except IntegrityError:

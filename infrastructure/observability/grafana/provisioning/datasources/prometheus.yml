@@ -16,3 +16,13 @@ datasources:
       timeInterval: 15s
       prometheusType: Prometheus
       prometheusVersion: 3.12.0
+  - name: Loki
+    uid: loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    editable: false
+    version: 1
+    jsonData:
+      maxLines: 1000
+      timeout: 60

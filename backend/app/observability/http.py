@@ -47,7 +47,7 @@ class PrometheusMetricsMiddleware:
         finally:
             record_http_request_completed(
                 method=method,
-                route=_normalized_route(scope),
+                route=normalized_route(scope),
                 status_code=status_code,
                 duration_seconds=perf_counter() - started,
             )
@@ -63,7 +63,8 @@ def metrics_response(_request: Request) -> Response:
     return Response(content=payload, media_type=CONTENT_TYPE_LATEST)
 
 
-def _normalized_route(scope: Scope) -> str:
+def normalized_route(scope: Scope) -> str:
+    """Return a bounded route template, never the raw request path."""
     route = scope.get("route")
     if isinstance(route, BaseRoute):
         path = getattr(route, "path", None)

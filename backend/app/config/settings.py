@@ -17,6 +17,8 @@ from pydantic import (
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 EnvironmentName = Literal["local", "development", "staging", "production", "test"]
+LogFormat = Literal["json", "text"]
+LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 RegisteredModelPrefix = Annotated[
     str,
     StringConstraints(pattern=r"^[a-z][a-z0-9_]{1,63}$"),
@@ -43,6 +45,29 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: PositiveInt = 15
     refresh_token_expire_days: PositiveInt = 30
+    structured_logging_enabled: bool = True
+    log_format: LogFormat = "json"
+    log_level: LogLevel = "INFO"
+    http_access_logging_enabled: bool = True
+    request_id_header: str = Field(
+        default="X-Request-ID",
+        min_length=1,
+        max_length=64,
+        pattern=r"^[A-Za-z][A-Za-z0-9-]*$",
+    )
+    correlation_id_header: str = Field(
+        default="X-Correlation-ID",
+        min_length=1,
+        max_length=64,
+        pattern=r"^[A-Za-z][A-Za-z0-9-]*$",
+    )
+    log_service_name: str = Field(
+        default="ai-manufacturing-backend",
+        min_length=1,
+        max_length=64,
+        pattern=r"^[A-Za-z0-9_.-]+$",
+    )
+    log_environment: EnvironmentName = "local"
     observability_metrics_enabled: bool = True
     observability_metrics_path: str = Field(
         default="/metrics",

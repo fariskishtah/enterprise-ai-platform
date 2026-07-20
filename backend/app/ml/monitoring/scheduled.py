@@ -35,6 +35,7 @@ from app.ml.registry import BaseModelRegistry
 from app.ml.retraining import RetrainingPolicyEvaluator, RetrainingTriggerType
 from app.ml.retraining.exceptions import RetrainingError
 from app.ml.retraining.service import PolicyDefaults, RetrainingService
+from app.observability.logging import emit_safe
 from app.repositories.ai_governance import TrainingJobRepository
 from app.repositories.ai_monitoring import PredictionMonitoringRepository
 from app.repositories.ai_retraining import RetrainingRepository
@@ -213,31 +214,27 @@ class ScheduledMonitoringService:
             outcomes=tuple(outcomes),
         )
         for item in summary.outcomes:
-            logger.info(
-                "monitoring_model_outcome job_id=%s model_name=%s model_version=%s "
-                "alias=%s window_start=%s window_end=%s outcome_status=%s "
-                "duration_ms=%.3f skipped_reason=%s safe_failure_code=%s",
-                job_id,
-                item.registered_model_name,
-                item.model_version,
-                item.alias,
-                start.isoformat(),
-                end.isoformat(),
-                item.status,
-                summary.duration_ms,
-                "duplicate_exact_version" if item.status == "skipped" else None,
-                item.safe_failure_code,
+            emit_safe(
+                logger,
+                logging.ERROR if item.status == "failed" else logging.INFO,
+                "monitoring_model_outcome",
+                extra={
+                    "job_name": "monitoring_evaluation",
+                    "trigger": "scheduled",
+                    "lifecycle_status": item.status,
+                    "duration_ms": summary.duration_ms,
+                },
             )
-        logger.info(
-            "monitoring_job_complete job_id=%s window_start=%s window_end=%s "
-            "evaluated=%s skipped=%s failed=%s duration_ms=%.3f",
-            job_id,
-            start.isoformat(),
-            end.isoformat(),
-            summary.evaluated,
-            summary.skipped,
-            summary.failed,
-            summary.duration_ms,
+        emit_safe(
+            logger,
+            logging.ERROR if summary.failed else logging.INFO,
+            "monitoring_job_outcome",
+            extra={
+                "job_name": "monitoring_evaluation",
+                "trigger": "scheduled",
+                "lifecycle_status": "failed" if summary.failed else "completed",
+                "duration_ms": summary.duration_ms,
+            },
         )
         return summary
 
@@ -261,10 +258,15 @@ class ScheduledMonitoringService:
                 requested_by_user_id=self._retraining_actor_user_id,
             )
         except RetrainingError:
-            logger.warning(
-                "monitoring_retraining_policy_failed evaluation_id=%s "
-                "safe_failure_code=retraining_policy_unavailable",
-                evaluation.id,
+            emit_safe(
+                logger,
+                logging.WARNING,
+                "monitoring_retraining_policy_failed",
+                extra={
+                    "job_name": "monitoring_evaluation",
+                    "trigger": trigger.value,
+                    "lifecycle_status": "policy_unavailable",
+                },
             )
 
 
