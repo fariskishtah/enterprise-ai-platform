@@ -10,9 +10,12 @@ import { FactoriesPage } from "../pages/hierarchy/FactoriesPage";
 import { FactoryDetailPage } from "../pages/hierarchy/FactoryDetailPage";
 import { MachineDetailPage } from "../pages/hierarchy/MachineDetailPage";
 import { SensorDetailPage } from "../pages/hierarchy/SensorDetailPage";
+import { SensorDataPage } from "../pages/dataOperations/SensorDataPage";
+import { SensorReadingsPage } from "../pages/dataOperations/SensorReadingsPage";
+import { UploadJobDetailPage } from "../pages/dataOperations/UploadJobDetailPage";
+import { UploadJobsPage } from "../pages/dataOperations/UploadJobsPage";
 
 const placeholderRoutes = [
-  ["sensor-data", "Sensor Data", "Sensor readings and ingestion activity."],
   ["training-jobs", "Training Jobs", "Background model training execution."],
   ["models", "Models", "Registered models and immutable versions."],
   ["predictions", "Predictions", "Run and inspect registered-model predictions."],
@@ -43,6 +46,16 @@ export const router = createBrowserRouter([
           {
             element: <SensorDetailPage />,
             path: "factories/:factoryId/machines/:machineId/sensors/:sensorId",
+          },
+          {
+            element: <SensorReadingsPage />,
+            path: "factories/:factoryId/machines/:machineId/sensors/:sensorId/readings",
+          },
+          { element: <SensorDataPage />, path: "sensor-data" },
+          { element: <UploadJobsPage />, path: "sensor-data/uploads" },
+          {
+            element: <UploadJobDetailPage />,
+            path: "sensor-data/uploads/:uploadJobId",
           },
           ...placeholderRoutes.map(([path, title, description]) => ({
             element: <PlaceholderPage description={description} title={title} />,
