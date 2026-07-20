@@ -1,0 +1,327 @@
+import { useState, type FormEvent, type ReactElement } from "react";
+
+import {
+  createTrainingJob,
+  type TrainingRequest,
+  type TrainingTask,
+} from "../../api/aiLifecycle";
+import { Dialog } from "../hierarchy/Dialogs";
+import {
+  primaryButtonClassName,
+  secondaryButtonClassName,
+} from "../hierarchy/ResourceStates";
+
+const examples = {
+  classification: {
+    features: "[[0, 0], [0, 1], [1, 0], [1, 1]]",
+    targets: "[0, 0, 1, 1]",
+  },
+  regression: { features: "[[0, 0], [1, 1], [2, 2], [3, 3]]", targets: "[0, 2, 4, 6]" },
+} as const;
+
+function parseMatrix(value: string, label: string): number[][] {
+  const parsed: unknown = JSON.parse(value);
+  if (
+    !Array.isArray(parsed) ||
+    parsed.length === 0 ||
+    parsed.some(
+      (row) =>
+        !Array.isArray(row) ||
+        row.length === 0 ||
+        row.some((cell) => typeof cell !== "number" || !Number.isFinite(cell)),
+    )
+  ) {
+    throw new Error(`${label} must be a non-empty JSON matrix of finite numbers.`);
+  }
+  const matrix = parsed as number[][];
+  if (matrix.some((row) => row.length !== matrix[0].length))
+    throw new Error(`${label} rows must have equal column counts.`);
+  return matrix;
+}
+
+function parseTargets(value: string, label: string, integers: boolean): number[] {
+  const parsed: unknown = JSON.parse(value);
+  if (
+    !Array.isArray(parsed) ||
+    parsed.length === 0 ||
+    parsed.some(
+      (item) =>
+        typeof item !== "number" ||
+        !Number.isFinite(item) ||
+        (integers && !Number.isInteger(item)),
+    )
+  ) {
+    throw new Error(
+      `${label} must be a non-empty JSON array of ${integers ? "integers" : "finite numbers"}.`,
+    );
+  }
+  return parsed as number[];
+}
+
+function parseObject(value: string, label: string): Record<string, unknown> {
+  const parsed: unknown = JSON.parse(value);
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed))
+    throw new Error(`${label} must be a JSON object.`);
+  return parsed as Record<string, unknown>;
+}
+
+export function TrainingJobFormDialog({
+  onClose,
+  onCreated,
+}: {
+  readonly onClose: () => void;
+  readonly onCreated: (id: string) => void;
+}): ReactElement {
+  const [task, setTask] = useState<TrainingTask>("regression");
+  const [trainingFeatures, setTrainingFeatures] = useState<string>(
+    examples.regression.features,
+  );
+  const [trainingTargets, setTrainingTargets] = useState<string>(
+    examples.regression.targets,
+  );
+  const [evaluationFeatures, setEvaluationFeatures] = useState(
+    "[[0.5, 0.5], [2.5, 2.5]]",
+  );
+  const [evaluationTargets, setEvaluationTargets] = useState("[1, 5]");
+  const [hyperparameters, setHyperparameters] = useState(
+    '{"n_estimators": 5, "n_jobs": 1}',
+  );
+  const [tags, setTags] = useState("{}");
+  const [seed, setSeed] = useState("17");
+  const [experiment, setExperiment] = useState("AI Lifecycle");
+  const [runName, setRunName] = useState("");
+  const [modelName, setModelName] = useState("");
+  const [description, setDescription] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const changeTask = (next: TrainingTask): void => {
+    setTask(next);
+    setTrainingFeatures(examples[next].features);
+    setTrainingTargets(examples[next].targets);
+    setEvaluationFeatures(
+      next === "regression" ? "[[0.5, 0.5], [2.5, 2.5]]" : "[[0, 0.5], [1, 0.5]]",
+    );
+    setEvaluationTargets(next === "regression" ? "[1, 5]" : "[0, 1]");
+  };
+
+  const submit = async (event: FormEvent): Promise<void> => {
+    event.preventDefault();
+    setError(null);
+    try {
+      const trainX = parseMatrix(trainingFeatures, "Training features");
+      const evaluateX = parseMatrix(evaluationFeatures, "Evaluation features");
+      const trainY = parseTargets(
+        trainingTargets,
+        "Training targets",
+        task === "classification",
+      );
+      const evaluateY = parseTargets(
+        evaluationTargets,
+        "Evaluation targets",
+        task === "classification",
+      );
+      if (trainX.length !== trainY.length)
+        throw new Error("Training feature and target row counts must match.");
+      if (evaluateX.length !== evaluateY.length)
+        throw new Error("Evaluation feature and target row counts must match.");
+      if (trainX[0].length !== evaluateX[0].length)
+        throw new Error("Training and evaluation feature column counts must match.");
+      const rawTags = parseObject(tags, "Tags");
+      if (Object.values(rawTags).some((value) => typeof value !== "string"))
+        throw new Error("Every tag value must be a string.");
+      if (!/^[-+]?\d+$/.test(seed.trim()))
+        throw new Error("Random seed must be an integer.");
+      if (experiment.trim() === "") throw new Error("Experiment name is required.");
+      const payload: TrainingRequest = {
+        evaluation_features: evaluateX,
+        evaluation_targets: evaluateY,
+        experiment_name: experiment.trim(),
+        hyperparameters: parseObject(hyperparameters, "Hyperparameters"),
+        model_description: description.trim() || null,
+        random_seed: Number(seed),
+        registered_model_name: modelName.trim() || null,
+        run_name: runName.trim() || null,
+        tags: rawTags as Record<string, string>,
+        training_features: trainX,
+        training_targets: trainY,
+      };
+      setBusy(true);
+      const result = await createTrainingJob(task, payload);
+      onCreated(result.job_id);
+    } catch (caught) {
+      setError(
+        caught instanceof Error ? caught.message : "Unable to submit the training job.",
+      );
+      setBusy(false);
+    }
+  };
+
+  const field = (
+    id: string,
+    label: string,
+    value: string,
+    setter: (value: string) => void,
+    rows = 3,
+  ): ReactElement => (
+    <div>
+      <label className="block text-sm font-medium" htmlFor={id}>
+        {label}
+      </label>
+      <textarea
+        className="mt-1 w-full rounded-md border border-neutral-300 px-3 py-2 font-mono text-sm"
+        id={id}
+        onChange={(e) => setter(e.target.value)}
+        required
+        rows={rows}
+        value={value}
+      />
+    </div>
+  );
+
+  return (
+    <Dialog
+      description="Submit one bounded Random Forest job. Arrays are sent directly to the confirmed backend API."
+      onClose={onClose}
+      title="Create training job"
+    >
+      <form className="space-y-4" onSubmit={(event) => void submit(event)}>
+        <fieldset>
+          <legend className="text-sm font-medium">Training mode</legend>
+          <div className="mt-2 flex gap-4">
+            {(["regression", "classification"] as const).map((value) => (
+              <label className="flex items-center gap-2 text-sm" key={value}>
+                <input
+                  checked={task === value}
+                  name="task"
+                  onChange={() => changeTask(value)}
+                  type="radio"
+                />
+                Random Forest {value}
+              </label>
+            ))}
+          </div>
+        </fieldset>
+        <p className="rounded-md bg-neutral-100 p-3 text-xs text-neutral-700">
+          Compact valid example: features {examples[task].features}; targets{" "}
+          {examples[task].targets}.
+        </p>
+        <div className="grid gap-4 sm:grid-cols-2">
+          {field(
+            "training-features",
+            "Training features (JSON matrix)",
+            trainingFeatures,
+            setTrainingFeatures,
+          )}
+          {field(
+            "training-targets",
+            `Training targets (${task === "classification" ? "integer " : ""}JSON array)`,
+            trainingTargets,
+            setTrainingTargets,
+          )}
+          {field(
+            "evaluation-features",
+            "Evaluation features (JSON matrix)",
+            evaluationFeatures,
+            setEvaluationFeatures,
+          )}
+          {field(
+            "evaluation-targets",
+            "Evaluation targets (JSON array)",
+            evaluationTargets,
+            setEvaluationTargets,
+          )}
+        </div>
+        {field(
+          "hyperparameters",
+          "Hyperparameters (JSON object)",
+          hyperparameters,
+          setHyperparameters,
+          2,
+        )}
+        {field("tags", "Tags (JSON string map)", tags, setTags, 2)}
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div>
+            <label className="block text-sm font-medium" htmlFor="experiment">
+              Experiment name *
+            </label>
+            <input
+              className="mt-1 w-full rounded-md border border-neutral-300 px-3 py-2 text-sm"
+              id="experiment"
+              onChange={(e) => setExperiment(e.target.value)}
+              required
+              value={experiment}
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium" htmlFor="seed">
+              Random seed *
+            </label>
+            <input
+              className="mt-1 w-full rounded-md border border-neutral-300 px-3 py-2 text-sm"
+              id="seed"
+              inputMode="numeric"
+              onChange={(e) => setSeed(e.target.value)}
+              required
+              value={seed}
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium" htmlFor="run-name">
+              Run name (optional)
+            </label>
+            <input
+              className="mt-1 w-full rounded-md border border-neutral-300 px-3 py-2 text-sm"
+              id="run-name"
+              onChange={(e) => setRunName(e.target.value)}
+              value={runName}
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium" htmlFor="model-name">
+              Registered model name (optional)
+            </label>
+            <input
+              className="mt-1 w-full rounded-md border border-neutral-300 px-3 py-2 text-sm"
+              id="model-name"
+              onChange={(e) => setModelName(e.target.value)}
+              value={modelName}
+            />
+          </div>
+        </div>
+        <div>
+          <label className="block text-sm font-medium" htmlFor="model-description">
+            Model description (optional)
+          </label>
+          <input
+            className="mt-1 w-full rounded-md border border-neutral-300 px-3 py-2 text-sm"
+            id="model-description"
+            onChange={(e) => setDescription(e.target.value)}
+            value={description}
+          />
+        </div>
+        {error === null ? null : (
+          <p
+            className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800"
+            role="alert"
+          >
+            {error}
+          </p>
+        )}
+        <div className="flex justify-end gap-3">
+          <button
+            className={secondaryButtonClassName}
+            disabled={busy}
+            onClick={onClose}
+            type="button"
+          >
+            Cancel
+          </button>
+          <button className={primaryButtonClassName} disabled={busy} type="submit">
+            {busy ? "Submitting…" : "Submit training job"}
+          </button>
+        </div>
+      </form>
+    </Dialog>
+  );
+}
