@@ -85,5 +85,11 @@ export const navigationItems: readonly NavigationItem[] = [
 ];
 
 export function getNavigationItem(pathname: string): NavigationItem {
-  return navigationItems.find((item) => item.path === pathname) ?? navigationItems[0];
+  return (
+    navigationItems.find(
+      (item) =>
+        item.path === pathname ||
+        (item.path !== "/" && pathname.startsWith(`${item.path}/`)),
+    ) ?? navigationItems[0]
+  );
 }

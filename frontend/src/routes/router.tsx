@@ -6,9 +6,12 @@ import { Dashboard } from "../pages/Dashboard";
 import { LoginPage } from "../pages/LoginPage";
 import { PlaceholderPage } from "../pages/PlaceholderPage";
 import { NotFoundPage, RouteErrorPage } from "../pages/RouteErrorPages";
+import { FactoriesPage } from "../pages/hierarchy/FactoriesPage";
+import { FactoryDetailPage } from "../pages/hierarchy/FactoryDetailPage";
+import { MachineDetailPage } from "../pages/hierarchy/MachineDetailPage";
+import { SensorDetailPage } from "../pages/hierarchy/SensorDetailPage";
 
 const placeholderRoutes = [
-  ["factories", "Factories", "Manufacturing sites and production hierarchy."],
   ["sensor-data", "Sensor Data", "Sensor readings and ingestion activity."],
   ["training-jobs", "Training Jobs", "Background model training execution."],
   ["models", "Models", "Registered models and immutable versions."],
@@ -31,6 +34,16 @@ export const router = createBrowserRouter([
       {
         children: [
           { element: <Dashboard />, index: true },
+          { element: <FactoriesPage />, path: "factories" },
+          { element: <FactoryDetailPage />, path: "factories/:factoryId" },
+          {
+            element: <MachineDetailPage />,
+            path: "factories/:factoryId/machines/:machineId",
+          },
+          {
+            element: <SensorDetailPage />,
+            path: "factories/:factoryId/machines/:machineId/sensors/:sensorId",
+          },
           ...placeholderRoutes.map(([path, title, description]) => ({
             element: <PlaceholderPage description={description} title={title} />,
             path,
