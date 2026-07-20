@@ -53,6 +53,9 @@ Random Forest regression and integer-label classification are the only supported
 - [Distributed tracing and Tempo](docs/distributed-tracing-and-tempo.md) documents
   OpenTelemetry server/client/domain spans, W3C Dramatiq propagation, Tempo,
   trace/log/metric links, privacy, sampling, and production limitations.
+- [Backups and disaster recovery](docs/backups-and-disaster-recovery.md) documents
+  PostgreSQL backup and isolated restore verification, Redis recovery behavior,
+  retention, scheduling, and local RPO/RTO targets.
 - [AI Core MVP release checkpoint](docs/releases/ai-core-mvp.md) records delivered
   capabilities, quality evidence, architectural decisions, and known limitations.
 - [`examples/ai-core/`](examples/ai-core/) contains Pydantic-validated JSON request
@@ -160,6 +163,20 @@ docker compose logs -f backend
 docker compose exec backend alembic upgrade head
 docker compose exec backend alembic current
 ```
+
+## Backups and restore verification
+
+Create a timestamped PostgreSQL custom-format backup with a SHA-256 checksum,
+then verify it by restoring only into a disposable PostgreSQL container:
+
+```bash
+./scripts/backup-postgres.sh
+./scripts/verify-postgres-backup.sh backups/postgres/postgres-YYYYmmddTHHMMSSZ.dump
+```
+
+Backups default to `backups/postgres/` with seven-day retention. See the
+[backup and disaster-recovery runbook](docs/backups-and-disaster-recovery.md)
+before recovery; the verification command never targets the live database.
 
 ## Development Workflow
 
