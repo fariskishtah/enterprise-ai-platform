@@ -2,23 +2,34 @@ name: CI
 
 on:
   pull_request:
+    branches:
+      - main
   push:
     branches:
       - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  backend:
+  backend-quality:
     name: Backend Quality
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: backend
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.12"
           cache: pip
@@ -27,7 +38,13 @@ jobs:
             backend/requirements/dev.txt
 
       - name: Install dependencies
-        run: pip install -r requirements/dev.txt
+        run: python -m pip install -r requirements/dev.txt pip-audit==2.10.0
+
+      - name: Check installed dependencies
+        run: python -m pip check
+
+      - name: Audit Python dependencies
+        run: python -m pip_audit . --progress-spinner off
 
       - name: Ruff
         run: ruff check .
@@ -39,20 +56,21 @@ jobs:
         run: mypy app
 
       - name: Pytest
-        run: pytest
+        run: pytest -q
 
-  frontend:
+  frontend-quality:
     name: Frontend Quality
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: frontend
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: "22"
           cache: npm
@@ -64,11 +82,161 @@ jobs:
       - name: Lint
         run: npm run lint
 
-      - name: Build
-        run: npm run build
-
       - name: Prettier
         run: npm run format
 
-      - name: Audit
+      - name: Build and type-check
+        run: npm run build
+
+      - name: Audit dependencies
         run: npm audit
+
+  configuration-validation:
+    name: Configuration Validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      ACCESS_TOKEN_EXPIRE_MINUTES: "15"
+      AI_DEFAULT_REGISTERED_MODEL_PREFIX: ai_core
+      DATABASE_URL: postgresql+psycopg://ci:ci@postgres:5432/ci
+      ENVIRONMENT: test
+      JWT_ALGORITHM: HS256
+      POSTGRES_DB: ci
+      POSTGRES_PASSWORD: ci-only-password
+      POSTGRES_USER: ci
+      REDIS_URL: redis://redis:6379/0
+      REFRESH_TOKEN_EXPIRE_DAYS: "30"
+      SECRET_KEY: ci-only-secret-key-with-sufficient-entropy
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+
+      - name: Install YAML parser
+        run: python -m pip install "PyYAML>=6.0.2,<7.0.0"
+
+      - name: Parse YAML and Grafana dashboard JSON
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          import yaml
+
+          excluded = {".git", ".venv", "node_modules"}
+          yaml_paths = sorted(
+              path
+              for pattern in ("*.yml", "*.yaml")
+              for path in Path(".").rglob(pattern)
+              if excluded.isdisjoint(path.parts)
+          )
+          for path in yaml_paths:
+              with path.open(encoding="utf-8") as stream:
+                  yaml.safe_load(stream)
+
+          dashboard_paths = sorted(
+              Path("infrastructure/observability/grafana/dashboards").glob("*.json")
+          )
+          for path in dashboard_paths:
+              with path.open(encoding="utf-8") as stream:
+                  json.load(stream)
+
+          print(
+              f"Validated {len(yaml_paths)} YAML files and "
+              f"{len(dashboard_paths)} Grafana dashboards."
+          )
+          PY
+
+      - name: Validate Docker Compose
+        run: docker compose config -q
+
+      - name: Validate Prometheus config and rules
+        run: |
+          docker run --rm \
+            --volume "$PWD/infrastructure/observability/prometheus:/etc/prometheus:ro" \
+            --entrypoint /bin/promtool \
+            prom/prometheus:v3.12.0 \
+            check config /etc/prometheus/prometheus.yml
+          docker run --rm \
+            --volume "$PWD/infrastructure/observability/prometheus:/etc/prometheus:ro" \
+            --entrypoint /bin/sh \
+            prom/prometheus:v3.12.0 \
+            -ec '/bin/promtool check rules /etc/prometheus/rules/*.yml'
+
+      - name: Test Prometheus rules
+        run: |
+          docker run --rm \
+            --volume "$PWD/infrastructure/observability/prometheus:/etc/prometheus:ro" \
+            --workdir /etc/prometheus/tests \
+            --entrypoint /bin/promtool \
+            prom/prometheus:v3.12.0 \
+            test rules slo-rules.test.yml
+
+      - name: Validate Alertmanager config
+        run: |
+          docker run --rm \
+            --volume "$PWD/infrastructure/observability/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro" \
+            --entrypoint /bin/amtool \
+            prom/alertmanager:v0.32.1 \
+            check-config /etc/alertmanager/alertmanager.yml
+
+      - name: Validate Tempo config
+        run: |
+          docker run --rm \
+            --volume "$PWD/infrastructure/observability/tempo/tempo.yml:/etc/tempo/tempo.yml:ro" \
+            grafana/tempo:2.10.5 \
+            -config.file=/etc/tempo/tempo.yml \
+            -config.verify=true
+
+      - name: Format-check and validate Alloy config
+        run: |
+          docker run --rm \
+            --env COMPOSE_PROJECT_NAME=ci \
+            --env LOG_ENVIRONMENT=ci \
+            --volume "$PWD/infrastructure/observability/alloy/config.alloy:/etc/alloy/config.alloy:ro" \
+            --entrypoint /bin/alloy \
+            grafana/alloy:v1.17.1 \
+            fmt --test /etc/alloy/config.alloy
+          docker run --rm \
+            --env COMPOSE_PROJECT_NAME=ci \
+            --env LOG_ENVIRONMENT=ci \
+            --volume "$PWD/infrastructure/observability/alloy/config.alloy:/etc/alloy/config.alloy:ro" \
+            --entrypoint /bin/alloy \
+            grafana/alloy:v1.17.1 \
+            validate /etc/alloy/config.alloy
+
+  container-build:
+    name: Container Build (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: backend
+            dockerfile: docker/backend/Dockerfile
+          - name: frontend
+            dockerfile: docker/frontend/Dockerfile
+    env:
+      DOCKER_BUILD_RECORD_UPLOAD: "false"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build ${{ matrix.name }} image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: false
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}

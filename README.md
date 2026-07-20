@@ -175,6 +175,29 @@ Run all local checks:
 ./scripts/check.sh
 ```
 
+## Continuous Integration
+
+The [CI workflow](.github/workflows/ci.yml) runs for pull requests targeting
+`main`, pushes to `main`, and manual dispatches. It applies read-only repository
+permissions and cancels superseded runs for the same pull request or branch.
+
+CI performs:
+
+- Python 3.12 dependency checks, runtime dependency auditing, Ruff, Black, mypy,
+  and one full backend Pytest run.
+- Node 22 installation from `package-lock.json`, ESLint, Prettier, the TypeScript
+  and Vite build, and `npm audit`.
+- Docker Compose, YAML, Grafana JSON, Prometheus config/rules/tests,
+  Alertmanager, Tempo, and Alloy configuration validation using the versions
+  pinned in `docker-compose.yml`.
+- cached Buildx builds for the repository-owned backend and frontend Dockerfiles;
+  images are never pushed.
+
+Reproduce the application checks locally with `./scripts/check.sh`, then run
+`docker compose config -q`. The pinned observability validator commands and
+Buildx commands are listed directly in `.github/workflows/ci.yml` so the same
+commands can be copied locally without separate CI-only wrappers.
+
 Install git hooks:
 
 ```bash
