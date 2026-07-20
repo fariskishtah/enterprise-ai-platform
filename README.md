@@ -56,6 +56,9 @@ Random Forest regression and integer-label classification are the only supported
 - [Backups and disaster recovery](docs/backups-and-disaster-recovery.md) documents
   PostgreSQL backup and isolated restore verification, Redis recovery behavior,
   retention, scheduling, and local RPO/RTO targets.
+- [Performance and load testing](docs/performance-and-load-testing.md) documents
+  bounded k6 smoke, API, authentication, and opt-in training-job scenarios,
+  thresholds, result interpretation, and pinned Docker commands.
 - [AI Core MVP release checkpoint](docs/releases/ai-core-mvp.md) records delivered
   capabilities, quality evidence, architectural decisions, and known limitations.
 - [`examples/ai-core/`](examples/ai-core/) contains Pydantic-validated JSON request
@@ -205,8 +208,8 @@ CI performs:
 - Node 22 installation from `package-lock.json`, ESLint, Prettier, the TypeScript
   and Vite build, and `npm audit`.
 - Docker Compose, YAML, Grafana JSON, Prometheus config/rules/tests,
-  Alertmanager, Tempo, and Alloy configuration validation using the versions
-  pinned in `docker-compose.yml`.
+  Alertmanager, Tempo, Alloy, and k6 script validation using pinned tool
+  versions.
 - cached Buildx builds for the repository-owned backend and frontend Dockerfiles;
   images are never pushed.
 

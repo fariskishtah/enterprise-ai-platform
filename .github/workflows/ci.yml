@@ -211,6 +211,25 @@ jobs:
             grafana/alloy:v1.17.1 \
             validate /etc/alloy/config.alloy
 
+      - name: Inspect k6 performance scripts
+        run: |
+          docker run --rm \
+            --volume "$PWD/performance/k6:/scripts:ro" \
+            grafana/k6:2.1.0 \
+            inspect /scripts/smoke.js
+          docker run --rm \
+            --volume "$PWD/performance/k6:/scripts:ro" \
+            grafana/k6:2.1.0 \
+            inspect /scripts/api-load.js
+          docker run --rm \
+            --volume "$PWD/performance/k6:/scripts:ro" \
+            grafana/k6:2.1.0 \
+            inspect /scripts/auth-load.js
+          docker run --rm \
+            --volume "$PWD/performance/k6:/scripts:ro" \
+            grafana/k6:2.1.0 \
+            inspect /scripts/training-job-load.js
+
   container-build:
     name: Container Build (${{ matrix.name }})
     runs-on: ubuntu-latest
