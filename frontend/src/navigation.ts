@@ -43,7 +43,8 @@ export const navigationItems: readonly NavigationItem[] = [
     description: "Background model training execution.",
     icon: "training-jobs",
     label: "Training Jobs",
-    path: "/training-jobs",
+    path: "/training",
+    roles: ["admin", "engineer"],
   },
   {
     description: "Registered models and immutable versions.",

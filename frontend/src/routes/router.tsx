@@ -14,10 +14,13 @@ import { SensorDataPage } from "../pages/dataOperations/SensorDataPage";
 import { SensorReadingsPage } from "../pages/dataOperations/SensorReadingsPage";
 import { UploadJobDetailPage } from "../pages/dataOperations/UploadJobDetailPage";
 import { UploadJobsPage } from "../pages/dataOperations/UploadJobsPage";
+import { ModelDetailPage } from "../pages/aiLifecycle/ModelDetailPage";
+import { ModelsPage } from "../pages/aiLifecycle/ModelsPage";
+import { ModelVersionPage } from "../pages/aiLifecycle/ModelVersionPage";
+import { TrainingJobDetailPage } from "../pages/aiLifecycle/TrainingJobDetailPage";
+import { TrainingJobsPage } from "../pages/aiLifecycle/TrainingJobsPage";
 
 const placeholderRoutes = [
-  ["training-jobs", "Training Jobs", "Background model training execution."],
-  ["models", "Models", "Registered models and immutable versions."],
   ["predictions", "Predictions", "Run and inspect registered-model predictions."],
   ["monitoring", "Monitoring", "Model health, data quality, and drift."],
   ["audit-log", "Audit Log", "Governance decisions and operational history."],
@@ -56,6 +59,14 @@ export const router = createBrowserRouter([
           {
             element: <UploadJobDetailPage />,
             path: "sensor-data/uploads/:uploadJobId",
+          },
+          { element: <TrainingJobsPage />, path: "training" },
+          { element: <TrainingJobDetailPage />, path: "training/:trainingJobId" },
+          { element: <ModelsPage />, path: "models" },
+          { element: <ModelDetailPage />, path: "models/:registeredModelName" },
+          {
+            element: <ModelVersionPage />,
+            path: "models/:registeredModelName/versions/:versionOrAlias",
           },
           ...placeholderRoutes.map(([path, title, description]) => ({
             element: <PlaceholderPage description={description} title={title} />,
