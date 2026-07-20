@@ -30,3 +30,6 @@ coverage/
 
 # Local database backups
 /backups/
+
+# Local performance-test results
+/performance/results/
