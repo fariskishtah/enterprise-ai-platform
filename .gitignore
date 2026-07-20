@@ -27,3 +27,6 @@ coverage/
 
 # Docker
 *.pid
+
+# Local database backups
+/backups/
