@@ -6,8 +6,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-07-20
+
 ### Added
 
+- JWT authentication with refresh-token rotation and role-based access for
+  administrators, engineers, and operators.
+- Company, factory, machine, and sensor hierarchy APIs with validated sensor
+  reading ingestion and bounded CSV ETL.
+- Synchronous and Redis-backed Random Forest regression and classification
+  training, deterministic small-job support, and dedicated worker execution.
+- MLflow tracking, immutable model registration and version lookup, controlled
+  candidate/challenger/champion aliases, and audited promotion decisions.
+- Exact-version registered prediction with privacy-preserving prediction-event
+  capture, operational summaries, data-quality reports, reference profiles, and
+  bounded drift analysis.
+- Policy-controlled retraining evaluation with persisted cooldowns, quotas,
+  source-job lineage, audit history, and candidate comparison. Retraining does
+  not automatically promote a model.
+- Local Docker Compose observability with Prometheus, Grafana, Alertmanager,
+  Loki, Alloy, Tempo, bounded labels, structured logs, tracing, SLOs, alerts,
+  dashboards, and operator runbooks.
+- Single-VM production Compose assets, migration/deploy/verify/rollback scripts,
+  backup and restore-verification guidance, and optional observability profile.
+- One focused end-to-end workflow test covering authentication through monitored
+  prediction, plus a repeatable idempotent local demo seed workflow.
 - Pinned local Alertmanager with persistent state, localhost-only access,
   severity routing, null receivers, grouping, and duplicate inhibition.
 - Five 30-day SLOs with stable multi-window recording rules, error-budget
