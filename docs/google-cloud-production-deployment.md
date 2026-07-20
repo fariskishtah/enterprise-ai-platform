@@ -105,20 +105,15 @@ Create an `A` record for the intended hostname pointing to the reserved static
 IP. Keep DNS TTL modest during the first cutover. The checked-in configuration
 serves HTTP on port 80 so it can be verified without a domain.
 
-Choose one HTTPS pattern before serving real credentials:
+The official optional Nginx and host-Certbot path is documented in
+[Optional production HTTPS](production-https.md). It uses an explicit `--https`
+deployment flag, generated gitignored configuration, read-only certificate and
+key mounts, TLS 1.2/1.3, HSTS, bounded verification, and a Certbot deploy hook.
+The existing HTTP-only command remains supported when the flag is absent.
 
-- **Nginx and Let's Encrypt:** obtain certificates outside the repository,
-  mount the host certificate directory read-only at `/etc/letsencrypt`, enable a
-  deployment-local copy of `infrastructure/nginx/https.conf.example`, and publish
-  only Nginx port 443. Automate renewal on the host and validate Nginx before
-  reload. Never commit private keys or certificates.
-- **Cloudflare proxy:** place the hostname behind Cloudflare, use strict TLS from
-  Cloudflare to the VM with an origin certificate mounted into Nginx, restrict
-  origin ingress to the authorized proxy path where operationally practical,
-  and retain end-to-end HTTPS. Do not use a mode that sends HTTP to the origin.
-
-After HTTPS is active, redirect HTTP to HTTPS and enable HSTS only after every
-required hostname works correctly over TLS.
+If a separate CDN or proxy is placed in front of the host, retain strict
+end-to-end TLS, restrict origin ingress where operationally practical, and do not
+use a mode that sends HTTP from the external proxy to the origin.
 
 ## Backups
 

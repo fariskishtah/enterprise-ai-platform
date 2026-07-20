@@ -4,9 +4,10 @@ set -Eeuo pipefail
 readonly PROJECT_NAME="ai-manufacturing-production"
 ENV_FILE=".env.production"
 HEALTH_TIMEOUT="${PRODUCTION_HEALTH_TIMEOUT_SECONDS:-180}"
+HTTPS_ENABLED=false
 
 usage() {
-  echo "Usage: $0 [--env-file FILE] [--timeout SECONDS]" >&2
+  echo "Usage: $0 [--env-file FILE] [--timeout SECONDS] [--https]" >&2
 }
 
 while (($#)); do
@@ -20,6 +21,10 @@ while (($#)); do
       [[ $# -ge 2 ]] || { usage; exit 2; }
       HEALTH_TIMEOUT="$2"
       shift 2
+      ;;
+    --https)
+      HTTPS_ENABLED=true
+      shift
       ;;
     -h|--help)
       usage
@@ -65,6 +70,11 @@ COMPOSE=(
   -f docker-compose.prod.yml
 )
 
+if [[ "$HTTPS_ENABLED" == true ]]; then
+  "$REPO_ROOT/scripts/prepare-production-https.sh" --env-file "$ENV_FILE"
+  COMPOSE+=(-f docker-compose.https.yml)
+fi
+
 echo "Validating production Compose configuration..."
 "${COMPOSE[@]}" config --quiet
 
@@ -82,8 +92,13 @@ echo "Applying database migrations..."
 echo "Starting production services..."
 "${COMPOSE[@]}" up -d --no-build
 
-"$REPO_ROOT/scripts/verify-production.sh" \
-  --env-file "$ENV_FILE" \
-  --timeout "$HEALTH_TIMEOUT"
+echo "Recreating the reverse proxy with current upstream addresses..."
+"${COMPOSE[@]}" up -d --no-build --no-deps --force-recreate reverse-proxy
+
+VERIFY_ARGS=(--env-file "$ENV_FILE" --timeout "$HEALTH_TIMEOUT")
+if [[ "$HTTPS_ENABLED" == true ]]; then
+  VERIFY_ARGS+=(--https)
+fi
+"$REPO_ROOT/scripts/verify-production.sh" "${VERIFY_ARGS[@]}"
 
 echo "Production deployment completed successfully."

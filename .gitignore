@@ -28,6 +28,9 @@ coverage/
 # Docker
 *.pid
 
+# Deployment-local generated configuration
+/.deployment/https/
+
 # Local database backups
 /backups/
 
