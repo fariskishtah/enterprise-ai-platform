@@ -1,19 +1,32 @@
 import type { ReactElement } from "react";
 
+import { StatusBadge } from "../components/StatusBadge";
+
 export function Dashboard(): ReactElement {
   return (
-    <main className="min-h-screen bg-stone-50 text-neutral-950">
-      <section className="mx-auto flex min-h-screen w-full max-w-6xl flex-col justify-center gap-10 px-6 py-10 sm:px-8">
-        <div className="w-full border-l-4 border-teal-600 pl-6">
-          <p className="text-sm font-semibold uppercase tracking-normal text-teal-700">
-            Dashboard
+    <section aria-labelledby="dashboard-heading">
+      <div className="flex flex-col gap-4 border-b border-neutral-200 pb-6 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p className="text-sm font-semibold uppercase tracking-wider text-teal-700">
+            Operations overview
           </p>
-          <h1 className="mt-3 text-4xl font-semibold tracking-normal text-neutral-950 sm:text-5xl">
+          <h2
+            className="mt-2 text-3xl font-semibold tracking-tight text-neutral-950"
+            id="dashboard-heading"
+          >
             AI Manufacturing Platform
-          </h1>
+          </h2>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-neutral-600">
+            A focused workspace for manufacturing operations and governed model
+            lifecycle activity.
+          </p>
         </div>
-        {import.meta.env.DEV ? (
-          <aside className="rounded-2xl border border-teal-200 bg-white p-6 shadow-sm">
+        <StatusBadge label="Platform healthy" status="healthy" />
+      </div>
+
+      {import.meta.env.DEV ? (
+        <aside className="mt-8 rounded-lg border border-teal-200 bg-white p-6">
+          <div className="max-w-3xl">
             <p className="text-xs font-semibold uppercase tracking-widest text-teal-700">
               Local demo
             </p>
@@ -33,9 +46,9 @@ export function Dashboard(): ReactElement {
             >
               Explore the local API
             </a>
-          </aside>
-        ) : null}
-      </section>
-    </main>
+          </div>
+        </aside>
+      ) : null}
+    </section>
   );
 }
