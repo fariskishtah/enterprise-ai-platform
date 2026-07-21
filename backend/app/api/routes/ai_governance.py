@@ -17,6 +17,8 @@ from fastapi import (
 
 from app.config.settings import Settings, get_settings
 from app.dependencies.auth import require_roles
+from app.dependencies.operational import require_training_worker_available
+from app.dependencies.rate_limit import enforce_mutation_rate_limit
 from app.dependencies.services import (
     get_model_promotion_service,
     get_training_job_service,
@@ -105,6 +107,10 @@ _PROMOTION_RESPONSES: dict[int | str, dict[str, object]] = {
 
 @router.post(
     "/training-jobs/random-forest/regression",
+    dependencies=[
+        Depends(enforce_mutation_rate_limit),
+        Depends(require_training_worker_available),
+    ],
     response_model=TrainingJobSubmissionResponse,
     status_code=status.HTTP_202_ACCEPTED,
     summary="Submit Random Forest regression training",
@@ -163,6 +169,10 @@ async def submit_random_forest_regression_job(
 
 @router.post(
     "/training-jobs/random-forest/classification",
+    dependencies=[
+        Depends(enforce_mutation_rate_limit),
+        Depends(require_training_worker_available),
+    ],
     response_model=TrainingJobSubmissionResponse,
     status_code=status.HTTP_202_ACCEPTED,
     summary="Submit Random Forest classification training",
@@ -318,6 +328,7 @@ async def cancel_training_job(
 
 @router.post(
     "/models/{registered_model_name}/versions/{version}/promotions/challenger",
+    dependencies=[Depends(enforce_mutation_rate_limit)],
     response_model=ModelPromotionResponse,
     summary="Promote a model version to challenger",
     description=(
@@ -352,6 +363,7 @@ async def promote_challenger(
 
 @router.post(
     "/models/{registered_model_name}/versions/{version}/promotions/champion",
+    dependencies=[Depends(enforce_mutation_rate_limit)],
     response_model=ModelPromotionResponse,
     summary="Promote a challenger model version to champion",
     description=(

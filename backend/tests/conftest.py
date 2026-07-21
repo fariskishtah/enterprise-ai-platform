@@ -31,6 +31,8 @@ def settings() -> Settings:
         environment="test",
         tracing_enabled=False,
         auth_rate_limit_enabled=False,
+        mutation_rate_limit_enabled=False,
+        worker_availability_check_enabled=False,
         access_token_expire_minutes=15,
         refresh_token_expire_days=30,
     )

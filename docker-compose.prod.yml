@@ -52,6 +52,12 @@ services:
       start_period: 20s
     security_opt:
       - no-new-privileges:true
+    user: "10001:10001"
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=64m,uid=10001,gid=10001,mode=1770
     networks:
       - application
       - data
@@ -100,6 +106,12 @@ services:
       start_period: 20s
     security_opt:
       - no-new-privileges:true
+    user: "10001:10001"
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=128m,uid=10001,gid=10001,mode=1770
     networks:
       - data
       - observability
@@ -135,6 +147,12 @@ services:
       start_period: 10s
     security_opt:
       - no-new-privileges:true
+    user: "101:101"
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=16m,uid=101,gid=101,mode=1770
     networks:
       - application
     mem_limit: 128m
@@ -191,7 +209,7 @@ services:
 
   reverse-proxy:
     <<: *production-defaults
-    image: nginx:1.28.0-alpine
+    image: nginxinc/nginx-unprivileged:1.28.0-alpine
     depends_on:
       backend:
         condition: service_healthy
@@ -207,6 +225,12 @@ services:
       start_period: 10s
     security_opt:
       - no-new-privileges:true
+    user: "101:101"
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=16m,uid=101,gid=101,mode=1770
     volumes:
       - ./infrastructure/nginx/reverse-proxy.conf:/etc/nginx/conf.d/default.conf:ro
       - ./infrastructure/nginx/routes.inc:/etc/nginx/routes.inc:ro

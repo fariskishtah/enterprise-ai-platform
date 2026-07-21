@@ -8,6 +8,8 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
 
 from app.dependencies.auth import require_roles
+from app.dependencies.operational import require_training_worker_available
+from app.dependencies.rate_limit import enforce_mutation_rate_limit
 from app.dependencies.services import get_retraining_service
 from app.ml.retraining import (
     CandidateComparison,
@@ -108,6 +110,7 @@ async def get_policy(
 
 @router.put(
     "/policies/{registered_model_name}",
+    dependencies=[Depends(enforce_mutation_rate_limit)],
     response_model=RetrainingPolicyResponse,
     responses=_RESPONSES,
     summary="Create or replace one model retraining policy",
@@ -140,6 +143,7 @@ async def put_policy(
 
 @router.post(
     "/models/{registered_model_name}/versions/{version_or_alias}/evaluate",
+    dependencies=[Depends(enforce_mutation_rate_limit)],
     response_model=RetrainingEvaluationResponse,
     responses=_RESPONSES,
     summary="Evaluate an explicit drift window for controlled retraining",
@@ -175,6 +179,10 @@ async def evaluate_retraining(
 
 @router.post(
     "/models/{registered_model_name}/versions/{version_or_alias}/requests",
+    dependencies=[
+        Depends(enforce_mutation_rate_limit),
+        Depends(require_training_worker_available),
+    ],
     response_model=RetrainingEvaluationResponse,
     responses=_RESPONSES,
     summary="Request manual retraining from an exact trusted source version",

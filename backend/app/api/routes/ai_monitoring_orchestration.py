@@ -9,6 +9,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query
 
 from app.dependencies.auth import require_roles
+from app.dependencies.rate_limit import enforce_mutation_rate_limit
 from app.dependencies.services import (
     get_monitoring_alert_service,
     get_monitoring_evaluation_service,
@@ -175,6 +176,7 @@ async def get_monitoring_evaluation_history(
 
 @router.post(
     "/models/{registered_model_name}/versions/{model_version}/evaluations",
+    dependencies=[Depends(enforce_mutation_rate_limit)],
     response_model=MonitoringEvaluationResponse,
     responses=_RESPONSES,
     summary="Manually evaluate an exact registered model version",
@@ -293,6 +295,7 @@ async def get_monitoring_alert(
 
 @router.post(
     "/alerts/{alert_id}/acknowledge",
+    dependencies=[Depends(enforce_mutation_rate_limit)],
     response_model=MonitoringAlertResponse,
     responses=_RESPONSES,
     summary="Acknowledge an open monitoring alert",
@@ -312,6 +315,7 @@ async def acknowledge_monitoring_alert(
 
 @router.post(
     "/alerts/{alert_id}/resolve",
+    dependencies=[Depends(enforce_mutation_rate_limit)],
     response_model=MonitoringAlertResponse,
     responses=_RESPONSES,
     summary="Administratively resolve a monitoring alert",

@@ -14,6 +14,8 @@ from redis.asyncio import Redis
 from redis.exceptions import RedisError
 
 from app.config.settings import Settings, get_settings
+from app.dependencies.auth import get_current_user
+from app.models.user import User
 from app.observability.logging import emit_safe
 
 logger = logging.getLogger("app.security.audit")
@@ -129,5 +131,60 @@ async def enforce_auth_rate_limit(
     raise HTTPException(
         status_code=status.HTTP_429_TOO_MANY_REQUESTS,
         detail="Too many authentication attempts.",
+        headers={"Retry-After": str(retry_after)},
+    )
+
+
+def _privacy_safe_mutation_key(
+    request: Request,
+    user_id: object,
+    secret_key: str,
+) -> str:
+    source = f"{request.url.path}|{user_id}".encode()
+    digest = hmac.new(secret_key.encode(), source, hashlib.sha256).hexdigest()
+    return f"mutation-rate-limit:v1:{digest}"
+
+
+async def enforce_mutation_rate_limit(
+    request: Request,
+    current_user: Annotated[User, Depends(get_current_user)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    store: Annotated[AuthRateLimitStore, Depends(get_auth_rate_limit_store)],
+) -> None:
+    """Fail closed when a sensitive authenticated mutation cannot be limited."""
+    if not settings.mutation_rate_limit_enabled:
+        return
+
+    try:
+        count, ttl = await store.increment(
+            _privacy_safe_mutation_key(
+                request,
+                current_user.id,
+                settings.secret_key.get_secret_value(),
+            ),
+            settings.mutation_rate_limit_window_seconds,
+        )
+    except (RedisError, AuthRateLimitStoreError) as exc:
+        emit_safe(
+            logger,
+            logging.ERROR,
+            "mutation_rate_limit_unavailable",
+            extra={"error_kind": "rate_limit_store_unavailable"},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="A required service is unavailable.",
+        ) from exc
+
+    if count <= settings.mutation_rate_limit_requests:
+        return
+
+    retry_after = max(
+        1,
+        min(ttl, settings.mutation_rate_limit_window_seconds, 3600),
+    )
+    raise HTTPException(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        detail="Too many requests for this operation.",
         headers={"Retry-After": str(retry_after)},
     )
