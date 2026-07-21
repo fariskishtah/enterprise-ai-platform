@@ -27,6 +27,9 @@ const paths: Record<NavigationIcon | UtilityIcon, ReactElement> = {
   ),
   monitoring: <path d="M3 12h3l2.25-6 4.5 12 2.5-7H21M4.5 20.25h15" />,
   predictions: <path d="M5.25 19.5 18.75 6m-9 0h9v9M5.25 6v13.5H18.75" />,
+  retraining: (
+    <path d="M20.25 8.25V3.75h-4.5M3.75 15.75v4.5h4.5M19.1 6.1A8.25 8.25 0 0 0 5.2 8.25m-.3 9.65a8.25 8.25 0 0 0 13.9-2.15" />
+  ),
   "sensor-data": (
     <path d="M12 18.75a6.75 6.75 0 1 0 0-13.5m0 13.5a2.25 2.25 0 1 0 0-4.5m0 4.5v2.25m0-15.75V3m-6.75 9H3m18 0h-2.25" />
   ),

@@ -30,6 +30,20 @@ export class ApiError extends Error {
   }
 }
 
+export function isRequestCancelled(
+  error: unknown,
+  signal?: AbortSignal | null,
+): boolean {
+  if (signal?.aborted === true) return true;
+  if (error instanceof DOMException && error.name === "AbortError") return true;
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "name" in error &&
+    error.name === "AbortError"
+  );
+}
+
 function errorMessage(payload: unknown, fallback: string): string {
   if (
     typeof payload === "object" &&
@@ -127,7 +141,8 @@ export async function apiRequest<T>(
   let response: Response;
   try {
     response = await fetch(`${API_BASE_URL}${path}`, { ...init, headers });
-  } catch {
+  } catch (error) {
+    if (isRequestCancelled(error, init.signal)) throw error;
     throw new ApiError("Unable to reach the server. Please try again.", 0);
   }
 

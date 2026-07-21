@@ -59,6 +59,19 @@ def validate_prediction_features(features: object) -> FeatureArray:
     return _validate_features(features, require_rows=False)
 
 
+def validate_prediction_feature_count(
+    features: FeatureArray,
+    expected_feature_count: int,
+) -> FeatureArray:
+    """Reject input whose width does not match the fitted model contract."""
+    if features.shape[1] != expected_feature_count:
+        raise TrainerDataValidationError(
+            "The feature matrix width does not match the selected model's expected "
+            "input.",
+        )
+    return features
+
+
 def validate_regression_predictions(
     predictions: object,
 ) -> RegressionPredictionArray:

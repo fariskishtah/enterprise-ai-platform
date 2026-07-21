@@ -171,6 +171,57 @@ async def test_classification_prediction_returns_integer_labels(
 
 
 @pytest.mark.anyio
+async def test_prediction_rejects_model_feature_width_mismatch_safely(
+    settings: Settings,
+    session_factory: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    """A fitted-model width mismatch is a sanitized client validation error."""
+    async with ai_api_client(
+        settings,
+        session_factory,
+        tmp_path=tmp_path,
+    ) as (client, _application):
+        headers = await auth_headers(
+            client,
+            session_factory,
+            role=UserRole.ENGINEER,
+            email="ai-prediction-width-error@example.com",
+        )
+        training = await _train(client, headers=headers)
+        response = await client.post(
+            "/ai/predictions/random-forest/regression",
+            headers=headers,
+            json={
+                "registered_model_name": training["registered_model_name"],
+                "version_or_alias": training["registered_model_version"],
+                "features": [[0.75, 1.4]],
+            },
+        )
+        events = await client.get(
+            "/ai/monitoring/prediction-events",
+            headers=headers,
+            params={"status": "failed", "limit": 10, "offset": 0},
+        )
+
+    assert response.status_code == 422
+    assert response.json() == {
+        "detail": (
+            "The feature matrix width does not match the selected model's expected "
+            "input."
+        ),
+    }
+    assert "sklearn" not in response.text.lower()
+    assert "n_features" not in response.text.lower()
+    assert events.status_code == 200
+    captured = events.json()["items"]
+    assert len(captured) == 1
+    assert captured[0]["feature_count"] == 2
+    assert captured[0]["error_code"] == "feature_validation_failed"
+    assert captured[0]["safe_error_message"] == "Prediction features were rejected."
+
+
+@pytest.mark.anyio
 async def test_prediction_rejects_invalid_missing_and_wrong_task_models(
     settings: Settings,
     session_factory: async_sessionmaker[AsyncSession],
