@@ -26,14 +26,15 @@ docker-compose.prod.yml config -q`.
    release; do not start the API against a partially migrated schema.
 4. Start PostgreSQL, Redis, the API, training worker, frontend, and reverse proxy.
 5. Treat `/health` as process liveness and `/ready` as synchronous database readiness.
-   Redis and worker health remain operational signals: the API can serve database-backed
-   reads while they are unavailable, but queued training/retraining work cannot progress.
+   `/operational-status` reports sanitized database, Redis, queue, and expiring real
+   training-worker heartbeat states. The API can serve database-backed reads during an
+   asynchronous dependency outage, but new queued work is rejected safely.
 6. Run `scripts/verify-production.sh` and then the external smoke test.
 
-The worker currently has process/container health rather than an application heartbeat.
-Confirm worker logs show successful Redis connection and message consumption, and check
-queue depth before accepting asynchronous mutations. This is a known launch condition;
-the API must not be described as fully operational solely because `/ready` succeeds.
+The worker records a category-only Redis heartbeat every
+`WORKER_HEARTBEAT_INTERVAL_SECONDS`; it expires after `WORKER_HEARTBEAT_TTL_SECONDS`.
+No hostname, process identifier, container identifier, or connection detail is stored.
+Confirm both the heartbeat and queue metrics before accepting asynchronous mutations.
 
 ## Browser E2E
 
@@ -45,12 +46,11 @@ npx playwright install chromium
 npm run test:e2e
 ```
 
-`E2E_BASE_URL` selects the frontend URL. Set `E2E_EXTERNAL_SERVER=1` when a server is
-already managed externally. The committed suite uses isolated request fixtures for
-authentication, role navigation, theme, responsive, console, and accessibility checks;
-it contains no credentials. Backend-connected workflow coverage remains in the existing
-backend end-to-end test and demo seed. A staging browser suite with environment-provided
-role credentials and a deterministic trained model remains required before launch.
+`E2E_BASE_URL` selects the frontend URL. Set `E2E_EXTERNAL_SERVER=1` and
+`E2E_REAL_BACKEND=true` for the isolated staging runtime. `scripts/staging-local.sh`
+starts production images, runs migrations, and can idempotently seed environment-provided
+admin, engineer, and operator credentials plus the bounded demo workflow. Fixture tests
+remain for refresh races and deterministic client edge cases.
 
 ## Read-only production smoke
 
@@ -89,9 +89,11 @@ and the production deployment guide for the controlled sequence.
   attributes; removing it without replacing those attributes breaks theme behavior.
 - HTML must not be cached as immutable. Hashed assets may use long-lived immutable cache
   headers. Production source maps and debug banners must remain absent.
-- Authentication endpoints have distributed Redis-backed limits. Broader mutation
-  limiting is not yet universal and must be addressed at the trusted reverse proxy/API
-  before internet exposure.
+- Authentication endpoints have distributed Redis-backed limits. Sensitive prediction,
+  upload, training, promotion, evaluation, alert, and retraining mutations use a
+  per-user/per-endpoint Redis limit controlled by `MUTATION_RATE_LIMIT_*`. Authentication
+  retains its availability-oriented failure behavior; authenticated sensitive mutations
+  fail closed with a sanitized 503 if Redis is unavailable.
 - Partial audit coverage must remain labelled as partial. Domain promotion and retraining
   records are persisted; security events are available in structured server logs.
 - During an incident, inspect API, reverse-proxy, Redis, worker, PostgreSQL, queue-depth,

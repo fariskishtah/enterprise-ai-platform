@@ -34,6 +34,7 @@ from app.ml.retraining.reconcile import reconcile_retraining_requests
 from app.observability.logging import configure_logging, emit_safe
 from app.observability.tracing import TracingConfig, traced_operation
 from app.observability.worker import WorkerPrometheusMiddleware
+from app.observability.worker_heartbeat import WorkerHeartbeatMiddleware
 from app.observability.worker_logging import WorkerLoggingMiddleware
 
 _settings = get_settings()
@@ -74,6 +75,13 @@ broker.add_middleware(
         ),
     ),
     before=Retries,
+)
+broker.add_middleware(
+    WorkerHeartbeatMiddleware(
+        redis_url=_settings.redis_url,
+        interval_seconds=_settings.worker_heartbeat_interval_seconds,
+        ttl_seconds=_settings.worker_heartbeat_ttl_seconds,
+    )
 )
 broker.add_middleware(
     WorkerPrometheusMiddleware(

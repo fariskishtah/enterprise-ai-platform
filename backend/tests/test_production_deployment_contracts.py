@@ -161,7 +161,7 @@ def test_frontend_keeps_local_development_and_adds_production_stage() -> None:
     nginx = _text(_ROOT / "infrastructure/nginx/frontend.conf")
 
     assert base["services"]["frontend"]["build"]["target"] == "development"
-    assert "FROM nginx:1.28.0-alpine AS production" in dockerfile
+    assert "FROM nginxinc/nginx-unprivileged:1.28.0-alpine AS production" in dockerfile
     assert "RUN npm run build" in dockerfile
     assert "Content-Security-Policy" in nginx
     assert "frame-ancestors 'none'" in nginx
@@ -170,12 +170,29 @@ def test_frontend_keeps_local_development_and_adds_production_stage() -> None:
     assert "script-src 'self' 'unsafe-inline'" not in nginx
 
 
+def test_application_runtimes_are_explicitly_unprivileged() -> None:
+    services = _yaml(_PRODUCTION_COMPOSE)["services"]
+
+    for name, expected_user in (
+        ("backend", "10001:10001"),
+        ("training-worker", "10001:10001"),
+        ("frontend", "101:101"),
+        ("reverse-proxy", "101:101"),
+    ):
+        service = services[name]
+        assert service["user"] == expected_user, name
+        assert service["cap_drop"] == ["ALL"], name
+        assert service["read_only"] is True, name
+        assert service["security_opt"] == ["no-new-privileges:true"], name
+        assert service["tmpfs"], name
+
+
 def test_ci_and_runbook_cover_validation_firewall_and_billing() -> None:
     ci = _text(_CI)
     runbook = _text(_RUNBOOK).lower()
 
     assert "docker-compose.prod.yml" in ci
-    assert "nginx:1.28.0-alpine" in ci
+    assert "nginxinc/nginx-unprivileged:1.28.0-alpine" in ci
     assert "nginx -t" in ci
     for port in ("22", "80", "443"):
         assert f"tcp {port}" in runbook

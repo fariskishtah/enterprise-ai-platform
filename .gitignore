@@ -32,6 +32,7 @@ test-results/
 
 # Deployment-local generated configuration
 /.deployment/https/
+/.staging-validation/
 
 # Local database backups
 /backups/

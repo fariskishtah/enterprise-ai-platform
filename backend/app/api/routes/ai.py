@@ -8,6 +8,7 @@ from pydantic import ValidationError
 
 from app.config.settings import Settings, get_settings
 from app.dependencies.auth import require_roles
+from app.dependencies.rate_limit import enforce_mutation_rate_limit
 from app.dependencies.services import (
     get_ai_model_registry,
     get_ai_monitored_prediction_service,
@@ -430,6 +431,7 @@ def train_random_forest_classification(
 
 @router.post(
     "/predictions/random-forest/regression",
+    dependencies=[Depends(enforce_mutation_rate_limit)],
     response_model=RegressionPredictionResponse,
     status_code=status.HTTP_200_OK,
     summary="Predict with a registered Random Forest regressor",
@@ -502,6 +504,7 @@ async def predict_random_forest_regression(
 
 @router.post(
     "/predictions/random-forest/classification",
+    dependencies=[Depends(enforce_mutation_rate_limit)],
     response_model=ClassificationPredictionResponse,
     status_code=status.HTTP_200_OK,
     summary="Predict with a registered Random Forest classifier",

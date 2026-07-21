@@ -57,6 +57,23 @@ function errorMessage(payload: unknown, fallback: string): string {
   return fallback;
 }
 
+function isTokenPair(payload: unknown): payload is TokenPair {
+  return (
+    typeof payload === "object" &&
+    payload !== null &&
+    "access_token" in payload &&
+    typeof payload.access_token === "string" &&
+    "refresh_token" in payload &&
+    typeof payload.refresh_token === "string" &&
+    "expires_in" in payload &&
+    typeof payload.expires_in === "number" &&
+    Number.isFinite(payload.expires_in) &&
+    payload.expires_in > 0 &&
+    "token_type" in payload &&
+    payload.token_type === "bearer"
+  );
+}
+
 async function parseBody(response: Response): Promise<unknown> {
   if (response.status === 204) {
     return undefined;
@@ -96,7 +113,13 @@ async function refreshAccessToken(): Promise<string> {
           response.status,
         );
       }
-      return storeTokenPair(payload as TokenPair).accessToken;
+      if (!isTokenPair(payload)) {
+        throw new ApiError("The server returned an invalid session response.", 0);
+      }
+      if (readStoredTokens()?.refreshToken !== tokens.refreshToken) {
+        throw new ApiError("The session changed while it was being refreshed.", 401);
+      }
+      return storeTokenPair(payload).accessToken;
     } catch (error) {
       clearStoredTokens();
       sessionExpiredHandler?.();
@@ -153,7 +176,14 @@ export async function apiRequest<T>(
     throw new ApiError("Unable to reach the server. Please try again.", 0);
   }
 
-  if (response.status === 401 && authenticated && (options.retryAfterRefresh ?? true)) {
+  const method = (init.method ?? "GET").toUpperCase();
+  const safeToReplay = method === "GET" || method === "HEAD" || method === "OPTIONS";
+  if (
+    response.status === 401 &&
+    authenticated &&
+    safeToReplay &&
+    (options.retryAfterRefresh ?? true)
+  ) {
     const refreshedAccessToken = await refreshAccessToken();
     headers.set("Authorization", `Bearer ${refreshedAccessToken}`);
     return apiRequest<T>(

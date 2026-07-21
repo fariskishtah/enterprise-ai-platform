@@ -122,6 +122,99 @@ test.describe("authentication", () => {
     await expect(page).toHaveURL(/\/login$/);
     expect(failures).toEqual([]);
   });
+
+  test("concurrent expired requests use one refresh and all resume", async ({
+    page,
+  }) => {
+    let refreshCount = 0;
+    await page.route("**/auth/refresh", async (route) => {
+      refreshCount += 1;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      await json(route, {
+        access_token: "refreshed-access-token",
+        expires_in: 3600,
+        refresh_token: "rotated-refresh-token",
+        token_type: "bearer",
+      });
+    });
+    await page.route("**/users/me", (route) => json(route, { id: "e2e-user" }));
+    await page.goto("/login");
+    await page.evaluate(() => {
+      sessionStorage.setItem(
+        "factorymind.auth.tokens",
+        JSON.stringify({
+          accessToken: "expired-access-token",
+          accessTokenExpiresAt: 0,
+          refreshToken: "initial-refresh-token",
+        }),
+      );
+    });
+
+    const results = await page.evaluate(async () => {
+      const { apiRequest } = await import("/src/api/client.ts");
+      return Promise.all([
+        apiRequest<{ id: string }>("/users/me"),
+        apiRequest<{ id: string }>("/users/me"),
+        apiRequest<{ id: string }>("/users/me"),
+      ]);
+    });
+
+    expect(refreshCount).toBe(1);
+    expect(results).toEqual([
+      { id: "e2e-user" },
+      { id: "e2e-user" },
+      { id: "e2e-user" },
+    ]);
+  });
+
+  test("logout during refresh cannot restore a cleared session", async ({ page }) => {
+    let releaseRefresh: (() => void) | undefined;
+    let markRefreshStarted: (() => void) | undefined;
+    const refreshStarted = new Promise<void>((resolve) => {
+      markRefreshStarted = resolve;
+    });
+    await page.route("**/auth/refresh", async (route) => {
+      markRefreshStarted?.();
+      await new Promise<void>((release) => {
+        releaseRefresh = release;
+      });
+      await json(route, {
+        access_token: "late-access-token",
+        expires_in: 3600,
+        refresh_token: "late-refresh-token",
+        token_type: "bearer",
+      });
+    });
+    await page.goto("/login");
+    await page.evaluate(() => {
+      sessionStorage.setItem(
+        "factorymind.auth.tokens",
+        JSON.stringify({
+          accessToken: "expired-access-token",
+          accessTokenExpiresAt: 0,
+          refreshToken: "initial-refresh-token",
+        }),
+      );
+    });
+
+    const pending = page.evaluate(async () => {
+      const { apiRequest } = await import("/src/api/client.ts");
+      try {
+        await apiRequest("/users/me");
+        return "resolved";
+      } catch {
+        return "rejected";
+      }
+    });
+    await refreshStarted;
+    await page.evaluate(() => sessionStorage.removeItem("factorymind.auth.tokens"));
+    releaseRefresh?.();
+
+    expect(await pending).toBe("rejected");
+    expect(
+      await page.evaluate(() => sessionStorage.getItem("factorymind.auth.tokens")),
+    ).toBeNull();
+  });
 });
 
 test.describe("role-aware navigation", () => {

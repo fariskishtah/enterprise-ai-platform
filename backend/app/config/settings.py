@@ -64,6 +64,9 @@ class Settings(BaseSettings):
     auth_rate_limit_enabled: bool = True
     auth_rate_limit_requests: PositiveInt = Field(default=10, le=1000)
     auth_rate_limit_window_seconds: PositiveInt = Field(default=60, le=3600)
+    mutation_rate_limit_enabled: bool = True
+    mutation_rate_limit_requests: PositiveInt = Field(default=30, le=1000)
+    mutation_rate_limit_window_seconds: PositiveInt = Field(default=60, le=3600)
     cors_allowed_origins: tuple[str, ...] = (
         "http://localhost:5173",
         "http://127.0.0.1:5173",
@@ -107,6 +110,9 @@ class Settings(BaseSettings):
     )
     observability_environment: EnvironmentName = "local"
     observability_worker_metrics_port: int = Field(default=9191, ge=1024, le=65535)
+    worker_heartbeat_interval_seconds: PositiveInt = Field(default=10, le=300)
+    worker_heartbeat_ttl_seconds: PositiveInt = Field(default=30, le=900)
+    worker_availability_check_enabled: bool = True
     tracing_enabled: bool = True
     otel_service_name: str = Field(
         default="ai-manufacturing-backend",

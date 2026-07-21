@@ -7,6 +7,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 
 from app.dependencies.auth import require_roles
+from app.dependencies.rate_limit import enforce_mutation_rate_limit
 from app.dependencies.services import (
     get_sensor_data_etl_service,
     get_sensor_data_service,
@@ -66,6 +67,7 @@ def _invalid_upload(exc: InvalidSensorDataUploadError) -> HTTPException:
 
 @upload_jobs_router.post(
     "",
+    dependencies=[Depends(enforce_mutation_rate_limit)],
     response_model=UploadJobResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Create an upload job",
@@ -89,6 +91,7 @@ async def create_upload_job(
 
 @upload_jobs_router.post(
     "/{upload_job_id}/csv",
+    dependencies=[Depends(enforce_mutation_rate_limit)],
     response_model=UploadJobResponse,
     status_code=status.HTTP_200_OK,
     summary="Upload sensor readings CSV",
