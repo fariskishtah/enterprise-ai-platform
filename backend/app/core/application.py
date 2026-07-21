@@ -62,7 +62,9 @@ OPENAPI_TAGS = [
 def create_app(settings: Settings | None = None) -> FastAPI:
     """Create and configure a FastAPI application instance."""
     resolved_settings = settings if settings is not None else get_settings()
-    docs_url = "/docs" if resolved_settings.environment != "production" else None
+    docs_url = "/docs" if resolved_settings.enable_api_docs else None
+    redoc_url = "/redoc" if resolved_settings.enable_api_docs else None
+    openapi_url = "/openapi.json" if resolved_settings.enable_api_docs else None
     configure_logging(
         enabled=resolved_settings.structured_logging_enabled,
         log_format=resolved_settings.log_format,
@@ -96,8 +98,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "controlled candidate retraining."
         ),
         docs_url=docs_url,
+        openapi_url=openapi_url,
         openapi_tags=OPENAPI_TAGS,
-        redoc_url=None,
+        redoc_url=redoc_url,
     )
     application.add_middleware(
         CORSMiddleware,

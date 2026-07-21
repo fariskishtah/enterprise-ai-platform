@@ -213,7 +213,16 @@ export const getRetrainingComparison = (
   apiRequest(`/ai/retraining/requests/${encodeURIComponent(id)}/comparison`, {
     signal,
   });
-export const listRetrainingAudits = (
-  signal?: AbortSignal,
-): Promise<RetrainingAuditPage> =>
-  apiRequest("/ai/retraining/audits?limit=50&offset=0", { signal });
+export function listRetrainingAudits(options: {
+  readonly limit: number;
+  readonly offset: number;
+  readonly signal?: AbortSignal;
+}): Promise<RetrainingAuditPage> {
+  const query = new URLSearchParams({
+    limit: String(options.limit),
+    offset: String(options.offset),
+  });
+  return apiRequest(`/ai/retraining/audits?${query.toString()}`, {
+    signal: options.signal,
+  });
+}

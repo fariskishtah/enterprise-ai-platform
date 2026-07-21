@@ -6,7 +6,8 @@ import {
 } from "./sessionStorage";
 
 const API_BASE_URL = (
-  import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000"
+  import.meta.env.VITE_API_BASE_URL ??
+  (import.meta.env.DEV ? "http://localhost:8000" : "/api")
 ).replace(/\/$/, "");
 const ACCESS_EXPIRY_MARGIN_MS = 5_000;
 
@@ -61,7 +62,13 @@ async function parseBody(response: Response): Promise<unknown> {
     return undefined;
   }
   const contentType = response.headers.get("content-type") ?? "";
-  return contentType.includes("application/json") ? response.json() : response.text();
+  try {
+    return contentType.includes("application/json")
+      ? await response.json()
+      : await response.text();
+  } catch {
+    throw new ApiError("The server returned an invalid response.", response.status);
+  }
 }
 
 async function refreshAccessToken(): Promise<string> {

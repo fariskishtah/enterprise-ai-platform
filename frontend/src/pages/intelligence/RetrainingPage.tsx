@@ -58,7 +58,9 @@ export function RetrainingPage(): ReactElement {
         ? listRetrainingRequests({ limit: 20, offset: 0, signal: c.signal })
         : Promise.resolve(null),
       canManage ? listPolicies(c.signal) : Promise.resolve([]),
-      role === "admin" ? listRetrainingAudits(c.signal) : Promise.resolve(null),
+      role === "admin"
+        ? listRetrainingAudits({ limit: 50, offset: 0, signal: c.signal })
+        : Promise.resolve(null),
     ]).then(([statusResult, requestsResult, policiesResult, auditsResult]) => {
       if (!active) return;
       if (statusResult.status === "fulfilled") setStatus(statusResult.value);

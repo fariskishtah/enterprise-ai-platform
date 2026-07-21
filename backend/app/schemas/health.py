@@ -11,3 +11,11 @@ class HealthResponse(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     status: Literal["ok"]
+
+
+class ReadinessResponse(BaseModel):
+    """Response body for the dependency readiness endpoint."""
+
+    model_config = ConfigDict(frozen=True)
+
+    status: Literal["ready"]
