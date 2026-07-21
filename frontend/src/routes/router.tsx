@@ -21,6 +21,8 @@ import { ModelsPage } from "../pages/aiLifecycle/ModelsPage";
 import { ModelVersionPage } from "../pages/aiLifecycle/ModelVersionPage";
 import { TrainingJobDetailPage } from "../pages/aiLifecycle/TrainingJobDetailPage";
 import { TrainingJobsPage } from "../pages/aiLifecycle/TrainingJobsPage";
+import { EvaluationsPage } from "../pages/aiLifecycle/EvaluationsPage";
+import { TrainingEvaluationPage } from "../pages/aiLifecycle/TrainingEvaluationPage";
 import { AlertDetailPage } from "../pages/intelligence/AlertDetailPage";
 import { AlertsPage } from "../pages/intelligence/AlertsPage";
 import { EvaluationDetailPage } from "../pages/intelligence/EvaluationDetailPage";
@@ -70,6 +72,11 @@ export const router = createBrowserRouter([
           },
           { element: <TrainingJobsPage />, path: "training" },
           { element: <TrainingJobDetailPage />, path: "training/:trainingJobId" },
+          { element: <EvaluationsPage />, path: "evaluations" },
+          {
+            element: <TrainingEvaluationPage />,
+            path: "evaluations/jobs/:trainingJobId",
+          },
           { element: <ModelsPage />, path: "models" },
           { element: <ModelDetailPage />, path: "models/:registeredModelName" },
           {

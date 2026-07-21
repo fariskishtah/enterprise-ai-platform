@@ -27,6 +27,16 @@ def test_algorithm_type_contains_only_supported_values() -> None:
         "xgboost",
         "lightgbm",
         "catboost",
+        "logistic_regression",
+        "decision_tree",
+        "extra_trees",
+        "knn",
+        "svm",
+        "gradient_boosting",
+        "linear_regression",
+        "ridge",
+        "lasso",
+        "elastic_net",
     }
 
 

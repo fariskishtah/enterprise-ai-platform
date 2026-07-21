@@ -16,11 +16,15 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.ml.artifacts import ArtifactManagerError
 from app.ml.base import TrainerInput, TrainerKey
 from app.ml.composition import (
+    PLUGIN_REGISTRY,
+    create_plugin_training_plan,
     create_random_forest_classification_plan,
     create_random_forest_regression_plan,
 )
 from app.ml.engine import TrainingModelTypeMismatchError
 from app.ml.jobs.models import (
+    PluginClassificationJobSpec,
+    PluginRegressionJobSpec,
     RandomForestClassificationJobSpec,
     RandomForestRegressionJobSpec,
     TrainingJobRecord,
@@ -32,6 +36,7 @@ from app.ml.monitoring import (
     ModelReferenceProfileDraft,
     build_model_reference_profile_draft,
 )
+from app.ml.plugins import PluginTrainer
 from app.ml.registry import (
     ModelRegistryError,
     ModelRegistryValidationError,
@@ -404,7 +409,9 @@ def execute_tracked_training_specification(
     """Rebuild and execute one typed tracked-training task plan."""
     if isinstance(specification, RandomForestRegressionJobSpec):
         return _execute_regression(specification, service, profile_bin_count)
-    return _execute_classification(specification, service, profile_bin_count)
+    if isinstance(specification, RandomForestClassificationJobSpec):
+        return _execute_classification(specification, service, profile_bin_count)
+    return _execute_plugin(specification, service, profile_bin_count)
 
 
 def _execute_regression(
@@ -513,6 +520,85 @@ def _execute_classification(
         ),
     )
     predictions = RandomForestClassifierTrainer().predict(
+        result.execution.model,
+        evaluation_features,
+    )
+    return _outcome(
+        result,
+        reference_profile=_safe_reference_profile(
+            registered_model_name=specification.registered_model_name,
+            model_version=result.registered_model.version,
+            key=result.registered_model.key,
+            evaluation_features=evaluation_features,
+            predictions=predictions,
+            profile_bin_count=profile_bin_count,
+        ),
+    )
+
+
+def _execute_plugin(
+    specification: PluginRegressionJobSpec | PluginClassificationJobSpec,
+    service: TrackedTrainingService,
+    profile_bin_count: int,
+) -> BackgroundTrainingOutcome:
+    """Execute any allowlisted non-Random-Forest plugin through the shared engine."""
+    plugin = PLUGIN_REGISTRY.get(specification.plugin_id)
+    training_features: FeatureArray = np.asarray(
+        specification.training_features,
+        dtype=np.float64,
+    )
+    evaluation_features: FeatureArray = np.asarray(
+        specification.evaluation_features,
+        dtype=np.float64,
+    )
+    if isinstance(specification, PluginClassificationJobSpec):
+        training_targets = np.asarray(specification.training_targets, dtype=np.int64)
+        evaluation_targets = np.asarray(
+            specification.evaluation_targets, dtype=np.int64
+        )
+    else:
+        training_targets = np.asarray(specification.training_targets, dtype=np.float64)
+        evaluation_targets = np.asarray(
+            specification.evaluation_targets, dtype=np.float64
+        )
+    parameters = dict(specification.hyperparameters)
+    training_parameters = {
+        **parameters,
+        "__scaler": specification.preprocessing.scaler,
+        "__imputer": specification.preprocessing.imputer,
+    }
+    result = service.execute(
+        TrackedTrainingRequest(
+            plan=create_plugin_training_plan(
+                key=plugin.key,
+                training_input=TrainerInput(
+                    features=training_features,
+                    targets=training_targets,
+                    hyperparameters=training_parameters,
+                    random_seed=specification.random_seed,
+                ),
+                evaluation_features=evaluation_features,
+                evaluation_targets=evaluation_targets,
+            ),
+            experiment_name=specification.experiment_name,
+            run_name=specification.run_name,
+            registered_model_name=specification.registered_model_name,
+            tracking_parameters=normalize_tracking_parameters(
+                {
+                    **parameters,
+                    "preprocessing.scaler": specification.preprocessing.scaler,
+                    "preprocessing.imputer": specification.preprocessing.imputer,
+                    "workflow_random_seed": specification.random_seed,
+                    "feature_count": training_features.shape[1],
+                    "training_rows": training_features.shape[0],
+                    "evaluation_rows": evaluation_features.shape[0],
+                }
+            ),
+            tracking_tags=specification.tags,
+            model_description=specification.model_description,
+        )
+    )
+    predictions = PluginTrainer(plugin).predict(
         result.execution.model,
         evaluation_features,
     )

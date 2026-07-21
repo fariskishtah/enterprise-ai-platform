@@ -59,6 +59,48 @@ export interface TrainingRequest {
   readonly model_description: string | null;
 }
 
+export interface AlgorithmParameter {
+  readonly name: string;
+  readonly type: "integer" | "number" | "boolean" | "choice";
+  readonly default: number | boolean | string;
+  readonly minimum: number | null;
+  readonly maximum: number | null;
+  readonly choices: readonly string[];
+  readonly description: string;
+}
+
+export interface Algorithm {
+  readonly id: string;
+  readonly algorithm_family: string;
+  readonly display_name: string;
+  readonly description: string;
+  readonly supported_tasks: readonly TrainingTask[];
+  readonly parameters: readonly AlgorithmParameter[];
+  readonly default_parameters: Record<string, number | boolean | string>;
+  readonly scaling_behavior: "auto" | "none" | "standard" | "minmax" | "robust";
+  readonly probability_support: boolean;
+  readonly decision_function_support: boolean;
+  readonly feature_importance_support: boolean;
+  readonly coefficient_support: boolean;
+  readonly permutation_importance_support: boolean;
+  readonly global_explainability: boolean;
+  readonly local_explainability: boolean;
+  readonly dependency_available: boolean;
+}
+
+export interface EvaluationPayload {
+  readonly schema_version: string;
+  readonly task_type: TrainingTask;
+  readonly algorithm: string;
+  readonly sample_count: number;
+  readonly feature_count: number;
+  readonly metrics: Record<string, number>;
+  readonly plots: Record<string, unknown>;
+  readonly omitted: Record<string, string>;
+  readonly explainability: Record<string, unknown>;
+  readonly classification_report?: Record<string, unknown>;
+}
+
 export interface ModelVersion {
   readonly model_name: string;
   readonly model_version: string;
@@ -153,11 +195,36 @@ export function getTrainingJob(id: string, signal?: AbortSignal): Promise<Traini
 export function createTrainingJob(
   task: TrainingTask,
   payload: TrainingRequest,
+  algorithm?: string,
+  preprocessing: { readonly scaler: string; readonly imputer: string } = {
+    scaler: "auto",
+    imputer: "none",
+  },
 ): Promise<TrainingJobSubmission> {
-  return apiRequest<TrainingJobSubmission>(`/ai/training-jobs/random-forest/${task}`, {
-    body: JSON.stringify(payload),
+  const path = algorithm
+    ? "/ai/training-jobs"
+    : `/ai/training-jobs/random-forest/${task}`;
+  const body = algorithm
+    ? { ...payload, algorithm, preprocessing, task_type: task }
+    : payload;
+  return apiRequest<TrainingJobSubmission>(path, {
+    body: JSON.stringify(body),
     method: "POST",
   });
+}
+
+export function listAlgorithms(signal?: AbortSignal): Promise<readonly Algorithm[]> {
+  return apiRequest<readonly Algorithm[]>("/ai/algorithms", { signal });
+}
+
+export function getTrainingEvaluation(
+  id: string,
+  signal?: AbortSignal,
+): Promise<EvaluationPayload> {
+  return apiRequest<EvaluationPayload>(
+    `/ai/training-jobs/${encodeURIComponent(id)}/evaluation`,
+    { signal },
+  );
 }
 
 export function cancelTrainingJob(id: string): Promise<TrainingJob> {

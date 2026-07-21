@@ -200,12 +200,20 @@ export function TrainingJobDetailPage(): ReactElement {
         <h3 className="mb-4 text-lg font-semibold">Metrics and results</h3>
         <MetricsGrid metrics={job.metrics} />
         {job.status === "succeeded" && job.registered_model_version ? (
-          <Link
-            className="mt-5 inline-block font-semibold text-purple-700 hover:underline"
-            to={`/models/${encodeURIComponent(job.registered_model_name)}/versions/${encodeURIComponent(job.registered_model_version)}`}
-          >
-            Open resulting model version
-          </Link>
+          <div className="mt-5 flex flex-wrap gap-4">
+            <Link
+              className="font-semibold text-purple-700 hover:underline"
+              to={`/models/${encodeURIComponent(job.registered_model_name)}/versions/${encodeURIComponent(job.registered_model_version)}`}
+            >
+              Open resulting model version
+            </Link>
+            <Link
+              className="font-semibold text-purple-700 hover:underline"
+              to={`/evaluations/jobs/${job.job_id}`}
+            >
+              Open held-out evaluation
+            </Link>
+          </div>
         ) : null}
       </div>
       {confirmCancel ? (

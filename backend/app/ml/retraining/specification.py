@@ -3,6 +3,8 @@
 from uuid import UUID
 
 from app.ml.jobs import (
+    PluginClassificationJobSpec,
+    PluginRegressionJobSpec,
     RandomForestClassificationJobSpec,
     RandomForestRegressionJobSpec,
     TrainingJobSpec,
@@ -52,4 +54,8 @@ def build_retraining_specification(
         return RandomForestRegressionJobSpec.model_validate(payload)
     if isinstance(source, RandomForestClassificationJobSpec):
         return RandomForestClassificationJobSpec.model_validate(payload)
+    if isinstance(source, PluginRegressionJobSpec):
+        return PluginRegressionJobSpec.model_validate(payload)
+    if isinstance(source, PluginClassificationJobSpec):
+        return PluginClassificationJobSpec.model_validate(payload)
     raise TypeError("Unsupported trusted training specification.")

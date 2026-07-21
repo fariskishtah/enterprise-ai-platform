@@ -353,6 +353,7 @@ class PredictionMonitoringRepository:
                     registered_model_version=entity.registered_model_version,
                     specification=parse_training_job_spec(
                         entity.task_type,
+                        entity.algorithm,
                         entity.specification,
                     ),
                 ),

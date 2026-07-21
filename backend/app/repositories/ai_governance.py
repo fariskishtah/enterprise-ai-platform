@@ -577,7 +577,11 @@ def _job_record(entity: TrainingJob) -> TrainingJobRecord:
         requested_by_user_id=entity.requested_by_user_id,
         key=TrainerKey(entity.algorithm, entity.task_type),
         status=entity.status,
-        specification=parse_training_job_spec(entity.task_type, entity.specification),
+        specification=parse_training_job_spec(
+            entity.task_type,
+            entity.algorithm,
+            entity.specification,
+        ),
         queue_message_id=entity.queue_message_id,
         attempt_count=entity.attempt_count,
         max_attempts=entity.max_attempts,

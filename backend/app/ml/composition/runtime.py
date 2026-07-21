@@ -4,6 +4,7 @@ from pathlib import Path
 
 from app.config.settings import Settings
 from app.ml.artifacts import LocalArtifactManager
+from app.ml.composition.plugins import PLUGIN_TRAINER_REGISTRATIONS
 from app.ml.engine import TrainingEngine
 from app.ml.factory import TrainerFactory, TrainerRegistry
 from app.ml.registry import MLflowModelRegistry
@@ -20,6 +21,8 @@ def create_ai_trainer_registry() -> TrainerRegistry:
     registry = TrainerRegistry()
     registry.register(RANDOM_FOREST_REGRESSOR_REGISTRATION)
     registry.register(RANDOM_FOREST_CLASSIFIER_REGISTRATION)
+    for registration in PLUGIN_TRAINER_REGISTRATIONS.values():
+        registry.register(registration)
     return registry
 
 

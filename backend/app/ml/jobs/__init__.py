@@ -9,6 +9,9 @@ from app.ml.jobs.exceptions import (
     TrainingJobQueuePersistenceError,
 )
 from app.ml.jobs.models import (
+    PluginClassificationJobSpec,
+    PluginRegressionJobSpec,
+    PreprocessingJobConfig,
     RandomForestClassificationJobSpec,
     RandomForestRegressionJobSpec,
     TrainingJobRecord,
@@ -24,6 +27,9 @@ __all__ = [
     "DramatiqTrainingJobQueue",
     "RandomForestClassificationJobSpec",
     "RandomForestRegressionJobSpec",
+    "PluginClassificationJobSpec",
+    "PluginRegressionJobSpec",
+    "PreprocessingJobConfig",
     "RetryableTrainingJobError",
     "TrainingJobConflictError",
     "TrainingJobEnqueueError",

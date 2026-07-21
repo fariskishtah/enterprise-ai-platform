@@ -3,6 +3,7 @@
 from typing import Annotated
 from uuid import UUID
 
+import numpy as np
 from fastapi import (
     APIRouter,
     Body,
@@ -20,11 +21,18 @@ from app.dependencies.auth import require_roles
 from app.dependencies.operational import require_training_worker_available
 from app.dependencies.rate_limit import enforce_mutation_rate_limit
 from app.dependencies.services import (
+    get_ai_model_registry,
+    get_ai_registered_model_loader,
     get_model_promotion_service,
     get_training_job_service,
 )
-from app.ml.domain import TaskType
+from app.ml.composition import PLUGIN_REGISTRY
+from app.ml.domain import AlgorithmType, TaskType
+from app.ml.evaluation import build_evaluation_payload
 from app.ml.jobs import (
+    PluginClassificationJobSpec,
+    PluginRegressionJobSpec,
+    PreprocessingJobConfig,
     RandomForestClassificationJobSpec,
     RandomForestRegressionJobSpec,
     TrainingJobConflictError,
@@ -38,6 +46,7 @@ from app.ml.jobs import (
     random_forest_key,
 )
 from app.ml.jobs.service import TrainingJobService
+from app.ml.plugins import ModelPluginError
 from app.ml.promotion import (
     ModelAlias,
     ModelPromotionRequest,
@@ -51,11 +60,13 @@ from app.ml.promotion import (
 )
 from app.ml.promotion.service import ModelPromotionService
 from app.ml.registry import (
+    BaseModelRegistry,
     ModelRegistryError,
     ModelRegistryValidationError,
     RegisteredModelVersionNotFoundError,
     build_registered_model_name,
 )
+from app.ml.services import BaseRegisteredModelLoader, RegisteredModelLoadError
 from app.models.user import User, UserRole
 from app.repositories.ai_governance import PromotionAuditPage
 from app.schemas.ai import (
@@ -64,6 +75,8 @@ from app.schemas.ai import (
     TrainerKeyResponse,
 )
 from app.schemas.ai_governance import (
+    AlgorithmResponse,
+    GenericTrainingJobRequest,
     ModelAliasesResponse,
     ModelAliasResponse,
     ModelPromotionBody,
@@ -103,6 +116,167 @@ _PROMOTION_RESPONSES: dict[int | str, dict[str, object]] = {
     502: {"description": "The external registry failure detail is sanitized."},
     503: {"description": "Promotion audit persistence requires reconciliation."},
 }
+
+
+@router.get(
+    "/algorithms",
+    response_model=list[AlgorithmResponse],
+    summary="Discover allowlisted training algorithms",
+    responses=_AUTH_RESPONSES,
+)
+def list_algorithms(
+    _current_user: Annotated[
+        User,
+        Depends(require_roles(UserRole.ADMIN, UserRole.ENGINEER)),
+    ],
+) -> list[AlgorithmResponse]:
+    """Return stable capability metadata without estimator internals."""
+    return [
+        AlgorithmResponse.model_validate(plugin.public())
+        for plugin in PLUGIN_REGISTRY.all()
+    ]
+
+
+@router.post(
+    "/training-jobs",
+    dependencies=[
+        Depends(enforce_mutation_rate_limit),
+        Depends(require_training_worker_available),
+    ],
+    response_model=TrainingJobSubmissionResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Submit an allowlisted model training job",
+    responses={
+        **_JOB_SUBMISSION_RESPONSES,
+        422: {"description": "Invalid algorithm configuration."},
+    },
+)
+async def submit_generic_training_job(
+    payload: GenericTrainingJobRequest,
+    response: Response,
+    current_user: Annotated[
+        User,
+        Depends(require_roles(UserRole.ADMIN, UserRole.ENGINEER)),
+    ],
+    service: Annotated[TrainingJobService, Depends(get_training_job_service)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    idempotency_key: Annotated[
+        str | None,
+        Header(alias="Idempotency-Key", max_length=128),
+    ] = None,
+) -> TrainingJobSubmissionResponse:
+    """Validate a plugin request, persist it, and enqueue only its UUID."""
+    try:
+        plugin = PLUGIN_REGISTRY.get(payload.algorithm, payload.task_type)
+        parameters = dict(plugin.validate_parameters(payload.hyperparameters))
+        registered_model_name = (
+            payload.registered_model_name
+            or build_registered_model_name(
+                plugin.key, prefix=settings.ai_default_registered_model_prefix
+            )
+        )
+        common: dict[str, object] = {
+            "training_features": tuple(tuple(row) for row in payload.training_features),
+            "evaluation_features": tuple(
+                tuple(row) for row in payload.evaluation_features
+            ),
+            "random_seed": payload.random_seed,
+            "experiment_name": payload.experiment_name,
+            "run_name": payload.run_name,
+            "registered_model_name": registered_model_name,
+            "tags": payload.tags,
+            "model_description": payload.model_description,
+        }
+        specification: TrainingJobSpec
+        if plugin.key.algorithm is AlgorithmType.RANDOM_FOREST:
+            if (
+                payload.preprocessing.imputer != "none"
+                or payload.preprocessing.scaler not in {"auto", "none"}
+            ):
+                raise ModelPluginError(
+                    "Existing Random Forest compatibility models do not support "
+                    "explicit preprocessing."
+                )
+            random_forest_parameters = {
+                **parameters,
+                "min_samples_split": 2,
+                "max_features": (
+                    "sqrt" if payload.task_type is TaskType.CLASSIFICATION else 1.0
+                ),
+                "bootstrap": True,
+                "n_jobs": 1,
+                "random_state": payload.random_seed,
+                "criterion": (
+                    "gini"
+                    if payload.task_type is TaskType.CLASSIFICATION
+                    else "squared_error"
+                ),
+            }
+            if payload.task_type is TaskType.CLASSIFICATION:
+                specification = RandomForestClassificationJobSpec(
+                    **common,
+                    hyperparameters=random_forest_parameters,
+                    training_targets=tuple(
+                        int(value) for value in payload.training_targets
+                    ),
+                    evaluation_targets=tuple(
+                        int(value) for value in payload.evaluation_targets
+                    ),
+                )
+            else:
+                specification = RandomForestRegressionJobSpec(
+                    **common,
+                    hyperparameters=random_forest_parameters,
+                    training_targets=tuple(
+                        float(value) for value in payload.training_targets
+                    ),
+                    evaluation_targets=tuple(
+                        float(value) for value in payload.evaluation_targets
+                    ),
+                )
+        elif payload.task_type is TaskType.CLASSIFICATION:
+            specification = PluginClassificationJobSpec(
+                **common,
+                plugin_id=plugin.id,
+                hyperparameters=parameters,
+                preprocessing=PreprocessingJobConfig(
+                    scaler=payload.preprocessing.scaler,
+                    imputer=payload.preprocessing.imputer,
+                ),
+                training_targets=tuple(
+                    int(value) for value in payload.training_targets
+                ),
+                evaluation_targets=tuple(
+                    int(value) for value in payload.evaluation_targets
+                ),
+            )
+        else:
+            specification = PluginRegressionJobSpec(
+                **common,
+                plugin_id=plugin.id,
+                hyperparameters=parameters,
+                preprocessing=PreprocessingJobConfig(
+                    scaler=payload.preprocessing.scaler,
+                    imputer=payload.preprocessing.imputer,
+                ),
+                training_targets=tuple(
+                    float(value) for value in payload.training_targets
+                ),
+                evaluation_targets=tuple(
+                    float(value) for value in payload.evaluation_targets
+                ),
+            )
+    except ModelPluginError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    submission = await _submit(
+        service=service,
+        current_user=current_user,
+        specification=specification,
+        idempotency_key=idempotency_key,
+    )
+    if not submission.created:
+        response.status_code = status.HTTP_200_OK
+    return _submission_response(submission.job)
 
 
 @router.post(
@@ -256,6 +430,87 @@ async def get_training_job(
     except TrainingJobNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return _job_response(job)
+
+
+@router.get(
+    "/training-jobs/{job_id}/evaluation",
+    response_model=dict[str, object],
+    summary="Evaluate a completed training job on its held-out sample",
+    responses={
+        **_JOB_READ_RESPONSES,
+        409: {"description": "The job has not completed."},
+    },
+)
+async def get_training_job_evaluation(
+    job_id: UUID,
+    current_user: Annotated[
+        User,
+        Depends(require_roles(UserRole.ADMIN, UserRole.ENGINEER)),
+    ],
+    service: Annotated[TrainingJobService, Depends(get_training_job_service)],
+    registry: Annotated[BaseModelRegistry, Depends(get_ai_model_registry)],
+    loader: Annotated[
+        BaseRegisteredModelLoader, Depends(get_ai_registered_model_loader)
+    ],
+) -> dict[str, object]:
+    """Return bounded chart and explanation data derived from held-out rows."""
+    try:
+        job = await service.get_authorized(
+            job_id=job_id,
+            current_user_id=current_user.id,
+            is_admin=current_user.role is UserRole.ADMIN,
+        )
+    except TrainingJobNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    if (
+        job.status is not TrainingJobStatus.SUCCEEDED
+        or job.registered_model_version is None
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Training must succeed before evaluation is available.",
+        )
+    try:
+        version = registry.resolve(
+            job.registered_model_name, job.registered_model_version
+        )
+        if version.key != job.key:
+            raise HTTPException(
+                status_code=409,
+                detail="Registered model metadata does not match the training job.",
+            )
+        model = loader.load(version, object)
+        plugin = PLUGIN_REGISTRY.get_by_key(job.key)
+        specification = job.specification
+        feature_values = np.asarray(specification.evaluation_features, dtype=np.float64)
+        if job.key.task_type is TaskType.CLASSIFICATION:
+            target_values = np.asarray(specification.evaluation_targets, dtype=np.int64)
+        else:
+            target_values = np.asarray(
+                specification.evaluation_targets, dtype=np.float64
+            )
+        return build_evaluation_payload(
+            plugin=plugin,
+            model=model,
+            features=feature_values,
+            targets=target_values,
+            random_seed=specification.random_seed or 17,
+        )
+    except HTTPException:
+        raise
+    except ModelRegistryValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except RegisteredModelVersionNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (ModelRegistryError, RegisteredModelLoadError) as exc:
+        raise HTTPException(
+            status_code=502, detail="The registered model could not be evaluated."
+        ) from exc
+    except (ModelPluginError, ValueError) as exc:
+        raise HTTPException(
+            status_code=422,
+            detail="The held-out evaluation data is incompatible with this model.",
+        ) from exc
 
 
 @router.get(
@@ -476,16 +731,21 @@ async def _submit(
     specification: TrainingJobSpec,
     idempotency_key: str | None,
 ) -> TrainingJobSubmission:
+    if isinstance(
+        specification,
+        (PluginRegressionJobSpec, PluginClassificationJobSpec),
+    ):
+        key = specification.plugin_key()
+    else:
+        key = random_forest_key(
+            TaskType.REGRESSION
+            if isinstance(specification, RandomForestRegressionJobSpec)
+            else TaskType.CLASSIFICATION
+        )
     try:
         return await service.submit(
             requested_by_user_id=current_user.id,
-            key=random_forest_key(
-                (
-                    TaskType.REGRESSION
-                    if isinstance(specification, RandomForestRegressionJobSpec)
-                    else TaskType.CLASSIFICATION
-                ),
-            ),
+            key=key,
             specification=specification,
             idempotency_key=idempotency_key,
         )

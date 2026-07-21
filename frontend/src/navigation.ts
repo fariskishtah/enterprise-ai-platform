@@ -54,6 +54,13 @@ export const navigationItems: readonly NavigationItem[] = [
     path: "/models",
   },
   {
+    description: "Held-out metrics, plots, and model explanations.",
+    icon: "monitoring",
+    label: "Evaluation Studio",
+    path: "/evaluations",
+    roles: ["admin", "engineer"],
+  },
+  {
     description: "Run and inspect registered-model predictions.",
     icon: "predictions",
     label: "Predictions",
