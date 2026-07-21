@@ -94,8 +94,12 @@ test.describe("real staging backend", () => {
 
     await page.goto("/evaluations");
     await expect(page.locator("#evaluation-studio-heading")).toBeVisible();
-    await expect(page.getByRole("link", { name: "Open" }).first()).toBeVisible();
-    await page.getByRole("link", { name: "Open" }).first().click();
+    await page.getByLabel("Task").selectOption("regression");
+    const seededModelRow = page.getByRole("row", {
+      name: /demo_random_forest_regression/,
+    });
+    await expect(seededModelRow).toBeVisible();
+    await seededModelRow.getByRole("link", { name: "Open" }).click();
     await expect(page.locator("#training-evaluation-heading")).toBeVisible();
     await expect(page.getByRole("region", { name: "Held-out metrics" })).toBeVisible();
     const axe = await new AxeBuilder({ page }).analyze();

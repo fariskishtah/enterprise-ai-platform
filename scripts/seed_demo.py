@@ -344,6 +344,13 @@ def train_model(client: ApiClient) -> tuple[str, str, bool]:
                 {200},
                 "resolve demo model version",
             )
+            evaluation = require_response(
+                client.get(f"/ai/training-jobs/{submission['job_id']}/evaluation"),
+                {200},
+                "load demo model evaluation",
+            ).json()
+            if not evaluation.get("metrics"):
+                raise DemoSeedError("demo model evaluation returned no metrics")
             return submission["job_id"], version, response.status_code == 202
         if last_status in {"failed", "cancelled"}:
             raise DemoSeedError(
