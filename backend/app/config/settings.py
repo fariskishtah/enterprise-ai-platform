@@ -45,6 +45,7 @@ class Settings(BaseSettings):
     redis_url: str = Field(min_length=1)
     secret_key: SecretStr = Field(min_length=32)
     environment: EnvironmentName = "local"
+    enable_api_docs: bool = True
     jwt_algorithm: Literal["HS256"] = "HS256"
     jwt_issuer: str = Field(
         default="ai-manufacturing-platform",
@@ -290,6 +291,8 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def validate_drift_threshold_order(self) -> Self:
         """Require the operational warning threshold below critical."""
+        if self.environment == "production" and self.enable_api_docs:
+            raise ValueError("enable_api_docs must be false in production.")
         if self.environment == "production" and any(
             urlsplit(origin).hostname in {"localhost", "127.0.0.1", "::1"}
             for origin in self.cors_allowed_origins

@@ -120,6 +120,7 @@ def test_production_secrets_are_required_without_working_fallbacks() -> None:
     ):
         assert "${" in value and ":?" in value
         assert ":-" not in value
+    assert backend_environment["ENABLE_API_DOCS"] == "false"
 
 
 def test_nginx_routes_only_to_valid_application_upstreams() -> None:
@@ -157,10 +158,16 @@ def test_deployment_scripts_are_executable_and_non_destructive() -> None:
 def test_frontend_keeps_local_development_and_adds_production_stage() -> None:
     base = _yaml(_BASE_COMPOSE)
     dockerfile = _text(_ROOT / "docker/frontend/Dockerfile")
+    nginx = _text(_ROOT / "infrastructure/nginx/frontend.conf")
 
     assert base["services"]["frontend"]["build"]["target"] == "development"
     assert "FROM nginx:1.28.0-alpine AS production" in dockerfile
     assert "RUN npm run build" in dockerfile
+    assert "Content-Security-Policy" in nginx
+    assert "frame-ancestors 'none'" in nginx
+    assert "object-src 'none'" in nginx
+    assert "script-src 'self';" in nginx
+    assert "script-src 'self' 'unsafe-inline'" not in nginx
 
 
 def test_ci_and_runbook_cover_validation_firewall_and_billing() -> None:

@@ -13,6 +13,7 @@ services:
     environment:
       DATABASE_URL: ${DATABASE_URL}
       ENVIRONMENT: ${ENVIRONMENT}
+      ENABLE_API_DOCS: ${ENABLE_API_DOCS:-true}
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES}
       JWT_ALGORITHM: ${JWT_ALGORITHM}
       JWT_ISSUER: ${JWT_ISSUER:-ai-manufacturing-platform}
@@ -128,6 +129,7 @@ services:
     environment:
       DATABASE_URL: ${DATABASE_URL}
       ENVIRONMENT: ${ENVIRONMENT}
+      ENABLE_API_DOCS: ${ENABLE_API_DOCS:-true}
       MLFLOW_TRACKING_URI: file:/app/data/mlflow
       MODEL_ARTIFACT_ROOT: /app/data/model-artifacts
       AI_ARTIFACT_ROOT: /app/data/ai-artifacts

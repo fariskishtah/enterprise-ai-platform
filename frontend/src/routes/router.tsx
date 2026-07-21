@@ -4,7 +4,9 @@ import { ProtectedRoute, PublicOnlyRoute } from "../auth/RouteGuards";
 import { AppShell } from "../components/AppShell";
 import { Dashboard } from "../pages/Dashboard";
 import { LoginPage } from "../pages/LoginPage";
+import { AuditLogsPage } from "../pages/AuditLogsPage";
 import { PlaceholderPage } from "../pages/PlaceholderPage";
+import { SettingsPage } from "../pages/SettingsPage";
 import { NotFoundPage, RouteErrorPage } from "../pages/RouteErrorPages";
 import { FactoriesPage } from "../pages/hierarchy/FactoriesPage";
 import { FactoryDetailPage } from "../pages/hierarchy/FactoryDetailPage";
@@ -31,9 +33,7 @@ import { RetrainingPage } from "../pages/intelligence/RetrainingPage";
 import { RetrainingRequestPage } from "../pages/intelligence/RetrainingRequestPage";
 
 const placeholderRoutes = [
-  ["audit-log", "Audit Log", "Governance decisions and operational history."],
   ["users", "Users & Roles", "User access and role administration."],
-  ["settings", "Settings", "Platform and workspace preferences."],
 ] as const;
 
 export const router = createBrowserRouter([
@@ -98,6 +98,8 @@ export const router = createBrowserRouter([
             element: <RetrainingRequestPage />,
             path: "retraining/requests/:id",
           },
+          { element: <AuditLogsPage />, path: "audit-log" },
+          { element: <SettingsPage />, path: "settings" },
           ...placeholderRoutes.map(([path, title, description]) => ({
             element: <PlaceholderPage description={description} title={title} />,
             path,

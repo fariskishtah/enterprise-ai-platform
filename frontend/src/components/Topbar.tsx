@@ -10,8 +10,6 @@ interface TopbarProps {
   readonly title: string;
 }
 
-const PLACEHOLDER_CONTEXT = "Northstar · Alexandria";
-
 export function Topbar({
   menuButtonRef,
   onOpenNavigation,
@@ -58,17 +56,6 @@ export function Topbar({
           <option value="light">Light theme</option>
           <option value="dark">Dark theme</option>
         </select>
-        <button
-          aria-label={`Manufacturing context: ${PLACEHOLDER_CONTEXT}. Selection is not available yet.`}
-          className="hidden h-10 max-w-60 items-center gap-2 rounded-md border border-border-strong bg-elevated px-3 text-sm font-medium text-secondary-foreground hover:border-purple-400 hover:bg-muted sm:flex"
-          title="Context selection will be available in a later phase"
-          type="button"
-        >
-          <span className="truncate">{PLACEHOLDER_CONTEXT}</span>
-          <span aria-hidden="true" className="text-neutral-400">
-            ⌄
-          </span>
-        </button>
         <button
           aria-label={`Sign out ${user?.email ?? "current user"}`}
           className="flex h-10 items-center justify-center gap-2 rounded-md border border-border-strong bg-card px-2.5 text-xs font-bold text-secondary-foreground hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-purple-700"

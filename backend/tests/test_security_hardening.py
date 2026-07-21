@@ -59,6 +59,29 @@ async def test_security_headers_cover_api_and_preserve_docs(
 
 
 @pytest.mark.anyio
+async def test_api_documentation_routes_follow_explicit_setting(
+    settings: Settings,
+) -> None:
+    """Docs, ReDoc, and the schema are either all exposed or all absent."""
+    enabled = create_app(_validated_settings(settings, enable_api_docs=True))
+    disabled = create_app(_validated_settings(settings, enable_api_docs=False))
+
+    async with AsyncClient(
+        transport=ASGITransport(app=enabled), base_url="http://testserver"
+    ) as client:
+        assert (await client.get("/docs")).status_code == 200
+        assert (await client.get("/redoc")).status_code == 200
+        assert (await client.get("/openapi.json")).status_code == 200
+
+    async with AsyncClient(
+        transport=ASGITransport(app=disabled), base_url="http://testserver"
+    ) as client:
+        assert (await client.get("/docs")).status_code == 404
+        assert (await client.get("/redoc")).status_code == 404
+        assert (await client.get("/openapi.json")).status_code == 404
+
+
+@pytest.mark.anyio
 async def test_cors_allows_configured_local_origin_only(
     api_client: AsyncClient,
 ) -> None:
@@ -130,14 +153,28 @@ def test_production_disables_debug_and_local_cors(settings: Settings) -> None:
     production = _validated_settings(
         settings,
         environment="production",
+        enable_api_docs=False,
         cors_allowed_origins=(),
     )
     application = create_app(production)
 
     assert application.debug is False
     assert application.docs_url is None
+    assert application.redoc_url is None
+    assert application.openapi_url is None
     with pytest.raises(ValidationError):
         _validated_settings(settings, environment="production")
+
+
+def test_production_rejects_enabled_api_documentation(settings: Settings) -> None:
+    """Production cannot accidentally expose documentation routes."""
+    with pytest.raises(ValidationError, match="enable_api_docs must be false"):
+        _validated_settings(
+            settings,
+            environment="production",
+            enable_api_docs=True,
+            cors_allowed_origins=("https://platform.example",),
+        )
 
 
 def test_cors_rejects_wildcard_origin(settings: Settings) -> None:

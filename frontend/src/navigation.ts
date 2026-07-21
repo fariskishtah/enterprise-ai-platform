@@ -74,8 +74,9 @@ export const navigationItems: readonly NavigationItem[] = [
   {
     description: "Governance decisions and operational history.",
     icon: "audit",
-    label: "Audit Log",
+    label: "Audit Logs",
     path: "/audit-log",
+    roles: ["admin", "engineer"],
   },
   {
     description: "User access and role administration.",
