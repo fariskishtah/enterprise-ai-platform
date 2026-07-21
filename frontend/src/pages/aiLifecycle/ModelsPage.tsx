@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import { listTrainingJobs, type TrainingJob } from "../../api/aiLifecycle";
 import { useAuth } from "../../auth/useAuth";
 import { Notice, TrainerLabel } from "../../components/aiLifecycle/LifecycleUi";
+import { PageHeader } from "../../components/ui/PageHeader";
 import {
   EmptyState,
   InlineError,
@@ -62,14 +63,12 @@ export function ModelsPage(): ReactElement {
   }, [jobs]);
   return (
     <section aria-labelledby="models-heading">
-      <div className="border-b border-neutral-200 pb-6">
-        <h2 className="text-3xl font-semibold tracking-tight" id="models-heading">
-          Models
-        </h2>
-        <p className="mt-2 text-sm text-neutral-600">
-          Inspect registered models produced by authorized completed training jobs.
-        </p>
-      </div>
+      <PageHeader
+        description="Inspect registered models produced by authorized completed training jobs."
+        eyebrow="Model governance"
+        headingId="models-heading"
+        title="Models"
+      />
       <div className="mt-5">
         <Notice>
           This catalog contains models discoverable from training jobs visible to your
@@ -101,18 +100,18 @@ export function ModelsPage(): ReactElement {
           <ul className="grid gap-4 lg:grid-cols-2">
             {models.map((job) => (
               <li
-                className="rounded-lg border border-neutral-200 bg-white p-5"
+                className="rounded-lg border border-border bg-card p-5"
                 key={job.registered_model_name}
               >
                 <div className="flex items-start justify-between gap-4">
                   <div>
                     <Link
-                      className="font-semibold text-teal-700 hover:underline"
+                      className="font-semibold text-purple-700 hover:underline"
                       to={`/models/${encodeURIComponent(job.registered_model_name)}`}
                     >
                       {job.registered_model_name}
                     </Link>
-                    <p className="mt-2 text-sm capitalize text-neutral-600">
+                    <p className="mt-2 text-sm capitalize text-secondary-foreground">
                       <TrainerLabel trainer={job.trainer_key} />
                     </p>
                   </div>
@@ -120,7 +119,7 @@ export function ModelsPage(): ReactElement {
                     Latest discoverable v{job.registered_model_version}
                   </span>
                 </div>
-                <p className="mt-4 text-xs text-neutral-500">
+                <p className="mt-4 text-xs text-muted-foreground">
                   Visible training completed{" "}
                   {formatDate(job.finished_at ?? job.created_at)}
                 </p>

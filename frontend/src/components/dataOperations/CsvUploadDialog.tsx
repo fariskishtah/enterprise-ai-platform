@@ -12,6 +12,7 @@ import { Dialog } from "../hierarchy/Dialogs";
 import {
   primaryButtonClassName,
   secondaryButtonClassName,
+  InlineNotice,
 } from "../hierarchy/ResourceStates";
 import { UploadJobSummary } from "./UploadJobSummary";
 
@@ -137,10 +138,12 @@ export function CsvUploadDialog({
             </p>
           )}
           <UploadJobSummary job={result} />
-          <p className="mt-4 rounded-md border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
-            Row-level rejection details and sensor data-quality metrics are not
-            available from the current backend API.
-          </p>
+          <div className="mt-4">
+            <InlineNotice>
+              Row-level rejection details and sensor data-quality metrics are not
+              available from the current backend API.
+            </InlineNotice>
+          </div>
           <div className="mt-6 flex flex-wrap justify-end gap-3">
             <Link className={secondaryButtonClassName} to="/sensor-data/uploads">
               All upload jobs

@@ -103,7 +103,7 @@ export function SensorDetailPage(): ReactElement {
       />
       <div className="flex flex-col gap-4 border-b border-neutral-200 pb-6 md:flex-row md:items-start md:justify-between">
         <div>
-          <p className="text-sm font-semibold uppercase tracking-wider text-teal-700">
+          <p className="text-sm font-semibold uppercase tracking-wider text-purple-700">
             {machine.name}
           </p>
           <h2

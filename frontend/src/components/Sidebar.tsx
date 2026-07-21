@@ -28,25 +28,29 @@ export function Sidebar({
   );
 
   return (
-    <div className="flex h-full flex-col border-r border-neutral-200 bg-neutral-950 text-neutral-100">
-      <div className="flex h-16 shrink-0 items-center justify-between border-b border-neutral-800 px-4">
+    <div className="flex h-full flex-col border-r border-[var(--sidebar-border)] bg-[var(--sidebar)] text-neutral-100">
+      <div className="flex h-[4.5rem] shrink-0 items-center justify-between border-b border-[var(--sidebar-border)] px-4">
         <div
           className={`flex min-w-0 items-center gap-3 ${collapsed ? "justify-center" : ""}`}
         >
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-teal-600 text-sm font-bold text-white">
-            FM
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-purple-400/40 bg-purple-600 text-xs font-bold tracking-wider text-white shadow-sm">
+            FK
           </span>
           {!collapsed ? (
             <div className="min-w-0">
-              <p className="truncate text-sm font-semibold">FactoryMind</p>
-              <p className="truncate text-xs text-neutral-400">AI Manufacturing</p>
+              <p className="truncate text-sm font-semibold tracking-wide text-white">
+                FK SOLUTIONS
+              </p>
+              <p className="truncate text-[10px] font-medium uppercase tracking-[0.16em] text-neutral-400">
+                AI Manufacturing Platform
+              </p>
             </div>
           ) : null}
         </div>
         {mobile ? (
           <button
             aria-label="Close navigation"
-            className="rounded-md p-2 text-neutral-300 hover:bg-neutral-800 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-400"
+            className="rounded-md p-2 text-neutral-300 hover:bg-[var(--sidebar-secondary)] hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-purple-400"
             onClick={onClose}
             ref={closeButtonRef}
             type="button"
@@ -58,7 +62,7 @@ export function Sidebar({
 
       <nav
         aria-label="Primary navigation"
-        className="min-h-0 flex-1 overflow-y-auto px-3 py-4"
+        className="min-h-0 flex-1 overflow-y-auto px-3 py-5"
       >
         <ul className="space-y-1">
           {visibleNavigationItems.map((item) => (
@@ -66,11 +70,11 @@ export function Sidebar({
               <NavLink
                 className={({ isActive }) =>
                   [
-                    "group flex min-h-10 items-center rounded-md px-3 py-2 text-sm font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-400",
+                    "group relative flex min-h-11 items-center rounded-md px-3 py-2 text-sm font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-purple-400",
                     collapsed ? "justify-center" : "gap-3",
                     isActive
-                      ? "bg-teal-700 text-white"
-                      : "text-neutral-300 hover:bg-neutral-800 hover:text-white",
+                      ? "bg-purple-700 text-white before:absolute before:inset-y-2 before:left-0 before:w-0.5 before:rounded-full before:bg-purple-300"
+                      : "text-neutral-500 hover:bg-[var(--sidebar-secondary)] hover:text-white",
                   ].join(" ")
                 }
                 end={item.path === "/"}
@@ -78,7 +82,7 @@ export function Sidebar({
                 title={collapsed ? item.label : undefined}
                 to={item.path}
               >
-                <Icon className="h-5 w-5 shrink-0" name={item.icon} />
+                <Icon className="h-[1.125rem] w-[1.125rem] shrink-0" name={item.icon} />
                 {!collapsed ? (
                   <span>{item.label}</span>
                 ) : (
@@ -91,10 +95,10 @@ export function Sidebar({
       </nav>
 
       {!mobile ? (
-        <div className="border-t border-neutral-800 p-3">
+        <div className="border-t border-[var(--sidebar-border)] bg-[var(--sidebar)] p-3">
           <button
             aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-            className={`flex w-full items-center rounded-md p-2 text-sm text-neutral-400 hover:bg-neutral-800 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-400 ${collapsed ? "justify-center" : "gap-3"}`}
+            className={`flex w-full items-center rounded-md p-2 text-sm text-neutral-500 hover:bg-[var(--sidebar-secondary)] hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-purple-400 ${collapsed ? "justify-center" : "gap-3"}`}
             onClick={onToggleCollapsed}
             type="button"
           >

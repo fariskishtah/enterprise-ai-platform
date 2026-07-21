@@ -48,9 +48,12 @@ export function StatusBadge({ label, status }: StatusBadgeProps): ReactElement {
 
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs font-semibold ${style.wrapper}`}
+      className={`inline-flex min-h-6 items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${style.wrapper}`}
     >
-      <span aria-hidden="true" className={`h-1.5 w-1.5 rounded-full ${style.marker}`} />
+      <span
+        aria-hidden="true"
+        className={`h-1.5 w-1.5 shrink-0 rounded-sm ${style.marker}`}
+      />
       <span>{label ?? style.defaultLabel}</span>
       <span className="sr-only">status</span>
     </span>

@@ -12,7 +12,7 @@ export function PlaceholderPage({
   return (
     <section aria-labelledby="page-heading">
       <div className="max-w-3xl">
-        <p className="text-sm font-semibold uppercase tracking-wider text-teal-700">
+        <p className="text-sm font-semibold uppercase tracking-wider text-purple-700">
           Platform workspace
         </p>
         <h2

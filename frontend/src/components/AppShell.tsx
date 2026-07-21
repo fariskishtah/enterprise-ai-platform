@@ -35,7 +35,7 @@ export function AppShell(): ReactElement {
   };
 
   return (
-    <div className="flex min-h-screen w-full overflow-x-hidden bg-stone-50 text-neutral-950">
+    <div className="flex min-h-screen w-full overflow-x-hidden bg-canvas text-foreground">
       <aside
         className={`hidden shrink-0 transition-[width] duration-200 lg:block ${isCollapsed ? "w-20" : "w-64"}`}
       >
@@ -63,7 +63,7 @@ export function AppShell(): ReactElement {
             onClick={closeMobileNavigation}
             type="button"
           />
-          <aside className="relative h-full w-[min(20rem,85vw)] shadow-xl">
+          <aside className="relative h-full w-[min(20rem,85vw)] shadow-lg">
             <Sidebar
               closeButtonRef={closeButtonRef}
               mobile
@@ -81,7 +81,7 @@ export function AppShell(): ReactElement {
           title={currentPage.label}
         />
         <main className="min-w-0 flex-1" id="main-content">
-          <div className="mx-auto w-full max-w-screen-2xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
+          <div className="mx-auto w-full max-w-screen-2xl px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-9">
             <Outlet />
           </div>
         </main>

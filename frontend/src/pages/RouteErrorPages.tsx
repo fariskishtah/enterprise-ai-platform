@@ -2,12 +2,12 @@ import type { ReactElement } from "react";
 import { Link, isRouteErrorResponse, useRouteError } from "react-router-dom";
 
 const returnLinkClassName =
-  "mt-6 inline-flex rounded-lg bg-teal-700 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700";
+  "mt-6 inline-flex rounded-lg bg-purple-700 px-4 py-2 text-sm font-semibold text-white hover:bg-purple-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-purple-700";
 
 export function NotFoundPage(): ReactElement {
   return (
     <section aria-labelledby="not-found-heading" className="max-w-2xl">
-      <p className="text-sm font-semibold uppercase tracking-wider text-teal-700">
+      <p className="text-sm font-semibold uppercase tracking-wider text-purple-700">
         404
       </p>
       <h2
@@ -33,7 +33,7 @@ export function RouteErrorPage(): ReactElement {
   return (
     <main className="flex min-h-screen items-center justify-center bg-stone-50 px-6 text-neutral-950">
       <section aria-labelledby="route-error-heading" className="max-w-lg text-center">
-        <p className="text-sm font-semibold uppercase tracking-wider text-teal-700">
+        <p className="text-sm font-semibold uppercase tracking-wider text-purple-700">
           Error {status}
         </p>
         <h1
