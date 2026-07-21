@@ -80,6 +80,56 @@ class FailingPromotionFinalizationService:
 
 
 @pytest.mark.anyio
+async def test_algorithm_discovery_and_generic_submission_are_allowlisted(
+    settings: Settings,
+    session_factory: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    """Catalog metadata drives a generic job while unsafe algorithms fail safely."""
+    queue = ApiFakeQueue()
+    async with ai_api_client(
+        settings,
+        session_factory,
+        tmp_path=tmp_path,
+    ) as (client, application):
+        application.dependency_overrides[get_training_job_queue] = lambda: queue
+        headers = await auth_headers(
+            client,
+            session_factory,
+            role=UserRole.ENGINEER,
+            email="plugin-api@example.com",
+        )
+        catalog = await client.get("/ai/algorithms", headers=headers)
+        payload = regression_training_payload()
+        payload.update(
+            {
+                "algorithm": "linear_regression",
+                "task_type": "regression",
+                "preprocessing": {"scaler": "auto", "imputer": "median"},
+                "hyperparameters": {"fit_intercept": True},
+            }
+        )
+        submitted = await client.post(
+            "/ai/training-jobs", headers=headers, json=payload
+        )
+        unsafe = await client.post(
+            "/ai/training-jobs",
+            headers=headers,
+            json={**payload, "algorithm": "os.system"},
+        )
+
+    assert catalog.status_code == 200
+    assert len(catalog.json()) == 17
+    linear = next(item for item in catalog.json() if item["id"] == "linear_regression")
+    assert linear["algorithm_family"] == "linear_regression"
+    assert linear["coefficient_support"] is True
+    assert submitted.status_code == 202
+    assert len(queue.job_ids) == 1
+    assert unsafe.status_code == 422
+    assert "not available" in unsafe.json()["detail"]
+
+
+@pytest.mark.anyio
 async def test_background_job_submission_polling_idempotency_and_cancellation(
     settings: Settings,
     session_factory: async_sessionmaker[AsyncSession],

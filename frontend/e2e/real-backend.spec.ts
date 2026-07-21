@@ -74,4 +74,36 @@ test.describe("real staging backend", () => {
     ).toEqual([]);
     expect(errors).toEqual([]);
   });
+
+  test("engineer loads the algorithm-driven training and evaluation studio", async ({
+    page,
+  }) => {
+    test.skip(
+      !accounts.engineer || !password,
+      "Disposable engineer credentials are required.",
+    );
+    const errors = collectUnexpectedBrowserErrors(page);
+    await login(page, accounts.engineer ?? "");
+    await page.goto("/training");
+    await page.getByRole("button", { name: /Create training job/i }).click();
+    await expect(page.getByLabel("Algorithm")).toContainText("Linear Regression");
+    await expect(
+      page.getByText(/Algorithm controls come from the backend catalog/),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Cancel" }).click();
+
+    await page.goto("/evaluations");
+    await expect(page.locator("#evaluation-studio-heading")).toBeVisible();
+    await expect(page.getByRole("link", { name: "Open" }).first()).toBeVisible();
+    await page.getByRole("link", { name: "Open" }).first().click();
+    await expect(page.locator("#training-evaluation-heading")).toBeVisible();
+    await expect(page.getByRole("region", { name: "Held-out metrics" })).toBeVisible();
+    const axe = await new AxeBuilder({ page }).analyze();
+    expect(
+      axe.violations.filter(
+        ({ impact }) => impact === "critical" || impact === "serious",
+      ),
+    ).toEqual([]);
+    expect(errors).toEqual([]);
+  });
 });

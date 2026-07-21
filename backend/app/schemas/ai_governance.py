@@ -4,8 +4,19 @@ from datetime import datetime
 from typing import Annotated
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, StringConstraints
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    FiniteFloat,
+    StrictBool,
+    StrictInt,
+    StringConstraints,
+    field_validator,
+    model_validator,
+)
 
+from app.ml.domain import TaskType
 from app.ml.jobs import TrainingJobStatus
 from app.ml.promotion import (
     ModelAlias,
@@ -13,12 +24,132 @@ from app.ml.promotion import (
     PromotionDecision,
     PromotionOperationOutcome,
 )
+from app.ml.training_limits import MAX_EVALUATION_ROWS, MAX_TRAINING_ROWS
 from app.schemas.ai import TrainerKeyResponse
 
 PromotionReason = Annotated[
     str,
     StringConstraints(strip_whitespace=True, max_length=2000),
 ]
+
+
+class AlgorithmParameterResponse(BaseModel):
+    """Stable public description of one allowlisted hyperparameter."""
+
+    model_config = ConfigDict(frozen=True)
+
+    name: str
+    type: str
+    default: int | float | bool | str
+    minimum: float | None
+    maximum: float | None
+    choices: list[str]
+    description: str
+
+
+class AlgorithmResponse(BaseModel):
+    """Safe public model-plugin metadata used by dynamic clients."""
+
+    model_config = ConfigDict(frozen=True)
+
+    id: str
+    algorithm_family: str
+    display_name: str
+    description: str
+    supported_tasks: list[TaskType]
+    parameters: list[AlgorithmParameterResponse]
+    default_parameters: dict[str, int | float | bool | str]
+    scaling_behavior: str
+    probability_support: bool
+    decision_function_support: bool
+    feature_importance_support: bool
+    coefficient_support: bool
+    permutation_importance_support: bool
+    global_explainability: bool
+    local_explainability: bool
+    dependency_available: bool
+
+
+class GenericPreprocessingRequest(BaseModel):
+    """Allowlisted numeric preprocessing for a generic training job."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    scaler: str = Field(default="auto", pattern="^(auto|none|standard|minmax|robust)$")
+    imputer: str = Field(default="none", pattern="^(none|mean|median|most_frequent)$")
+
+
+class GenericTrainingJobRequest(BaseModel):
+    """Generic, allowlisted background training request for numeric matrices."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    task_type: TaskType
+    algorithm: str = Field(min_length=3, max_length=64)
+    training_features: list[list[FiniteFloat]] = Field(
+        min_length=2, max_length=MAX_TRAINING_ROWS
+    )
+    training_targets: list[StrictInt | FiniteFloat] = Field(
+        min_length=2, max_length=MAX_TRAINING_ROWS
+    )
+    evaluation_features: list[list[FiniteFloat]] = Field(
+        min_length=2, max_length=MAX_EVALUATION_ROWS
+    )
+    evaluation_targets: list[StrictInt | FiniteFloat] = Field(
+        min_length=2, max_length=MAX_EVALUATION_ROWS
+    )
+    hyperparameters: dict[str, object] = Field(default_factory=dict, max_length=32)
+    preprocessing: GenericPreprocessingRequest = Field(
+        default_factory=GenericPreprocessingRequest
+    )
+    random_seed: StrictInt | None = 17
+    experiment_name: str = Field(min_length=1, max_length=255)
+    run_name: str | None = Field(default=None, min_length=1, max_length=255)
+    registered_model_name: str | None = Field(
+        default=None, pattern=r"^[a-z][a-z0-9_]{2,127}$"
+    )
+    tags: dict[str, str] = Field(default_factory=dict, max_length=20)
+    model_description: str | None = Field(default=None, min_length=1, max_length=2000)
+
+    @field_validator("training_features", "evaluation_features", mode="before")
+    @classmethod
+    def reject_boolean_features(cls, value: object) -> object:
+        if isinstance(value, list) and any(
+            isinstance(item, bool)
+            for row in value
+            if isinstance(row, list)
+            for item in row
+        ):
+            raise ValueError("Feature matrices cannot contain boolean values.")
+        return value
+
+    @model_validator(mode="after")
+    def validate_matrix_and_target_shapes(self) -> "GenericTrainingJobRequest":
+        matrices = (self.training_features, self.evaluation_features)
+        widths = []
+        for matrix in matrices:
+            if not matrix or not matrix[0]:
+                raise ValueError("Feature matrices must contain feature columns.")
+            width = len(matrix[0])
+            if any(len(row) != width for row in matrix):
+                raise ValueError("Feature matrices must be rectangular.")
+            widths.append(width)
+        if widths[0] != widths[1]:
+            raise ValueError("Training and evaluation feature widths must match.")
+        if len(self.training_features) != len(self.training_targets):
+            raise ValueError("Training feature and target row counts must match.")
+        if len(self.evaluation_features) != len(self.evaluation_targets):
+            raise ValueError("Evaluation feature and target row counts must match.")
+        if self.task_type is TaskType.CLASSIFICATION:
+            if any(type(value) is not int for value in self.training_targets):
+                raise ValueError("Classification targets must be integer labels.")
+            if any(type(value) is not int for value in self.evaluation_targets):
+                raise ValueError("Classification targets must be integer labels.")
+            if len(set(self.training_targets)) < 2:
+                raise ValueError(
+                    "Classification training requires at least two classes."
+                )
+        return self
 
 
 class TrainingJobSubmissionResponse(BaseModel):

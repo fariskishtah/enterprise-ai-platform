@@ -418,6 +418,13 @@ class RegisteredModelPredictionRequest(BaseModel):
         return self
 
 
+class GenericRegisteredModelPredictionRequest(RegisteredModelPredictionRequest):
+    """Prediction request identifying one allowlisted generic pipeline plugin."""
+
+    algorithm: str = Field(min_length=3, max_length=64)
+    task_type: TaskType
+
+
 class TrainerKeyResponse(BaseModel):
     """Transport representation of a composite trainer key."""
 
@@ -431,6 +438,17 @@ class TrainerKeyResponse(BaseModel):
         description="Prediction task implemented by the fitted model.",
         examples=["regression"],
     )
+
+
+class GenericPredictionResponse(BaseModel):
+    """Task-aware predictions from a generic registered model pipeline."""
+
+    model_config = ConfigDict(frozen=True)
+
+    model_name: str
+    model_version: str
+    trainer_key: TrainerKeyResponse
+    predictions: list[int | float]
 
 
 class AITrainingResponse(BaseModel):

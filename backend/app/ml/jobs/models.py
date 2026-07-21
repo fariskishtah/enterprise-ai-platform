@@ -23,6 +23,7 @@ from pydantic import (
 
 from app.ml.base import TrainerKey
 from app.ml.domain import AlgorithmType, TaskType
+from app.ml.plugins import create_default_plugin_registry
 from app.ml.registry.naming import validate_registered_model_name
 from app.ml.trainers.random_forest import (
     RandomForestClassificationParameters,
@@ -40,6 +41,7 @@ from app.ml.training_limits import (
 )
 
 StrictFiniteFloat = Annotated[float, Field(strict=True, allow_inf_nan=False)]
+PLUGIN_REGISTRY = create_default_plugin_registry()
 
 
 class TrainingJobStatus(StrEnum):
@@ -188,8 +190,84 @@ class RandomForestClassificationJobSpec(_BaseRandomForestJobSpec):
         return self
 
 
+class PreprocessingJobConfig(BaseModel):
+    """Allowlisted preprocessing persisted with a generic model job."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    scaler: str = Field(default="auto", pattern="^(auto|none|standard|minmax|robust)$")
+    imputer: str = Field(
+        default="none",
+        pattern="^(none|mean|median|most_frequent)$",
+    )
+
+
+class _BasePluginJobSpec(_BaseRandomForestJobSpec):
+    """Shared persisted fields for a non-Random-Forest plugin job."""
+
+    plugin_id: str = Field(min_length=3, max_length=64)
+    hyperparameters: dict[str, object] = Field(default_factory=dict, max_length=32)
+    preprocessing: PreprocessingJobConfig = Field(
+        default_factory=PreprocessingJobConfig
+    )
+
+    def plugin_key(self) -> TrainerKey:
+        return PLUGIN_REGISTRY.get(self.plugin_id).key
+
+
+class PluginRegressionJobSpec(_BasePluginJobSpec):
+    """Validated generic regression training specification."""
+
+    training_targets: tuple[StrictFiniteFloat, ...] = Field(
+        min_length=2,
+        max_length=MAX_TRAINING_ROWS,
+    )
+    evaluation_targets: tuple[StrictFiniteFloat, ...] = Field(
+        min_length=2,
+        max_length=MAX_EVALUATION_ROWS,
+    )
+
+    @model_validator(mode="after")
+    def validate_plugin_regression(self) -> PluginRegressionJobSpec:
+        plugin = PLUGIN_REGISTRY.get(self.plugin_id, TaskType.REGRESSION)
+        plugin.validate_parameters(self.hyperparameters)
+        if len(self.training_features) != len(self.training_targets):
+            raise ValueError("training feature and target row counts must match.")
+        if len(self.evaluation_features) != len(self.evaluation_targets):
+            raise ValueError("evaluation feature and target row counts must match.")
+        return self
+
+
+class PluginClassificationJobSpec(_BasePluginJobSpec):
+    """Validated generic integer-label classification specification."""
+
+    training_targets: tuple[StrictInt, ...] = Field(
+        min_length=2,
+        max_length=MAX_TRAINING_ROWS,
+    )
+    evaluation_targets: tuple[StrictInt, ...] = Field(
+        min_length=2,
+        max_length=MAX_EVALUATION_ROWS,
+    )
+
+    @model_validator(mode="after")
+    def validate_plugin_classification(self) -> PluginClassificationJobSpec:
+        plugin = PLUGIN_REGISTRY.get(self.plugin_id, TaskType.CLASSIFICATION)
+        plugin.validate_parameters(self.hyperparameters)
+        if len(self.training_features) != len(self.training_targets):
+            raise ValueError("training feature and target row counts must match.")
+        if len(self.evaluation_features) != len(self.evaluation_targets):
+            raise ValueError("evaluation feature and target row counts must match.")
+        if len(set(self.training_targets)) < 2:
+            raise ValueError("classification training requires at least two classes.")
+        return self
+
+
 type TrainingJobSpec = (
-    RandomForestRegressionJobSpec | RandomForestClassificationJobSpec
+    RandomForestRegressionJobSpec
+    | RandomForestClassificationJobSpec
+    | PluginRegressionJobSpec
+    | PluginClassificationJobSpec
 )
 
 
@@ -244,9 +322,25 @@ class TrainingJobSubmission:
 
 def parse_training_job_spec(
     task_type: TaskType,
+    algorithm: AlgorithmType,
     payload: Mapping[str, object],
 ) -> TrainingJobSpec:
     """Revalidate a persisted JSON specification for its explicit task."""
+    if algorithm is not AlgorithmType.RANDOM_FOREST or "plugin_id" in payload:
+        specification: TrainingJobSpec
+        if task_type is TaskType.REGRESSION:
+            specification = PluginRegressionJobSpec.model_validate(payload)
+        elif task_type is TaskType.CLASSIFICATION:
+            specification = PluginClassificationJobSpec.model_validate(payload)
+        else:
+            raise ValueError(
+                f"Unsupported background training task: {task_type.value}."
+            )
+        if specification.plugin_key().algorithm is not algorithm:
+            raise ValueError(
+                "Persisted algorithm does not match its plugin specification."
+            )
+        return specification
     if task_type is TaskType.REGRESSION:
         return RandomForestRegressionJobSpec.model_validate(payload)
     if task_type is TaskType.CLASSIFICATION:

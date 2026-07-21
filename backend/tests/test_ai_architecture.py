@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 from app.config.settings import Settings
 from app.dependencies.services import get_ai_trainer_registry
+from app.ml.composition.plugins import PLUGIN_TRAINER_REGISTRATIONS
 from app.ml.trainers.random_forest import (
     RANDOM_FOREST_CLASSIFIER_REGISTRATION,
     RANDOM_FOREST_REGRESSOR_REGISTRATION,
@@ -131,14 +132,15 @@ def test_dependency_factory_does_not_mutate_a_global_trainer_registry() -> None:
     """Each dependency graph receives a fresh explicitly populated registry."""
     first = get_ai_trainer_registry()
     second = get_ai_trainer_registry()
-    expected_keys = (
+    expected_keys = {
         RANDOM_FOREST_CLASSIFIER_REGISTRATION.key,
         RANDOM_FOREST_REGRESSOR_REGISTRATION.key,
-    )
+        *PLUGIN_TRAINER_REGISTRATIONS,
+    }
 
     assert first is not second
-    assert first.registered_keys() == expected_keys
-    assert second.registered_keys() == expected_keys
+    assert set(first.registered_keys()) == expected_keys
+    assert set(second.registered_keys()) == expected_keys
 
 
 def test_background_worker_and_promotion_preserve_architecture_boundaries() -> None:

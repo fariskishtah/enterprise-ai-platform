@@ -85,12 +85,19 @@ export function executePrediction(
   task: TrainingTask,
   payload: PredictionRequest,
   correlationId?: string,
+  algorithm?: string,
 ): Promise<PredictionResponse> {
-  return apiRequest(`/ai/predictions/random-forest/${task}`, {
-    body: JSON.stringify(payload),
-    headers: correlationId ? { "X-Correlation-ID": correlationId } : undefined,
-    method: "POST",
-  });
+  const generic = algorithm && !algorithm.startsWith("random_forest_");
+  return apiRequest(
+    generic ? "/ai/predictions" : `/ai/predictions/random-forest/${task}`,
+    {
+      body: JSON.stringify(
+        generic ? { ...payload, algorithm, task_type: task } : payload,
+      ),
+      headers: correlationId ? { "X-Correlation-ID": correlationId } : undefined,
+      method: "POST",
+    },
+  );
 }
 
 export function listPredictionEvents(options: {

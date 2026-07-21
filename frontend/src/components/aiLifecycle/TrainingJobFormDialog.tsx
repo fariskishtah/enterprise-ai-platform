@@ -1,7 +1,9 @@
-import { useState, type FormEvent, type ReactElement } from "react";
+import { useEffect, useMemo, useState, type FormEvent, type ReactElement } from "react";
 
 import {
   createTrainingJob,
+  listAlgorithms,
+  type Algorithm,
   type TrainingRequest,
   type TrainingTask,
 } from "../../api/aiLifecycle";
@@ -83,9 +85,11 @@ export function TrainingJobFormDialog({
     "[[0.5, 0.5], [2.5, 2.5]]",
   );
   const [evaluationTargets, setEvaluationTargets] = useState("[1, 5]");
-  const [hyperparameters, setHyperparameters] = useState(
-    '{"n_estimators": 5, "n_jobs": 1}',
-  );
+  const [algorithms, setAlgorithms] = useState<readonly Algorithm[]>([]);
+  const [algorithmId, setAlgorithmId] = useState("");
+  const [parameterValues, setParameterValues] = useState<Record<string, unknown>>({});
+  const [scaler, setScaler] = useState("auto");
+  const [imputer, setImputer] = useState("none");
   const [tags, setTags] = useState("{}");
   const [seed, setSeed] = useState("17");
   const [experiment, setExperiment] = useState("AI Lifecycle");
@@ -95,6 +99,34 @@ export function TrainingJobFormDialog({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const availableAlgorithms = useMemo(
+    () => algorithms.filter((item) => item.supported_tasks.includes(task)),
+    [algorithms, task],
+  );
+  const algorithm = availableAlgorithms.find((item) => item.id === algorithmId);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    listAlgorithms(controller.signal)
+      .then((items) => {
+        setAlgorithms(items);
+        const initial = items.find((item) =>
+          item.supported_tasks.includes("regression"),
+        );
+        if (initial) {
+          setAlgorithmId(initial.id);
+          setParameterValues(initial.default_parameters);
+        }
+      })
+      .catch((caught: unknown) => {
+        if (!controller.signal.aborted)
+          setError(
+            caught instanceof Error ? caught.message : "Unable to load algorithms.",
+          );
+      });
+    return () => controller.abort();
+  }, []);
+
   const changeTask = (next: TrainingTask): void => {
     setTask(next);
     setTrainingFeatures(examples[next].features);
@@ -103,6 +135,10 @@ export function TrainingJobFormDialog({
       next === "regression" ? "[[0.5, 0.5], [2.5, 2.5]]" : "[[0, 0.5], [1, 0.5]]",
     );
     setEvaluationTargets(next === "regression" ? "[1, 5]" : "[0, 1]");
+    const selected = algorithms.find((item) => item.supported_tasks.includes(next));
+    setAlgorithmId(selected?.id ?? "");
+    setParameterValues(selected?.default_parameters ?? {});
+    setScaler("auto");
   };
 
   const submit = async (event: FormEvent): Promise<void> => {
@@ -137,7 +173,7 @@ export function TrainingJobFormDialog({
         evaluation_features: evaluateX,
         evaluation_targets: evaluateY,
         experiment_name: experiment.trim(),
-        hyperparameters: parseObject(hyperparameters, "Hyperparameters"),
+        hyperparameters: parameterValues,
         model_description: description.trim() || null,
         random_seed: Number(seed),
         registered_model_name: modelName.trim() || null,
@@ -147,7 +183,11 @@ export function TrainingJobFormDialog({
         training_targets: trainY,
       };
       setBusy(true);
-      const result = await createTrainingJob(task, payload);
+      if (!algorithm) throw new Error("Select an available algorithm.");
+      const result = await createTrainingJob(task, payload, algorithm.id, {
+        imputer,
+        scaler,
+      });
       onCreated(result.job_id);
     } catch (caught) {
       setError(
@@ -181,7 +221,7 @@ export function TrainingJobFormDialog({
 
   return (
     <Dialog
-      description="Submit one bounded Random Forest job. Arrays are sent directly to the confirmed backend API."
+      description="Submit one bounded allowlisted job. Algorithm controls come from the backend catalog."
       onClose={onClose}
       title="Create training job"
     >
@@ -197,11 +237,44 @@ export function TrainingJobFormDialog({
                   onChange={() => changeTask(value)}
                   type="radio"
                 />
-                Random Forest {value}
+                {value}
               </label>
             ))}
           </div>
         </fieldset>
+        <div>
+          <label className="block text-sm font-medium" htmlFor="algorithm">
+            Algorithm
+          </label>
+          <select
+            className="mt-1 w-full rounded-md border border-neutral-300 px-3 py-2 text-sm"
+            id="algorithm"
+            onChange={(event) => {
+              const selected = availableAlgorithms.find(
+                (item) => item.id === event.target.value,
+              );
+              setAlgorithmId(event.target.value);
+              setParameterValues(selected?.default_parameters ?? {});
+            }}
+            required
+            value={algorithmId}
+          >
+            {availableAlgorithms.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.display_name}
+              </option>
+            ))}
+          </select>
+          {algorithm ? (
+            <p className="mt-2 text-sm text-muted-foreground">
+              {algorithm.description} Scaling: {algorithm.scaling_behavior}. Global
+              explanation:{" "}
+              {algorithm.global_explainability ? "available" : "unavailable"}; local
+              explanation:{" "}
+              {algorithm.local_explainability ? "available" : "unavailable"}.
+            </p>
+          ) : null}
+        </div>
         <p className="rounded-md bg-neutral-100 p-3 text-xs text-neutral-700">
           Compact valid example: features {examples[task].features}; targets{" "}
           {examples[task].targets}.
@@ -232,13 +305,95 @@ export function TrainingJobFormDialog({
             setEvaluationTargets,
           )}
         </div>
-        {field(
-          "hyperparameters",
-          "Hyperparameters (JSON object)",
-          hyperparameters,
-          setHyperparameters,
-          2,
-        )}
+        {algorithm && algorithm.parameters.length ? (
+          <fieldset className="grid gap-4 rounded-md border border-border p-4 sm:grid-cols-2">
+            <legend className="px-1 text-sm font-medium">Hyperparameters</legend>
+            {algorithm.parameters.map((parameter) => (
+              <label className="text-sm" key={parameter.name}>
+                <span className="block font-medium">{parameter.name}</span>
+                {parameter.type === "boolean" ? (
+                  <input
+                    checked={Boolean(parameterValues[parameter.name])}
+                    className="mt-2"
+                    onChange={(event) =>
+                      setParameterValues((values) => ({
+                        ...values,
+                        [parameter.name]: event.target.checked,
+                      }))
+                    }
+                    type="checkbox"
+                  />
+                ) : parameter.type === "choice" ? (
+                  <select
+                    className="mt-1 w-full rounded-md border border-neutral-300 px-3 py-2"
+                    onChange={(event) =>
+                      setParameterValues((values) => ({
+                        ...values,
+                        [parameter.name]: event.target.value,
+                      }))
+                    }
+                    value={String(parameterValues[parameter.name])}
+                  >
+                    {parameter.choices.map((choice) => (
+                      <option key={choice}>{choice}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    className="mt-1 w-full rounded-md border border-neutral-300 px-3 py-2"
+                    max={parameter.maximum ?? undefined}
+                    min={parameter.minimum ?? undefined}
+                    onChange={(event) =>
+                      setParameterValues((values) => ({
+                        ...values,
+                        [parameter.name]: Number(event.target.value),
+                      }))
+                    }
+                    step={parameter.type === "integer" ? 1 : "any"}
+                    type="number"
+                    value={Number(parameterValues[parameter.name])}
+                  />
+                )}
+                {parameter.description ? (
+                  <span className="mt-1 block text-xs text-muted-foreground">
+                    {parameter.description}
+                  </span>
+                ) : null}
+              </label>
+            ))}
+          </fieldset>
+        ) : null}
+        <details>
+          <summary className="cursor-pointer text-sm font-medium">
+            Preprocessing
+          </summary>
+          <div className="mt-3 grid gap-4 sm:grid-cols-2">
+            <label className="text-sm">
+              <span className="block font-medium">Numeric scaler</span>
+              <select
+                className="mt-1 w-full rounded-md border border-neutral-300 px-3 py-2"
+                onChange={(event) => setScaler(event.target.value)}
+                value={scaler}
+              >
+                {["auto", "none", "standard", "minmax", "robust"].map((value) => (
+                  <option key={value}>{value}</option>
+                ))}
+              </select>
+            </label>
+            <label className="text-sm">
+              <span className="block font-medium">Numeric imputer</span>
+              <select
+                className="mt-1 w-full rounded-md border border-neutral-300 px-3 py-2"
+                onChange={(event) => setImputer(event.target.value)}
+                value={imputer}
+              >
+                {["none", "mean", "median", "most_frequent"].map((value) => (
+                  <option key={value}>{value}</option>
+                ))}
+              </select>
+            </label>
+          </div>
+        </details>
         {field("tags", "Tags (JSON string map)", tags, setTags, 2)}
         <div className="grid gap-4 sm:grid-cols-2">
           <div>

@@ -1,7 +1,12 @@
 import { useEffect, useState, type ReactElement } from "react";
 import { Link } from "react-router-dom";
 
-import { listTrainingJobs, type TrainingTask } from "../../api/aiLifecycle";
+import {
+  listAlgorithms,
+  listTrainingJobs,
+  type Algorithm,
+  type TrainingTask,
+} from "../../api/aiLifecycle";
 import {
   executePrediction,
   listPredictionEvents,
@@ -58,6 +63,8 @@ export function PredictionsPage(): ReactElement {
   const [model, setModel] = useState("");
   const [version, setVersion] = useState("");
   const [task, setTask] = useState<TrainingTask>("regression");
+  const [algorithm, setAlgorithm] = useState("");
+  const [algorithms, setAlgorithms] = useState<readonly Algorithm[]>([]);
   const [matrix, setMatrix] = useState("[[0.75, 1.4]]");
   const [executionResult, setExecutionResult] = useState<PredictionResponse | null>(
     null,
@@ -80,7 +87,8 @@ export function PredictionsPage(): ReactElement {
         status: "succeeded",
       }),
       listPredictionEvents({ limit: 5, offset: 0, signal: controller.signal }),
-    ]).then(([jobsResult, eventsResult]) => {
+      listAlgorithms(controller.signal),
+    ]).then(([jobsResult, eventsResult, algorithmsResult]) => {
       if (!active) return;
       const failures: string[] = [];
       if (jobsResult.status === "fulfilled") {
@@ -91,6 +99,14 @@ export function PredictionsPage(): ReactElement {
           setModel((value) => value || first.registered_model_name);
           setVersion((value) => value || first.registered_model_version || "");
           setTask(first.trainer_key.task_type);
+          if (algorithmsResult.status === "fulfilled") {
+            const selected = algorithmsResult.value.find(
+              (item) =>
+                item.algorithm_family === first.trainer_key.algorithm &&
+                item.supported_tasks.includes(first.trainer_key.task_type),
+            );
+            setAlgorithm(selected?.id ?? "");
+          }
         }
       } else if (!isRequestCancelled(jobsResult.reason, controller.signal)) {
         failures.push("Model discovery is unavailable.");
@@ -98,6 +114,10 @@ export function PredictionsPage(): ReactElement {
       if (eventsResult.status === "fulfilled") setEvents(eventsResult.value.items);
       else if (!isRequestCancelled(eventsResult.reason, controller.signal))
         failures.push("Recent prediction events are unavailable.");
+      if (algorithmsResult.status === "fulfilled")
+        setAlgorithms(algorithmsResult.value);
+      else if (!isRequestCancelled(algorithmsResult.reason, controller.signal))
+        failures.push("Algorithm metadata is unavailable.");
       setLoadWarning(failures.length ? failures.join(" ") : null);
     });
     return () => {
@@ -139,11 +159,16 @@ export function PredictionsPage(): ReactElement {
             setExecutionLoading(true);
             try {
               const features = parseMatrix(matrix);
-              void executePrediction(task, {
-                registered_model_name: model.trim(),
-                version_or_alias: version.trim(),
-                features,
-              })
+              void executePrediction(
+                task,
+                {
+                  registered_model_name: model.trim(),
+                  version_or_alias: version.trim(),
+                  features,
+                },
+                undefined,
+                algorithm,
+              )
                 .then((response) => {
                   setExecutionError(null);
                   setExecutionResult(response);
@@ -202,6 +227,26 @@ export function PredictionsPage(): ReactElement {
               >
                 <option value="regression">Regression</option>
                 <option value="classification">Classification</option>
+              </select>
+            </label>
+            <label className="text-sm font-medium text-secondary-foreground">
+              Algorithm
+              <select
+                className={inputClassName}
+                onChange={(event) => {
+                  setAlgorithm(event.target.value);
+                  setExecutionError(null);
+                }}
+                value={algorithm}
+              >
+                <option value="">Random Forest compatibility route</option>
+                {algorithms
+                  .filter((item) => item.supported_tasks.includes(task))
+                  .map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.display_name}
+                    </option>
+                  ))}
               </select>
             </label>
           </div>

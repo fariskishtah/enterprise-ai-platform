@@ -13,10 +13,13 @@ from app.config.settings import Settings, get_settings
 from app.db.session import build_session_factory
 from app.ml.composition import (
     create_ai_model_registry,
+    create_plugin_prediction_plan,
     create_random_forest_classification_prediction_plan,
     create_random_forest_regression_prediction_plan,
 )
 from app.ml.jobs import (
+    PluginClassificationJobSpec,
+    PluginRegressionJobSpec,
     RandomForestClassificationJobSpec,
     RandomForestRegressionJobSpec,
 )
@@ -141,6 +144,16 @@ def rebuild_reference_profile(
         )
         predictions = classification_result.predictions
         resolved_key = classification_result.model_version.key
+    elif isinstance(
+        specification,
+        (PluginRegressionJobSpec, PluginClassificationJobSpec),
+    ):
+        plugin_result = prediction_service.predict(
+            create_plugin_prediction_plan(specification.plugin_id),
+            request,
+        )
+        predictions = plugin_result.predictions
+        resolved_key = plugin_result.model_version.key
     else:
         raise ValueError("Unsupported persisted training specification.")
     if resolved_key.task_type is not candidate.key.task_type:

@@ -7,12 +7,18 @@ import numpy as np
 import pytest
 from app.config.settings import Settings
 from app.ml.composition import (
+    PLUGIN_REGISTRY,
     create_ai_model_registry,
     create_ai_tracked_training_service,
+    create_plugin_prediction_plan,
     create_random_forest_regression_prediction_plan,
 )
 from app.ml.domain import TaskType
-from app.ml.jobs import RandomForestRegressionJobSpec, random_forest_key
+from app.ml.jobs import (
+    PluginRegressionJobSpec,
+    RandomForestRegressionJobSpec,
+    random_forest_key,
+)
 from app.ml.jobs.service import TrainingJobService
 from app.ml.jobs.worker import (
     TrainingJobWorker,
@@ -142,3 +148,82 @@ async def test_real_background_training_candidate_and_prediction_smoke(
     )
     assert prediction.model_version.version == "1"
     assert prediction.predictions.shape == (2,)
+
+
+@pytest.mark.anyio
+async def test_generic_plugin_background_training_and_prediction_smoke(
+    settings: Settings,
+    session_factory: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    """A non-Random-Forest plugin survives persistence, MLflow, and prediction."""
+    user = User(
+        email="plugin-smoke@example.com",
+        hashed_password="not-used",
+        role=UserRole.ENGINEER,
+        is_active=True,
+    )
+    async with session_factory() as session:
+        session.add(user)
+        await session.commit()
+        await session.refresh(user)
+    resolved_settings = settings.model_copy(
+        update={
+            "mlflow_tracking_uri": f"file:{tmp_path / 'plugin-mlruns'}",
+            "ai_artifact_root": str(tmp_path / "plugin-artifacts"),
+        }
+    )
+    specification = PluginRegressionJobSpec(
+        plugin_id="linear_regression",
+        training_features=((0.0,), (1.0,), (2.0,), (3.0,)),
+        training_targets=(0.0, 2.0, 4.0, 6.0),
+        evaluation_features=((0.5,), (2.5,)),
+        evaluation_targets=(1.0, 5.0),
+        hyperparameters={"fit_intercept": True},
+        preprocessing={"scaler": "auto", "imputer": "none"},
+        random_seed=17,
+        experiment_name="Plugin Background Smoke",
+        registered_model_name="ai_core_linear_regression_regression",
+        tags={"purpose": "plugin-smoke"},
+    )
+    queue = SmokeQueue()
+    async with session_factory() as session:
+        submission = await TrainingJobService(
+            repository=TrainingJobRepository(session), queue=queue, max_attempts=3
+        ).submit(
+            requested_by_user_id=user.id,
+            key=PLUGIN_REGISTRY.get("linear_regression").key,
+            specification=specification,
+            idempotency_key="plugin-smoke",
+        )
+    registry = create_ai_model_registry(resolved_settings)
+    tracked_service = create_ai_tracked_training_service(
+        resolved_settings, model_registry=registry
+    )
+
+    def assign_plugin_candidate(name: str, version: str) -> None:
+        registry.assign_alias(name, "candidate", version)
+
+    worker = TrainingJobWorker(
+        session_factory=session_factory,
+        execute_specification=lambda persisted: execute_tracked_training_specification(
+            persisted, service=tracked_service
+        ),
+        assign_candidate_alias=assign_plugin_candidate,
+    )
+
+    assert await worker.execute(submission.job.id) is WorkerExecutionState.SUCCEEDED
+    prediction = PredictionService(
+        model_registry=registry,
+        model_loader=MLflowRegisteredModelLoader(
+            tracking_uri=resolved_settings.mlflow_tracking_uri
+        ),
+    ).predict(
+        create_plugin_prediction_plan("linear_regression"),
+        RegisteredPredictionRequest(
+            registered_model_name=specification.registered_model_name,
+            version_or_alias="candidate",
+            features=np.asarray([[0.75]], dtype=np.float64),
+        ),
+    )
+    assert prediction.predictions.tolist() == pytest.approx([1.5])

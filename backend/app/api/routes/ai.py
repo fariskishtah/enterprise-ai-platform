@@ -17,6 +17,8 @@ from app.dependencies.services import (
 from app.ml.artifacts import ArtifactAlreadyExistsError
 from app.ml.base import TrainerInput, TrainerKey
 from app.ml.composition import (
+    PLUGIN_REGISTRY,
+    create_plugin_prediction_plan,
     create_random_forest_classification_plan,
     create_random_forest_classification_prediction_plan,
     create_random_forest_regression_plan,
@@ -25,6 +27,7 @@ from app.ml.composition import (
 from app.ml.engine import TrainingModelTypeMismatchError
 from app.ml.metrics import MetricsDataValidationError, MetricsReport
 from app.ml.monitoring import MonitoredPredictionService, PredictionCaptureContext
+from app.ml.plugins import ModelPluginError
 from app.ml.registry import (
     BaseModelRegistry,
     ModelRegistryError,
@@ -62,6 +65,8 @@ from app.models.user import User, UserRole
 from app.schemas.ai import (
     AITrainingResponse,
     ClassificationPredictionResponse,
+    GenericPredictionResponse,
+    GenericRegisteredModelPredictionRequest,
     RandomForestClassificationTrainingRequest,
     RandomForestRegressionTrainingRequest,
     RegisteredModelPredictionRequest,
@@ -427,6 +432,74 @@ def train_random_forest_classification(
         raise _conflict(exc) from exc
     except (ExperimentTrackingError, ModelRegistryError) as exc:
         raise _bad_gateway() from exc
+
+
+@router.post(
+    "/predictions",
+    dependencies=[Depends(enforce_mutation_rate_limit)],
+    response_model=GenericPredictionResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Predict with an allowlisted generic registered model",
+    responses=_PREDICTION_ERROR_RESPONSES,
+)
+async def predict_registered_model(
+    payload: GenericRegisteredModelPredictionRequest,
+    current_user: Annotated[
+        User,
+        Depends(require_roles(UserRole.ADMIN, UserRole.ENGINEER, UserRole.OPERATOR)),
+    ],
+    service: Annotated[
+        MonitoredPredictionService,
+        Depends(get_ai_monitored_prediction_service),
+    ],
+    correlation_id: Annotated[
+        str | None,
+        Header(alias="X-Correlation-ID", min_length=1, max_length=128),
+    ] = None,
+) -> GenericPredictionResponse:
+    """Predict through a serialized preprocessing-and-estimator pipeline."""
+    features: FeatureArray = np.asarray(payload.features, dtype=np.float64)
+    try:
+        plugin = PLUGIN_REGISTRY.get(payload.algorithm, payload.task_type)
+        result = await service.predict(
+            create_plugin_prediction_plan(plugin.id),
+            RegisteredPredictionRequest(
+                registered_model_name=payload.registered_model_name,
+                version_or_alias=payload.version_or_alias,
+                features=features,
+            ),
+            PredictionCaptureContext(
+                requested_by_user_id=current_user.id,
+                correlation_id=correlation_id,
+            ),
+        )
+    except (
+        ModelPluginError,
+        ModelRegistryValidationError,
+        TrainerDataValidationError,
+    ) as exc:
+        raise _unprocessable(exc) from exc
+    except RegisteredModelVersionNotFoundError as exc:
+        raise _not_found(exc) from exc
+    except (
+        PredictionTrainerKeyMismatchError,
+        RegisteredModelTypeMismatchError,
+        RegistryMetadataError,
+    ) as exc:
+        raise _conflict(exc) from exc
+    except (ModelRegistryError, RegisteredModelLoadError) as exc:
+        raise _bad_gateway() from exc
+    predictions: list[int | float]
+    if payload.task_type.value == "classification":
+        predictions = [int(value) for value in result.predictions]
+    else:
+        predictions = [float(value) for value in result.predictions]
+    return GenericPredictionResponse(
+        model_name=result.model_version.registered_model_name,
+        model_version=result.model_version.version,
+        trainer_key=_trainer_key_response(result.model_version.key),
+        predictions=predictions,
+    )
 
 
 @router.post(
