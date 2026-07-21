@@ -88,17 +88,116 @@ export interface Algorithm {
   readonly dependency_available: boolean;
 }
 
+// ─── Evaluation plot shapes ──────────────────────────────────────────────────
+
+export interface ConfusionMatrixPlot {
+  readonly labels: readonly string[];
+  readonly values: readonly (readonly number[])[];
+}
+
+export interface XYThresholdPoint {
+  readonly x: number;
+  readonly y: number;
+  readonly threshold: number | null;
+}
+
+export interface XYPoint {
+  readonly x: number;
+  readonly y: number;
+}
+
+export interface HistogramBin {
+  readonly start: number;
+  readonly end: number;
+  readonly count: number;
+}
+
+export interface ClassDistributionItem {
+  readonly label: string;
+  readonly count: number;
+}
+
+export interface ActualVsPredictedPoint {
+  readonly actual: number;
+  readonly predicted: number;
+}
+
+export interface ResidualPoint {
+  readonly predicted: number;
+  readonly residual: number;
+}
+
+export interface ErrorByRangePoint {
+  readonly start: number;
+  readonly end: number;
+  readonly mean_absolute_error: number;
+  readonly count: number;
+}
+
+export interface RankedFeature {
+  readonly feature: string;
+  readonly value: number;
+}
+
+export interface UnsupportedExplain {
+  readonly supported: false;
+  readonly reason: string;
+}
+
+export type ExplainabilityEntry = readonly RankedFeature[] | UnsupportedExplain;
+
+export interface ClassificationPlots {
+  readonly confusion_matrix?: ConfusionMatrixPlot;
+  readonly class_distribution?: readonly ClassDistributionItem[];
+  readonly roc_curve?: readonly XYThresholdPoint[];
+  readonly precision_recall_curve?: readonly XYThresholdPoint[];
+  readonly calibration?: readonly XYPoint[];
+  readonly probability_distribution?: readonly HistogramBin[];
+}
+
+export interface RegressionPlots {
+  readonly actual_vs_predicted?: readonly ActualVsPredictedPoint[];
+  readonly residuals?: readonly ResidualPoint[];
+  readonly residual_distribution?: readonly HistogramBin[];
+  readonly absolute_error_distribution?: readonly HistogramBin[];
+  readonly error_by_prediction_range?: readonly ErrorByRangePoint[];
+}
+
+export type EvaluationPlots = ClassificationPlots & RegressionPlots;
+
+export interface Explainability {
+  readonly native_feature_importance?: ExplainabilityEntry;
+  readonly coefficients?: ExplainabilityEntry;
+  readonly permutation_importance?: ExplainabilityEntry;
+  readonly local?: UnsupportedExplain;
+  readonly notice?: string;
+}
+
+// ─── Classification report ────────────────────────────────────────────────────
+
+export interface ClassReportRow {
+  readonly precision: number;
+  readonly recall: number;
+  readonly "f1-score": number;
+  readonly support: number;
+}
+
+export type ClassificationReport = Record<string, ClassReportRow | number>;
+
+// ─── Evaluation payload ───────────────────────────────────────────────────────
+
 export interface EvaluationPayload {
   readonly schema_version: string;
   readonly task_type: TrainingTask;
   readonly algorithm: string;
   readonly sample_count: number;
   readonly feature_count: number;
-  readonly metrics: Record<string, number>;
-  readonly plots: Record<string, unknown>;
-  readonly omitted: Record<string, string>;
-  readonly explainability: Record<string, unknown>;
-  readonly classification_report?: Record<string, unknown>;
+  readonly metrics?: Record<string, number> | null;
+  readonly plots?: EvaluationPlots | null;
+  readonly omitted?: Record<string, string> | null;
+  readonly omitted_metrics?: Record<string, string> | null;
+  readonly explainability?: Explainability | null;
+  readonly classification_report?: ClassificationReport;
 }
 
 export interface ModelVersion {

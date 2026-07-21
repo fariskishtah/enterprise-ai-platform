@@ -54,4 +54,5 @@ class PredictionService:
         return RegisteredPredictionResult(
             model_version=model_version,
             predictions=predictions,
+            loaded_model=model,
         )

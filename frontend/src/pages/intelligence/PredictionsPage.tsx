@@ -296,9 +296,79 @@ export function PredictionsPage(): ReactElement {
                 {executionResult.model_name} · version {executionResult.model_version} ·{" "}
                 {executionResult.trainer_key.task_type}
               </p>
-              <div className="rounded-md bg-elevated p-4 font-mono text-sm text-foreground">
-                {JSON.stringify(executionResult.predictions)}
+
+              {/* Predictions */}
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Predictions
+                </p>
+                <div className="mt-1 rounded-md bg-elevated p-4 font-mono text-sm text-foreground">
+                  {JSON.stringify(executionResult.predictions)}
+                </div>
               </div>
+
+              {/* Class probabilities — rendered when available */}
+              {executionResult.probability_available &&
+              executionResult.probabilities &&
+              executionResult.probabilities.length > 0 ? (
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Class probabilities
+                  </p>
+                  <div className="mt-2 space-y-3">
+                    {executionResult.probabilities.map((rowProbs, rowIdx) => (
+                      <div
+                        className="rounded-md border border-border bg-card p-3"
+                        key={rowIdx}
+                        aria-label={`Row ${rowIdx + 1} class probabilities`}
+                      >
+                        <p className="mb-2 text-xs text-muted-foreground">
+                          Row {rowIdx + 1}
+                        </p>
+                        <ul className="space-y-1.5" role="list">
+                          {rowProbs.map((prob) => (
+                            <li
+                              className="flex items-center gap-2 text-xs"
+                              key={prob.class_label}
+                              role="listitem"
+                              aria-label={`Class ${prob.class_label}: ${(prob.probability * 100).toFixed(1)}%`}
+                            >
+                              <span className="w-12 shrink-0 text-right font-medium text-muted-foreground">
+                                {prob.class_label}
+                              </span>
+                              <div
+                                aria-hidden="true"
+                                className="flex-1 overflow-hidden rounded-sm bg-muted/30"
+                                style={{ height: "1.1rem" }}
+                              >
+                                <div
+                                  className="h-full rounded-sm bg-primary/75 transition-all"
+                                  style={{ width: `${prob.probability * 100}%` }}
+                                />
+                              </div>
+                              <span className="w-14 shrink-0 tabular-nums text-muted-foreground">
+                                {(prob.probability * 100).toFixed(2)}%
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : executionResult.trainer_key.task_type === "classification" &&
+                !executionResult.probability_available ? (
+                <div
+                  className="rounded-md border border-border bg-muted/30 px-4 py-3 text-xs text-muted-foreground"
+                  role="note"
+                >
+                  Class probabilities are not available for this model.
+                  {executionResult.probability_unavailable_reason
+                    ? ` ${executionResult.probability_unavailable_reason}`
+                    : ""}
+                </div>
+              ) : null}
+
               <InlineNotice>
                 The execution response does not expose an event ID. Authorized history
                 is captured separately by the monitoring API.

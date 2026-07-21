@@ -9,11 +9,22 @@ export interface PredictionRequest {
   readonly features: number[][];
 }
 
+export interface ClassProbability {
+  readonly class_label: string;
+  readonly probability: number;
+}
+
 export interface PredictionResponse {
   readonly model_name: string;
   readonly model_version: string;
   readonly trainer_key: TrainerKey;
   readonly predictions: readonly number[];
+  /** Only present for classifiers with probability_support=true */
+  readonly probabilities?: readonly (readonly ClassProbability[])[] | null;
+  /** Whether the model supports class probabilities */
+  readonly probability_available?: boolean;
+  /** Reason when probability_available is false */
+  readonly probability_unavailable_reason?: string | null;
 }
 
 export interface NumericSummary {

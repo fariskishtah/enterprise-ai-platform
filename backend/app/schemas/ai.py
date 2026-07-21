@@ -440,6 +440,19 @@ class TrainerKeyResponse(BaseModel):
     )
 
 
+class ClassProbabilityItem(BaseModel):
+    """One class label and its predicted probability for a single input row."""
+
+    model_config = ConfigDict(frozen=True)
+
+    class_label: str = Field(description="String representation of the class label.")
+    probability: float = Field(
+        ge=0.0,
+        le=1.0,
+        description="Probability in [0.0, 1.0] assigned to this class.",
+    )
+
+
 class GenericPredictionResponse(BaseModel):
     """Task-aware predictions from a generic registered model pipeline."""
 
@@ -449,6 +462,26 @@ class GenericPredictionResponse(BaseModel):
     model_version: str
     trainer_key: TrainerKeyResponse
     predictions: list[int | float]
+    # Backward-compatible optional probability fields.
+    # Only populated when the plugin reports probability_support=True and the
+    # model exposes predict_proba. Existing callers that ignore these fields
+    # are unaffected.
+    probability_available: bool = Field(
+        default=False,
+        description="True when class probabilities are included in this response.",
+    )
+    probability_unavailable_reason: str | None = Field(
+        default=None,
+        description="Human-readable reason when probability_available is False.",
+    )
+    probabilities: list[list[ClassProbabilityItem]] | None = Field(
+        default=None,
+        description=(
+            "Per-row list of class probabilities. Each inner list has one entry "
+            "per class in training-class order. Only present when "
+            "probability_available is True."
+        ),
+    )
 
 
 class AITrainingResponse(BaseModel):

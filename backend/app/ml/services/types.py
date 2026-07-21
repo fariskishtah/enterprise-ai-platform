@@ -100,12 +100,18 @@ class RegisteredPredictionRequest[FeaturesT]:
         validate_version_or_alias(self.version_or_alias)
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class RegisteredPredictionResult[PredictionsT]:
-    """Typed predictions paired with the exact resolved model version."""
+    """Typed predictions paired with the exact resolved model version.
+
+    The optional loaded_model carries the deserialized pipeline so that
+    callers (e.g., the API route) can compute additional outputs such as
+    class probabilities without requiring a second registry load.
+    """
 
     model_version: RegisteredModelVersion
     predictions: PredictionsT
+    loaded_model: object = None  # slots=False to allow default, frozen=True preserved
 
 
 @dataclass(frozen=True, slots=True)
