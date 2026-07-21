@@ -8,7 +8,10 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "format": "prettier --check .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed",
+    "test:e2e:report": "playwright show-report"
   },
   "dependencies": {
     "react": "^18.3.1",
@@ -16,7 +19,9 @@
     "react-router-dom": "^6.26.2"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.12.1",
     "@eslint/js": "^9.11.1",
+    "@playwright/test": "^1.61.1",
     "@types/node": "^26.1.1",
     "@types/react": "^18.3.10",
     "@types/react-dom": "^18.3.0",
