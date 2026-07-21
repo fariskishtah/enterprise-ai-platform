@@ -18,6 +18,8 @@ venv/
 node_modules/
 dist/
 coverage/
+playwright-report/
+test-results/
 *.tsbuildinfo
 
 # IDE and OS

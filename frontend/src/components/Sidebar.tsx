@@ -74,7 +74,7 @@ export function Sidebar({
                     collapsed ? "justify-center" : "gap-3",
                     isActive
                       ? "bg-purple-700 text-white before:absolute before:inset-y-2 before:left-0 before:w-0.5 before:rounded-full before:bg-purple-300"
-                      : "text-neutral-500 hover:bg-[var(--sidebar-secondary)] hover:text-white",
+                      : "text-neutral-300 hover:bg-[var(--sidebar-secondary)] hover:text-white",
                   ].join(" ")
                 }
                 end={item.path === "/"}
@@ -98,7 +98,7 @@ export function Sidebar({
         <div className="border-t border-[var(--sidebar-border)] bg-[var(--sidebar)] p-3">
           <button
             aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-            className={`flex w-full items-center rounded-md p-2 text-sm text-neutral-500 hover:bg-[var(--sidebar-secondary)] hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-purple-400 ${collapsed ? "justify-center" : "gap-3"}`}
+            className={`flex w-full items-center rounded-md p-2 text-sm text-neutral-300 hover:bg-[var(--sidebar-secondary)] hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-purple-400 ${collapsed ? "justify-center" : "gap-3"}`}
             onClick={onToggleCollapsed}
             type="button"
           >
