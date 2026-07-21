@@ -17,6 +17,7 @@ from app.ml.trainers.random_forest.types import (
     FeatureArray,
     validate_classification_predictions,
     validate_classification_training_data,
+    validate_prediction_feature_count,
     validate_prediction_features,
 )
 
@@ -71,6 +72,7 @@ class RandomForestClassifierTrainer(
     ) -> ClassificationPredictionArray:
         """Validate features and return raw integer class predictions."""
         validated_features = validate_prediction_features(features)
+        validate_prediction_feature_count(validated_features, model.n_features_in_)
         return validate_classification_predictions(model.predict(validated_features))
 
 

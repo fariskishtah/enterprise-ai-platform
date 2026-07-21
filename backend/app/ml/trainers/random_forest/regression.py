@@ -15,6 +15,7 @@ from app.ml.trainers.random_forest.types import (
     FeatureArray,
     RegressionPredictionArray,
     RegressionTargetArray,
+    validate_prediction_feature_count,
     validate_prediction_features,
     validate_regression_predictions,
     validate_regression_training_data,
@@ -71,6 +72,7 @@ class RandomForestRegressorTrainer(
     ) -> RegressionPredictionArray:
         """Validate features and return raw regression predictions."""
         validated_features = validate_prediction_features(features)
+        validate_prediction_feature_count(validated_features, model.n_features_in_)
         return validate_regression_predictions(model.predict(validated_features))
 
 

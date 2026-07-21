@@ -19,10 +19,18 @@ import { ModelsPage } from "../pages/aiLifecycle/ModelsPage";
 import { ModelVersionPage } from "../pages/aiLifecycle/ModelVersionPage";
 import { TrainingJobDetailPage } from "../pages/aiLifecycle/TrainingJobDetailPage";
 import { TrainingJobsPage } from "../pages/aiLifecycle/TrainingJobsPage";
+import { AlertDetailPage } from "../pages/intelligence/AlertDetailPage";
+import { AlertsPage } from "../pages/intelligence/AlertsPage";
+import { EvaluationDetailPage } from "../pages/intelligence/EvaluationDetailPage";
+import { ModelMonitoringPage } from "../pages/intelligence/ModelMonitoringPage";
+import { MonitoringPage } from "../pages/intelligence/MonitoringPage";
+import { PredictionEventDetailPage } from "../pages/intelligence/PredictionEventDetailPage";
+import { PredictionHistoryPage } from "../pages/intelligence/PredictionHistoryPage";
+import { PredictionsPage } from "../pages/intelligence/PredictionsPage";
+import { RetrainingPage } from "../pages/intelligence/RetrainingPage";
+import { RetrainingRequestPage } from "../pages/intelligence/RetrainingRequestPage";
 
 const placeholderRoutes = [
-  ["predictions", "Predictions", "Run and inspect registered-model predictions."],
-  ["monitoring", "Monitoring", "Model health, data quality, and drift."],
   ["audit-log", "Audit Log", "Governance decisions and operational history."],
   ["users", "Users & Roles", "User access and role administration."],
   ["settings", "Settings", "Platform and workspace preferences."],
@@ -67,6 +75,28 @@ export const router = createBrowserRouter([
           {
             element: <ModelVersionPage />,
             path: "models/:registeredModelName/versions/:versionOrAlias",
+          },
+          { element: <PredictionsPage />, path: "predictions" },
+          { element: <PredictionHistoryPage />, path: "predictions/history" },
+          {
+            element: <PredictionEventDetailPage />,
+            path: "predictions/history/:id",
+          },
+          { element: <MonitoringPage />, path: "monitoring" },
+          {
+            element: <EvaluationDetailPage />,
+            path: "monitoring/evaluations/:id",
+          },
+          {
+            element: <ModelMonitoringPage />,
+            path: "monitoring/models/:registeredModelName/versions/:versionOrAlias",
+          },
+          { element: <AlertsPage />, path: "monitoring/alerts" },
+          { element: <AlertDetailPage />, path: "monitoring/alerts/:id" },
+          { element: <RetrainingPage />, path: "retraining" },
+          {
+            element: <RetrainingRequestPage />,
+            path: "retraining/requests/:id",
           },
           ...placeholderRoutes.map(([path, title, description]) => ({
             element: <PlaceholderPage description={description} title={title} />,

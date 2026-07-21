@@ -7,6 +7,7 @@ export type NavigationIcon =
   | "models"
   | "monitoring"
   | "predictions"
+  | "retraining"
   | "sensor-data"
   | "settings"
   | "training-jobs"
@@ -63,6 +64,12 @@ export const navigationItems: readonly NavigationItem[] = [
     icon: "monitoring",
     label: "Monitoring",
     path: "/monitoring",
+  },
+  {
+    description: "Controlled retraining policies and request lifecycle.",
+    icon: "retraining",
+    label: "Retraining",
+    path: "/retraining",
   },
   {
     description: "Governance decisions and operational history.",
