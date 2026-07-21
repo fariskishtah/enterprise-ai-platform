@@ -1,6 +1,8 @@
 import type { ReactElement, ReactNode } from "react";
 import { Link } from "react-router-dom";
 
+import { buttonClassName } from "../ui/buttonStyles";
+
 interface BreadcrumbItem {
   readonly label: string;
   readonly to?: string;
@@ -12,17 +14,21 @@ export function Breadcrumbs({
   readonly items: readonly BreadcrumbItem[];
 }): ReactElement {
   return (
-    <nav aria-label="Breadcrumb" className="mb-5 text-sm text-neutral-600">
-      <ol className="flex flex-wrap items-center gap-2">
+    <nav aria-label="Breadcrumb" className="mb-6 text-xs font-medium text-neutral-500">
+      <ol className="flex flex-wrap items-center gap-2.5">
         {items.map((item, index) => (
           <li className="flex items-center gap-2" key={`${item.label}-${index}`}>
-            {index > 0 ? <span aria-hidden="true">/</span> : null}
+            {index > 0 ? (
+              <span aria-hidden="true" className="text-neutral-400">
+                /
+              </span>
+            ) : null}
             {item.to === undefined ? (
-              <span aria-current="page" className="font-medium text-neutral-900">
+              <span aria-current="page" className="font-semibold text-neutral-800">
                 {item.label}
               </span>
             ) : (
-              <Link className="hover:text-teal-700 hover:underline" to={item.to}>
+              <Link className="hover:text-purple-700" to={item.to}>
                 {item.label}
               </Link>
             )}
@@ -43,7 +49,7 @@ export function EmptyState({
   readonly title: string;
 }): ReactElement {
   return (
-    <div className="rounded-lg border border-dashed border-neutral-300 bg-white px-6 py-10 text-center">
+    <div className="rounded-lg border border-dashed border-neutral-300 bg-neutral-50 px-6 py-12 text-center shadow-panel">
       <h3 className="text-base font-semibold text-neutral-900">{title}</h3>
       <p className="mx-auto mt-2 max-w-lg text-sm leading-6 text-neutral-600">
         {description}
@@ -61,7 +67,10 @@ export function InlineError({
   readonly onRetry: () => void;
 }): ReactElement {
   return (
-    <div className="rounded-lg border border-red-200 bg-red-50 p-5" role="alert">
+    <div
+      className="rounded-lg border border-red-200 bg-red-50 p-5 shadow-panel"
+      role="alert"
+    >
       <h3 className="font-semibold text-red-900">Unable to load this workspace</h3>
       <p className="mt-1 text-sm text-red-800">{message}</p>
       <button
@@ -71,6 +80,21 @@ export function InlineError({
       >
         Try again
       </button>
+    </div>
+  );
+}
+
+export function InlineNotice({
+  children,
+}: {
+  readonly children: ReactNode;
+}): ReactElement {
+  return (
+    <div
+      className="rounded-md border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900"
+      role="note"
+    >
+      {children}
     </div>
   );
 }
@@ -85,7 +109,7 @@ export function LoadingSkeleton({
       <span className="sr-only">{label}</span>
       {[0, 1, 2].map((item) => (
         <div
-          className="h-24 animate-pulse rounded-lg border border-neutral-200 bg-neutral-100"
+          className="h-24 animate-pulse rounded-lg border border-neutral-200 bg-white shadow-panel"
           key={item}
         />
       ))}
@@ -110,13 +134,13 @@ export function PaginationControls({
   const first = offset + 1;
   const last = Math.min(offset + limit, total);
   return (
-    <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-neutral-200 pt-4">
+    <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-b-lg border-t border-neutral-200 bg-neutral-50 px-1 pt-4">
       <p className="text-sm text-neutral-600">
         Showing {first}–{last} of {total}
       </p>
       <div className="flex gap-2">
         <button
-          className="rounded-md border border-neutral-300 bg-white px-3 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50"
+          className="rounded-md border border-neutral-300 bg-white px-3 py-2 text-sm font-semibold disabled:cursor-not-allowed"
           disabled={offset === 0}
           onClick={() => onPageChange(Math.max(0, offset - limit))}
           type="button"
@@ -124,7 +148,7 @@ export function PaginationControls({
           Previous
         </button>
         <button
-          className="rounded-md border border-neutral-300 bg-white px-3 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50"
+          className="rounded-md border border-neutral-300 bg-white px-3 py-2 text-sm font-semibold disabled:cursor-not-allowed"
           disabled={offset + limit >= total}
           onClick={() => onPageChange(offset + limit)}
           type="button"
@@ -136,8 +160,8 @@ export function PaginationControls({
   );
 }
 
-export const primaryButtonClassName =
-  "rounded-md bg-teal-700 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700 disabled:cursor-not-allowed disabled:opacity-60";
-
-export const secondaryButtonClassName =
-  "rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-semibold text-neutral-800 hover:bg-neutral-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700 disabled:cursor-not-allowed disabled:opacity-60";
+// Compatibility exports keep existing pages stable while visual shells migrate.
+// eslint-disable-next-line react-refresh/only-export-components
+export const primaryButtonClassName = buttonClassName("primary");
+// eslint-disable-next-line react-refresh/only-export-components
+export const secondaryButtonClassName = buttonClassName("secondary");

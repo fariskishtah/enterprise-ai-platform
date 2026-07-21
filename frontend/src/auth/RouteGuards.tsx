@@ -12,7 +12,7 @@ export function AuthLoadingScreen(): ReactElement {
       <div className="text-center">
         <span
           aria-hidden="true"
-          className="mx-auto block h-8 w-8 animate-spin rounded-full border-2 border-neutral-300 border-t-teal-700"
+          className="mx-auto block h-8 w-8 animate-spin rounded-full border-2 border-neutral-300 border-t-purple-700"
         />
         <p className="mt-4 text-sm font-medium text-neutral-600">
           Restoring your session…

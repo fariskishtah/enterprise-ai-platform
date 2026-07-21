@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 
 import { ApiError } from "../api/client";
 import { useAuth } from "../auth/useAuth";
+import fkLoginBackground from "../assets/fk-login-background.png";
 
 interface LoginLocationState {
   readonly from?: string;
@@ -43,17 +44,28 @@ export function LoginPage(): ReactElement {
   };
 
   return (
-    <main className="flex min-h-screen bg-stone-50 text-neutral-950">
-      <section className="flex w-full items-center justify-center px-4 py-10 sm:px-6">
-        <div className="w-full max-w-md rounded-xl border border-neutral-200 bg-white p-6 shadow-sm sm:p-8">
-          <div className="mb-8 flex items-center gap-3">
-            <span className="flex h-10 w-10 items-center justify-center rounded-md bg-teal-700 text-sm font-bold text-white">
-              FM
-            </span>
-            <div>
-              <p className="font-semibold">FactoryMind</p>
-              <p className="text-sm text-neutral-500">AI Manufacturing</p>
-            </div>
+    <main className="flex min-h-screen flex-col overflow-x-hidden bg-[var(--surface)] text-neutral-950 lg:grid lg:grid-cols-[minmax(0,58fr)_minmax(25rem,42fr)]">
+      <section
+        aria-label="FK Solutions industrial technology"
+        className="relative h-44 shrink-0 overflow-hidden bg-neutral-950 sm:h-56 md:h-64 lg:h-auto lg:min-h-screen"
+      >
+        <img
+          alt=""
+          className="absolute inset-0 h-full w-full object-cover object-left"
+          src={fkLoginBackground}
+        />
+        <div aria-hidden="true" className="absolute inset-0 bg-neutral-950/10" />
+      </section>
+
+      <section className="flex min-h-0 flex-1 items-center justify-center bg-[var(--surface)] px-5 py-10 sm:px-10 sm:py-12 lg:min-h-screen lg:px-12 xl:px-16">
+        <div className="w-full max-w-md">
+          <div className="mb-9 border-b border-neutral-200 pb-6">
+            <p className="text-sm font-bold uppercase tracking-[0.18em] text-purple-800">
+              FK SOLUTIONS
+            </p>
+            <p className="mt-2 text-sm font-medium text-neutral-600">
+              AI Manufacturing Platform
+            </p>
           </div>
 
           <h1 className="text-2xl font-semibold tracking-tight">Sign in</h1>
@@ -88,7 +100,7 @@ export function LoginPage(): ReactElement {
               </label>
               <input
                 autoComplete="email"
-                className="mt-2 block w-full rounded-md border border-neutral-300 px-3 py-2.5 text-sm outline-none transition focus:border-teal-700 focus:ring-2 focus:ring-teal-700/20"
+                className="mt-2 block w-full rounded-md border border-neutral-300 px-3 py-2.5 text-sm outline-none transition focus:border-purple-700 focus:ring-2 focus:ring-purple-700/20"
                 disabled={submitting}
                 id="email"
                 onChange={(event) => setEmail(event.target.value)}
@@ -106,7 +118,7 @@ export function LoginPage(): ReactElement {
               </label>
               <input
                 autoComplete="current-password"
-                className="mt-2 block w-full rounded-md border border-neutral-300 px-3 py-2.5 text-sm outline-none transition focus:border-teal-700 focus:ring-2 focus:ring-teal-700/20"
+                className="mt-2 block w-full rounded-md border border-neutral-300 px-3 py-2.5 text-sm outline-none transition focus:border-purple-700 focus:ring-2 focus:ring-purple-700/20"
                 disabled={submitting}
                 id="password"
                 maxLength={128}
@@ -118,7 +130,7 @@ export function LoginPage(): ReactElement {
               />
             </div>
             <button
-              className="flex w-full items-center justify-center rounded-md bg-teal-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-teal-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700 disabled:cursor-not-allowed disabled:opacity-60"
+              className="flex w-full items-center justify-center rounded-md bg-purple-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-purple-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-purple-700 disabled:cursor-not-allowed"
               disabled={submitting}
               type="submit"
             >

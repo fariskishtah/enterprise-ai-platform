@@ -100,6 +100,9 @@ export function TrainingJobDetailPage(): ReactElement {
       />
       <div className="flex flex-wrap items-start justify-between gap-4 border-b border-neutral-200 pb-6">
         <div>
+          <p className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-purple-700">
+            Training execution
+          </p>
           <div className="flex items-center gap-3">
             <h2 className="text-2xl font-semibold" id="job-heading">
               Training job
@@ -198,7 +201,7 @@ export function TrainingJobDetailPage(): ReactElement {
         <MetricsGrid metrics={job.metrics} />
         {job.status === "succeeded" && job.registered_model_version ? (
           <Link
-            className="mt-5 inline-block font-semibold text-teal-700 hover:underline"
+            className="mt-5 inline-block font-semibold text-purple-700 hover:underline"
             to={`/models/${encodeURIComponent(job.registered_model_name)}/versions/${encodeURIComponent(job.registered_model_version)}`}
           >
             Open resulting model version
@@ -230,7 +233,7 @@ export function TrainingJobDetailPage(): ReactElement {
               Keep job
             </button>
             <button
-              className="rounded-md bg-red-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+              className="rounded-md bg-red-700 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed"
               disabled={cancelBusy}
               onClick={() => {
                 setCancelBusy(true);

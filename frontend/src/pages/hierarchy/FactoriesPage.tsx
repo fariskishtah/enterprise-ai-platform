@@ -11,6 +11,7 @@ import {
 } from "../../api/hierarchy";
 import { useAuth } from "../../auth/useAuth";
 import { FactoryFormDialog } from "../../components/hierarchy/HierarchyForms";
+import { PageHeader } from "../../components/ui/PageHeader";
 import {
   EmptyState,
   InlineError,
@@ -83,31 +84,23 @@ export function FactoriesPage(): ReactElement {
 
   return (
     <section aria-labelledby="factories-heading">
-      <div className="flex flex-col gap-4 border-b border-neutral-200 pb-6 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <p className="text-sm font-semibold uppercase tracking-wider text-teal-700">
-            Manufacturing hierarchy
-          </p>
-          <h2
-            className="mt-2 text-3xl font-semibold tracking-tight"
-            id="factories-heading"
-          >
-            Factories
-          </h2>
-          <p className="mt-2 max-w-2xl text-sm leading-6 text-neutral-600">
-            Browse active manufacturing sites and open their machines and sensors.
-          </p>
-        </div>
-        {canWrite && companies.length > 0 ? (
-          <button
-            className={primaryButtonClassName}
-            onClick={() => setShowCreate(true)}
-            type="button"
-          >
-            Create factory
-          </button>
-        ) : null}
-      </div>
+      <PageHeader
+        actions={
+          canWrite && companies.length > 0 ? (
+            <button
+              className={primaryButtonClassName}
+              onClick={() => setShowCreate(true)}
+              type="button"
+            >
+              Create factory
+            </button>
+          ) : undefined
+        }
+        description="Browse active manufacturing sites and open their machines and sensors."
+        eyebrow="Manufacturing hierarchy"
+        headingId="factories-heading"
+        title="Factories"
+      />
 
       {message === null ? null : (
         <p
@@ -147,13 +140,13 @@ export function FactoriesPage(): ReactElement {
           <>
             <div className="mb-4 max-w-md">
               <label
-                className="block text-sm font-medium text-neutral-800"
+                className="block text-sm font-medium text-secondary-foreground"
                 htmlFor="factory-filter"
               >
                 Filter this page
               </label>
               <input
-                className="mt-2 block w-full rounded-md border border-neutral-300 px-3 py-2 text-sm outline-none focus:border-teal-700 focus:ring-2 focus:ring-teal-700/20"
+                className="mt-2 block w-full rounded-md border border-border-strong px-3 py-2 text-sm text-foreground outline-none focus:border-purple-700 focus:ring-2 focus:ring-purple-700/20"
                 id="factory-filter"
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder="Name, location, or company"
@@ -170,31 +163,35 @@ export function FactoriesPage(): ReactElement {
               <ul className="grid gap-4 lg:grid-cols-2">
                 {filteredFactories.map((factory) => (
                   <li
-                    className="rounded-lg border border-neutral-200 bg-white p-5"
+                    className="group relative overflow-hidden rounded-lg border border-border bg-card p-5 shadow-panel transition hover:border-border-strong hover:shadow-sm"
                     key={factory.id}
                   >
+                    <span
+                      aria-hidden="true"
+                      className="absolute inset-y-0 left-0 w-1 bg-purple-500 opacity-70"
+                    />
                     <div className="flex items-start justify-between gap-4">
                       <div className="min-w-0">
-                        <p className="text-xs font-semibold uppercase tracking-wider text-neutral-500">
+                        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                           {companyNames.get(factory.company_id) ??
                             "Company unavailable"}
                         </p>
-                        <h3 className="mt-1 truncate text-lg font-semibold text-neutral-950">
+                        <h3 className="mt-1 truncate text-lg font-semibold text-foreground">
                           {factory.name}
                         </h3>
-                        <p className="mt-2 text-sm text-neutral-600">
+                        <p className="mt-2 text-sm text-secondary-foreground">
                           {factory.location ?? "Location not provided"}
                         </p>
                       </div>
                       <Link
-                        className="shrink-0 text-sm font-semibold text-teal-700 hover:underline"
+                        className="shrink-0 text-sm font-semibold text-purple-700 hover:underline"
                         to={`/factories/${factory.id}`}
                       >
                         Open
                       </Link>
                     </div>
                     {factory.description === null ? null : (
-                      <p className="mt-4 line-clamp-2 text-sm leading-6 text-neutral-600">
+                      <p className="mt-4 line-clamp-2 text-sm leading-6 text-secondary-foreground">
                         {factory.description}
                       </p>
                     )}

@@ -5,6 +5,7 @@ import { listUploadJobs, type UploadJob } from "../../api/sensorData";
 import { useAuth } from "../../auth/useAuth";
 import { CsvUploadDialog } from "../../components/dataOperations/CsvUploadDialog";
 import { UploadJobSummary } from "../../components/dataOperations/UploadJobSummary";
+import { PageHeader } from "../../components/ui/PageHeader";
 import {
   EmptyState,
   InlineError,
@@ -53,32 +54,23 @@ export function SensorDataPage(): ReactElement {
 
   return (
     <section aria-labelledby="sensor-data-heading">
-      <div className="flex flex-col gap-4 border-b border-neutral-200 pb-6 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <p className="text-sm font-semibold uppercase tracking-wider text-teal-700">
-            Data operations
-          </p>
-          <h2
-            className="mt-2 text-3xl font-semibold tracking-tight"
-            id="sensor-data-heading"
-          >
-            Sensor Data
-          </h2>
-          <p className="mt-2 max-w-2xl text-sm leading-6 text-neutral-600">
-            Review CSV ingestion activity or select a sensor through the manufacturing
-            hierarchy to inspect and add readings.
-          </p>
-        </div>
-        {canWrite ? (
-          <button
-            className={primaryButtonClassName}
-            onClick={() => setShowUpload(true)}
-            type="button"
-          >
-            Upload CSV
-          </button>
-        ) : null}
-      </div>
+      <PageHeader
+        actions={
+          canWrite ? (
+            <button
+              className={primaryButtonClassName}
+              onClick={() => setShowUpload(true)}
+              type="button"
+            >
+              Upload CSV
+            </button>
+          ) : undefined
+        }
+        description="Review CSV ingestion activity or select a sensor through the manufacturing hierarchy to inspect and add readings."
+        eyebrow="Data operations"
+        headingId="sensor-data-heading"
+        title="Sensor Data"
+      />
       <div className="mt-6 grid gap-4 md:grid-cols-2">
         <article className="rounded-lg border border-neutral-200 bg-white p-5">
           <h3 className="font-semibold">Browse sensor readings</h3>
@@ -115,7 +107,7 @@ export function SensorDataPage(): ReactElement {
           </p>
         </div>
         <Link
-          className="text-sm font-semibold text-teal-700 hover:underline"
+          className="text-sm font-semibold text-purple-700 hover:underline"
           to="/sensor-data/uploads"
         >
           View all

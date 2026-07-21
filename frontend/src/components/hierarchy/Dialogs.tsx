@@ -1,6 +1,7 @@
 import { useEffect, type ReactElement, type ReactNode } from "react";
 
 import { secondaryButtonClassName } from "./ResourceStates";
+import { buttonClassName } from "../ui/buttonStyles";
 
 export function Dialog({
   children,
@@ -31,24 +32,29 @@ export function Dialog({
         onClick={onClose}
         type="button"
       />
-      <div className="relative mx-auto my-6 w-[calc(100%-2rem)] max-w-2xl rounded-xl border border-neutral-200 bg-white p-6 shadow-xl sm:my-12 sm:p-8">
-        <div className="flex items-start justify-between gap-4">
+      <div className="relative mx-auto my-6 w-[calc(100%-2rem)] max-w-2xl overflow-hidden rounded-lg border border-neutral-300 bg-white shadow-lg sm:my-12">
+        <div className="flex items-start justify-between gap-4 border-b border-neutral-200 bg-neutral-50 px-6 py-5 sm:px-7">
           <div>
-            <h2 className="text-xl font-semibold text-neutral-950">{title}</h2>
+            <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-purple-700">
+              Action required
+            </p>
+            <h2 className="text-xl font-semibold tracking-tight text-neutral-950">
+              {title}
+            </h2>
             {description === undefined ? null : (
               <p className="mt-1 text-sm leading-6 text-neutral-600">{description}</p>
             )}
           </div>
           <button
             aria-label="Close dialog"
-            className="rounded-md px-2 py-1 text-xl text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900"
+            className="rounded-md px-2 py-1 text-xl text-neutral-500 hover:bg-neutral-200 hover:text-neutral-900"
             onClick={onClose}
             type="button"
           >
             ×
           </button>
         </div>
-        <div className="mt-6">{children}</div>
+        <div className="px-6 py-6 sm:px-7">{children}</div>
       </div>
     </div>
   );
@@ -93,7 +99,7 @@ export function ConfirmDialog({
           Cancel
         </button>
         <button
-          className="rounded-md bg-red-700 px-4 py-2 text-sm font-semibold text-white hover:bg-red-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+          className={buttonClassName("danger")}
           disabled={busy}
           onClick={onConfirm}
           type="button"

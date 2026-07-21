@@ -113,7 +113,7 @@ export function MachineDetailPage(): ReactElement {
       />
       <div className="flex flex-col gap-4 border-b border-neutral-200 pb-6 md:flex-row md:items-start md:justify-between">
         <div>
-          <p className="text-sm font-semibold uppercase tracking-wider text-teal-700">
+          <p className="text-sm font-semibold uppercase tracking-wider text-purple-700">
             {factory.name}
           </p>
           <h2
@@ -231,7 +231,7 @@ export function MachineDetailPage(): ReactElement {
             <ul className="divide-y divide-neutral-200 overflow-hidden rounded-lg border border-neutral-200 bg-white">
               {sensors.items.map((sensor) => (
                 <li
-                  className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"
+                  className="flex flex-col gap-3 border-l-[3px] border-l-transparent p-4 transition hover:border-l-purple-500 hover:bg-purple-50 sm:flex-row sm:items-center sm:justify-between"
                   key={sensor.id}
                 >
                   <div>
@@ -242,7 +242,7 @@ export function MachineDetailPage(): ReactElement {
                     </p>
                   </div>
                   <Link
-                    className="text-sm font-semibold text-teal-700 hover:underline"
+                    className="text-sm font-semibold text-purple-700 hover:underline"
                     to={`/factories/${factory.id}/machines/${machine.id}/sensors/${sensor.id}`}
                   >
                     Open sensor

@@ -9,6 +9,7 @@ import {
 import { useAuth } from "../../auth/useAuth";
 import { JobStatusBadge, TrainerLabel } from "../../components/aiLifecycle/LifecycleUi";
 import { TrainingJobFormDialog } from "../../components/aiLifecycle/TrainingJobFormDialog";
+import { PageHeader } from "../../components/ui/PageHeader";
 import {
   EmptyState,
   InlineError,
@@ -60,35 +61,37 @@ export function TrainingJobsPage(): ReactElement {
   const reload = (): void => setRevision((value) => value + 1);
   return (
     <section aria-labelledby="training-heading">
-      <div className="flex flex-col gap-4 border-b border-neutral-200 pb-6 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h2 className="text-3xl font-semibold tracking-tight" id="training-heading">
-            Training jobs
-          </h2>
-          <p className="mt-2 text-sm text-neutral-600">
+      <PageHeader
+        actions={
+          <button
+            className={primaryButtonClassName}
+            onClick={() => setCreating(true)}
+            type="button"
+          >
+            Create training job
+          </button>
+        }
+        description={
+          <>
             Submit and follow authorized background Random Forest training.
-          </p>
-          {role === "engineer" ? (
-            <p className="mt-1 text-xs text-neutral-500">
-              Engineers see only jobs they requested.
-            </p>
-          ) : null}
-        </div>
-        <button
-          className={primaryButtonClassName}
-          onClick={() => setCreating(true)}
-          type="button"
-        >
-          Create training job
-        </button>
-      </div>
+            {role === "engineer" ? (
+              <span className="mt-1 block text-xs text-muted-foreground">
+                Engineers see only jobs they requested.
+              </span>
+            ) : null}
+          </>
+        }
+        eyebrow="AI lifecycle"
+        headingId="training-heading"
+        title="Training jobs"
+      />
       <div className="mt-6 flex items-end gap-3">
         <div>
           <label className="block text-sm font-medium" htmlFor="training-status">
             Status
           </label>
           <select
-            className="mt-1 rounded-md border border-neutral-300 px-3 py-2 text-sm"
+            className="mt-1 rounded-md border border-border-strong px-3 py-2 text-sm text-foreground"
             id="training-status"
             onChange={(event) => {
               setLoading(true);
@@ -107,7 +110,7 @@ export function TrainingJobsPage(): ReactElement {
           </select>
         </div>
         <button
-          className="rounded-md border border-neutral-300 px-3 py-2 text-sm font-semibold"
+          className="rounded-md border border-border-strong bg-elevated px-3 py-2 text-sm font-semibold text-secondary-foreground"
           onClick={() => {
             setLoading(true);
             setError(null);
@@ -139,9 +142,9 @@ export function TrainingJobsPage(): ReactElement {
           />
         ) : (
           <>
-            <div className="overflow-x-auto rounded-lg border border-neutral-200 bg-white">
+            <div className="overflow-x-auto rounded-lg border border-border bg-card">
               <table className="min-w-full divide-y divide-neutral-200 text-left text-sm">
-                <thead className="bg-neutral-50 text-xs uppercase text-neutral-600">
+                <thead className="bg-muted text-xs uppercase text-secondary-foreground">
                   <tr>
                     <th className="px-4 py-3">Job</th>
                     <th className="px-4 py-3">Trainer</th>
@@ -156,7 +159,7 @@ export function TrainingJobsPage(): ReactElement {
                     <tr key={job.job_id}>
                       <td className="px-4 py-3">
                         <Link
-                          className="font-mono text-xs font-semibold text-teal-700 hover:underline"
+                          className="font-mono text-xs font-semibold text-purple-700 hover:underline"
                           to={`/training/${job.job_id}`}
                         >
                           {job.job_id}
@@ -171,7 +174,7 @@ export function TrainingJobsPage(): ReactElement {
                       <td className="px-4 py-3">
                         <span className="font-medium">{job.registered_model_name}</span>
                         <br />
-                        <span className="text-xs text-neutral-500">
+                        <span className="text-xs text-muted-foreground">
                           Version {job.registered_model_version ?? "pending"}
                         </span>
                       </td>

@@ -10,6 +10,7 @@ import {
 import { useAuth } from "../../auth/useAuth";
 import { CsvUploadDialog } from "../../components/dataOperations/CsvUploadDialog";
 import { UploadJobSummary } from "../../components/dataOperations/UploadJobSummary";
+import { PageHeader } from "../../components/ui/PageHeader";
 import {
   Breadcrumbs,
   EmptyState,
@@ -71,25 +72,23 @@ export function UploadJobsPage(): ReactElement {
       <Breadcrumbs
         items={[{ label: "Sensor Data", to: "/sensor-data" }, { label: "Upload jobs" }]}
       />
-      <div className="flex flex-col gap-4 border-b border-neutral-200 pb-6 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h2 className="text-3xl font-semibold tracking-tight" id="uploads-heading">
-            Upload jobs
-          </h2>
-          <p className="mt-2 text-sm text-neutral-600">
-            Review aggregate results from sensor-data ingestion jobs.
-          </p>
-        </div>
-        {canWrite ? (
-          <button
-            className={primaryButtonClassName}
-            onClick={() => setShowUpload(true)}
-            type="button"
-          >
-            Upload CSV
-          </button>
-        ) : null}
-      </div>
+      <PageHeader
+        actions={
+          canWrite ? (
+            <button
+              className={primaryButtonClassName}
+              onClick={() => setShowUpload(true)}
+              type="button"
+            >
+              Upload CSV
+            </button>
+          ) : undefined
+        }
+        description="Review aggregate results from sensor-data ingestion jobs."
+        eyebrow="Data operations"
+        headingId="uploads-heading"
+        title="Upload jobs"
+      />
       <form
         className="mt-6 flex flex-wrap items-end gap-3"
         onSubmit={(event) => {
@@ -172,7 +171,7 @@ export function UploadJobsPage(): ReactElement {
       </div>
       <p className="mt-6 text-sm text-neutral-500">
         Looking for a sensor?{" "}
-        <Link className="font-semibold text-teal-700 hover:underline" to="/factories">
+        <Link className="font-semibold text-purple-700 hover:underline" to="/factories">
           Browse the factory hierarchy
         </Link>
         .

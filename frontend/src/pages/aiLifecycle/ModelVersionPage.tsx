@@ -94,6 +94,9 @@ export function ModelVersionPage(): ReactElement {
       />
       <div className="flex flex-wrap items-start justify-between gap-4 border-b border-neutral-200 pb-6">
         <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-purple-700">
+            Model version
+          </p>
           <h2 className="text-2xl font-semibold" id="version-heading">
             Version {version.model_version}
           </h2>

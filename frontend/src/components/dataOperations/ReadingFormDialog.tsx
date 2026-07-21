@@ -101,7 +101,7 @@ export function ReadingFormDialog({
             </label>
             <input
               autoFocus
-              className="mt-2 block w-full rounded-md border border-neutral-300 px-3 py-2.5 text-sm outline-none focus:border-teal-700 focus:ring-2 focus:ring-teal-700/20"
+              className="mt-2 block w-full rounded-md border border-neutral-300 px-3 py-2.5 text-sm outline-none focus:border-purple-700 focus:ring-2 focus:ring-purple-700/20"
               disabled={busy}
               id="reading-timestamp"
               onChange={(event) => setTimestamp(event.target.value)}
@@ -119,7 +119,7 @@ export function ReadingFormDialog({
               <span aria-hidden="true">*</span>
             </label>
             <input
-              className="mt-2 block w-full rounded-md border border-neutral-300 px-3 py-2.5 text-sm outline-none focus:border-teal-700 focus:ring-2 focus:ring-teal-700/20"
+              className="mt-2 block w-full rounded-md border border-neutral-300 px-3 py-2.5 text-sm outline-none focus:border-purple-700 focus:ring-2 focus:ring-purple-700/20"
               disabled={busy}
               id="reading-value"
               onChange={(event) => setValue(event.target.value)}

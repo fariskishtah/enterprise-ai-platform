@@ -29,7 +29,11 @@ export function UploadJobSummary({
   readonly job: UploadJob;
 }): ReactElement {
   return (
-    <article className="rounded-lg border border-neutral-200 bg-white p-5">
+    <article className="relative overflow-hidden rounded-lg border border-neutral-200 bg-white p-5 shadow-panel">
+      <span
+        aria-hidden="true"
+        className={`absolute inset-y-0 left-0 w-1 ${job.status === "FAILED" ? "bg-red-600" : job.status === "COMPLETED" ? "bg-emerald-600" : job.status === "PROCESSING" ? "bg-blue-600" : "bg-neutral-400"}`}
+      />
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="truncate font-semibold text-neutral-950">{job.filename}</p>
@@ -66,7 +70,7 @@ export function UploadJobSummary({
         </dl>
       )}
       <Link
-        className="mt-4 inline-flex text-sm font-semibold text-teal-700 hover:underline"
+        className="mt-4 inline-flex text-sm font-semibold text-purple-700 hover:underline"
         to={`/sensor-data/uploads/${job.id}`}
       >
         View upload details

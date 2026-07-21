@@ -29,6 +29,7 @@ import {
   secondaryButtonClassName,
 } from "../../components/hierarchy/ResourceStates";
 import { StatusBadge, type StatusBadgeStatus } from "../../components/StatusBadge";
+import { TrendChart } from "../../components/ui/TrendChart";
 import { formatDate, hierarchyError } from "../hierarchy/shared";
 
 const PAGE_SIZE = 20;
@@ -157,7 +158,7 @@ export function SensorReadingsPage(): ReactElement {
       />
       <div className="flex flex-col gap-4 border-b border-neutral-200 pb-6 md:flex-row md:items-end md:justify-between">
         <div>
-          <p className="text-sm font-semibold uppercase tracking-wider text-teal-700">
+          <p className="text-sm font-semibold uppercase tracking-wider text-purple-700">
             {sensor.name}
           </p>
           <h2
@@ -198,6 +199,27 @@ export function SensorReadingsPage(): ReactElement {
           {message}
         </p>
       )}
+      <div className="mt-6">
+        <div className="mb-3">
+          <h3 className="text-lg font-semibold text-neutral-950">Reading trend</h3>
+          <p className="mt-1 text-sm text-neutral-600">
+            The current filtered page, ordered chronologically for analysis.
+          </p>
+        </div>
+        <TrendChart
+          ariaLabel={`${sensor.name} sensor reading trend`}
+          points={(page?.items ?? [])
+            .slice()
+            .sort(
+              (left, right) => Date.parse(left.timestamp) - Date.parse(right.timestamp),
+            )
+            .map((reading) => ({
+              label: new Date(reading.timestamp).toLocaleString(),
+              value: reading.value,
+            }))}
+          unit={sensor.unit}
+        />
+      </div>
       <form
         className="mt-6 grid gap-3 rounded-lg border border-neutral-200 bg-white p-4 sm:grid-cols-2 lg:grid-cols-5"
         onSubmit={(event) => {

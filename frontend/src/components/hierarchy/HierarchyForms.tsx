@@ -14,7 +14,7 @@ import { Dialog } from "./Dialogs";
 import { primaryButtonClassName, secondaryButtonClassName } from "./ResourceStates";
 
 const inputClassName =
-  "mt-2 block w-full rounded-md border border-neutral-300 px-3 py-2.5 text-sm outline-none focus:border-teal-700 focus:ring-2 focus:ring-teal-700/20 disabled:bg-neutral-100";
+  "mt-2 block w-full rounded-md border border-neutral-300 px-3 py-2.5 text-sm outline-none focus:border-purple-700 focus:ring-2 focus:ring-purple-700/20 disabled:bg-neutral-100";
 const labelClassName = "block text-sm font-medium text-neutral-800";
 
 function optionalText(value: string): string | null {

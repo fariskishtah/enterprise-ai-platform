@@ -94,6 +94,9 @@ export function ModelDetailPage(): ReactElement {
     <section aria-labelledby="model-heading">
       <Breadcrumbs items={[{ label: "Models", to: "/models" }, { label: name }]} />
       <div className="border-b border-neutral-200 pb-6">
+        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-purple-700">
+          Registered model
+        </p>
         <h2 className="break-all text-2xl font-semibold" id="model-heading">
           {name}
         </h2>
@@ -135,7 +138,7 @@ export function ModelDetailPage(): ReactElement {
               <div className="mt-3 flex flex-wrap gap-2">
                 {aliases.aliases.map((alias) => (
                   <Link
-                    className="rounded-full border border-teal-200 bg-teal-50 px-3 py-1 text-sm font-semibold text-teal-800"
+                    className="rounded-full border border-purple-200 bg-purple-50 px-3 py-1 text-sm font-semibold text-purple-800"
                     key={alias.alias}
                     to={`/models/${encodeURIComponent(name)}/versions/${encodeURIComponent(alias.version)}`}
                   >
@@ -167,7 +170,7 @@ export function ModelDetailPage(): ReactElement {
                     >
                       <div>
                         <Link
-                          className="font-semibold text-teal-700 hover:underline"
+                          className="font-semibold text-purple-700 hover:underline"
                           to={`/models/${encodeURIComponent(name)}/versions/${encodeURIComponent(version)}`}
                         >
                           Version {version}
