@@ -32,6 +32,7 @@ async def ai_api_client(
                 "mlflow_tracking_uri": f"file:{tmp_path / 'mlruns'}",
                 "model_artifact_root": str(tmp_path / "mlflow-artifacts"),
                 "ai_artifact_root": str(tmp_path / "ai-artifacts"),
+                "dataset_storage_root": str(tmp_path / "datasets"),
             },
         ),
     )

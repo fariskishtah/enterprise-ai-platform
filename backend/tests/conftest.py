@@ -1,6 +1,7 @@
 """Shared backend test fixtures."""
 
 from collections.abc import AsyncIterator
+from pathlib import Path
 
 import pytest
 from app import models as app_models
@@ -22,7 +23,7 @@ def anyio_backend() -> str:
 
 
 @pytest.fixture
-def settings() -> Settings:
+def settings(tmp_path: Path) -> Settings:
     """Return deterministic test settings."""
     return Settings(
         database_url="sqlite+aiosqlite://",
@@ -33,6 +34,7 @@ def settings() -> Settings:
         auth_rate_limit_enabled=False,
         mutation_rate_limit_enabled=False,
         worker_availability_check_enabled=False,
+        dataset_storage_root=str(tmp_path / "datasets"),
         access_token_expire_minutes=15,
         refresh_token_expire_days=30,
     )

@@ -4,10 +4,10 @@ set -Eeuo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 usage() {
-  echo "Usage: $0 BACKUP_FILE" >&2
+  echo "Usage: $0 POSTGRES_BACKUP [DATASET_ARCHIVE]" >&2
 }
 
-if (($# != 1)); then
+if (($# < 1 || $# > 2)); then
   usage
   exit 2
 fi
@@ -21,6 +21,25 @@ fi
 backup_directory="$(cd "$(dirname "$backup_argument")" && pwd -P)"
 backup_file="$backup_directory/$(basename "$backup_argument")"
 checksum_file="$backup_file.sha256"
+dataset_archive=""
+if (($# == 2)); then
+  dataset_argument=$2
+  if [[ ! -f "$dataset_argument" ]]; then
+    echo "Dataset archive does not exist: $dataset_argument" >&2
+    exit 2
+  fi
+  dataset_directory="$(cd "$(dirname "$dataset_argument")" && pwd -P)"
+  dataset_archive="$dataset_directory/$(basename "$dataset_argument")"
+elif [[ "$(basename "$backup_file")" == postgres-*.dump ]]; then
+  backup_suffix="$(basename "$backup_file")"
+  backup_suffix="${backup_suffix#postgres-}"
+  backup_suffix="${backup_suffix%.dump}"
+  inferred_dataset_archive="$backup_directory/dataset-${backup_suffix}.tar.gz"
+  if [[ -f "$inferred_dataset_archive" ]]; then
+    dataset_archive="$inferred_dataset_archive"
+  fi
+fi
+dataset_checksum_file="${dataset_archive:+${dataset_archive}.sha256}"
 container_id=""
 
 cleanup() {
@@ -58,6 +77,30 @@ if [[ -f "$checksum_file" ]]; then
     exit 1
   fi
   checksum_status="verified"
+fi
+if [[ -n "$dataset_archive" && "$checksum_status" != "verified" ]]; then
+  echo "A paired PostgreSQL backup checksum is required: $checksum_file" >&2
+  exit 1
+fi
+
+dataset_checksum_status="not provided"
+if [[ -n "$dataset_archive" ]]; then
+  if [[ ! -f "$dataset_checksum_file" ]]; then
+    echo "Dataset archive checksum is required: $dataset_checksum_file" >&2
+    exit 1
+  fi
+  expected_dataset_checksum="$(awk 'NR == 1 {print $1}' "$dataset_checksum_file")"
+  if [[ ${#expected_dataset_checksum} -ne 64 || \
+        "$expected_dataset_checksum" =~ [^0-9a-fA-F] ]]; then
+    echo "Dataset checksum file is not a valid SHA-256 record." >&2
+    exit 1
+  fi
+  actual_dataset_checksum="$(calculate_sha256 "$dataset_archive")"
+  if [[ "$actual_dataset_checksum" != "$expected_dataset_checksum" ]]; then
+    echo "Dataset archive checksum verification failed." >&2
+    exit 1
+  fi
+  dataset_checksum_status="verified"
 fi
 
 cd "$ROOT_DIR"
@@ -110,6 +153,28 @@ docker exec "$container_id" pg_restore \
   --dbname backup_verification \
   /tmp/backup.dump >/dev/null
 
+if [[ -n "$dataset_archive" ]]; then
+  docker cp "$dataset_archive" "$container_id:/tmp/dataset.tar.gz" >/dev/null
+  dataset_listing="$(docker exec "$container_id" tar -tzf /tmp/dataset.tar.gz)" || {
+    echo "Dataset archive validation failed." >&2
+    exit 1
+  }
+  while IFS= read -r member; do
+    [[ -z "$member" ]] && continue
+    case "$member" in
+      /*|..|../*|*/../*|*/..)
+        echo "Dataset archive contains an unsafe path." >&2
+        exit 1
+        ;;
+    esac
+  done <<<"$dataset_listing"
+  docker exec "$container_id" sh -ceu \
+    'tar -tvzf /tmp/dataset.tar.gz | awk '\''{
+       kind = substr($1, 1, 1)
+       if (kind != "-" && kind != "d") exit 1
+     }'\'''
+fi
+
 schema_count="$(docker exec "$container_id" psql \
   --tuples-only --no-align \
   --username backup_verification \
@@ -120,8 +185,14 @@ table_count="$(docker exec "$container_id" psql \
   --username backup_verification \
   --dbname backup_verification \
   --command="SELECT count(*) FROM information_schema.tables WHERE table_schema NOT IN ('pg_catalog', 'information_schema');")"
+vector_extension_count="$(docker exec "$container_id" psql \
+  --tuples-only --no-align \
+  --username backup_verification \
+  --dbname backup_verification \
+  --command="SELECT count(*) FROM pg_extension WHERE extname = 'vector';")"
 
-if [[ ! "$schema_count" =~ ^[0-9]+$ || ! "$table_count" =~ ^[0-9]+$ ]]; then
+if [[ ! "$schema_count" =~ ^[0-9]+$ || ! "$table_count" =~ ^[0-9]+$ || \
+      ! "$vector_extension_count" =~ ^[0-9]+$ ]]; then
   echo "Restored schema inspection returned an invalid result." >&2
   exit 1
 fi
@@ -129,6 +200,11 @@ if ((schema_count < 1 || table_count < 1)); then
   echo "Restored archive did not contain an inspectable application schema and table." >&2
   exit 1
 fi
+if [[ -n "$dataset_archive" && "$vector_extension_count" != "1" ]]; then
+  echo "Restored archive does not contain the required vector extension." >&2
+  exit 1
+fi
 
-printf 'PostgreSQL backup verification complete.\nArchive: %s\nChecksum: %s\nSchemas inspected: %s\nTables inspected: %s\n' \
-  "$backup_file" "$checksum_status" "$schema_count" "$table_count"
+printf 'Application backup verification complete.\nPostgreSQL archive: %s\nPostgreSQL checksum: %s\nDataset archive: %s\nDataset checksum: %s\nVector extension count: %s\nSchemas inspected: %s\nTables inspected: %s\n' \
+  "$backup_file" "$checksum_status" "${dataset_archive:-not provided}" \
+  "$dataset_checksum_status" "$vector_extension_count" "$schema_count" "$table_count"

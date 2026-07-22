@@ -36,6 +36,10 @@ def test_backup_retention_is_bounded_to_matching_files_in_backup_directory() -> 
     assert 'find "$BACKUP_DIR" -maxdepth 1 -type f' in script
     assert "-name 'postgres-*.dump'" in script
     assert "-name 'postgres-*.dump.sha256'" in script
+    assert "-name 'dataset-*.tar.gz'" in script
+    assert "-name 'dataset-*.tar.gz.sha256'" in script
+    assert "dst=/source,readonly" in script
+    assert "--network none" in script
     assert 'rm -f -- "$expired_file"' in script
     assert "docker volume" not in script
 
@@ -48,6 +52,8 @@ def test_verification_uses_an_ephemeral_container_not_the_live_database() -> Non
     assert "postgres-data" not in script
     assert "pg_restore" in script
     assert "information_schema.tables" in script
+    assert "tar -tzf" in script
+    assert "pg_extension" in script
 
 
 def test_compose_keeps_redis_aof_persistence_on_the_existing_volume() -> None:
@@ -71,3 +77,4 @@ def test_runbook_defines_recovery_targets_and_restore_verification() -> None:
     assert "rto" in runbook
     assert "./scripts/verify-postgres-backup.sh" in runbook
     assert "never restores into the live" in runbook
+    assert "dataset archive" in runbook

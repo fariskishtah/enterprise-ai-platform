@@ -82,6 +82,35 @@ async def test_api_documentation_routes_follow_explicit_setting(
 
 
 @pytest.mark.anyio
+async def test_global_request_body_limit_rejects_before_parsing(
+    settings: Settings,
+) -> None:
+    application = create_app(_validated_settings(settings, http_request_max_bytes=32))
+    async with AsyncClient(
+        transport=ASGITransport(app=application), base_url="http://testserver"
+    ) as client:
+        response = await client.post(
+            "/auth/login",
+            content=b"x" * 33,
+            headers={
+                "Content-Type": "application/json",
+                "Origin": "http://localhost:5173",
+            },
+        )
+
+    assert response.status_code == 413
+    assert response.json()["detail"] == (
+        "The request body exceeds the configured size limit."
+    )
+    assert response.headers["Cache-Control"] == "no-store"
+    assert response.headers["X-Content-Type-Options"] == "nosniff"
+    assert response.headers["X-Frame-Options"] == "DENY"
+    assert response.headers["Access-Control-Allow-Origin"] == ("http://localhost:5173")
+    assert response.headers[settings.request_id_header]
+    assert response.headers[settings.correlation_id_header]
+
+
+@pytest.mark.anyio
 async def test_cors_allows_configured_local_origin_only(
     api_client: AsyncClient,
 ) -> None:
@@ -164,6 +193,30 @@ def test_production_disables_debug_and_local_cors(settings: Settings) -> None:
     assert application.openapi_url is None
     with pytest.raises(ValidationError):
         _validated_settings(settings, environment="production")
+
+
+@pytest.mark.anyio
+async def test_production_emits_hsts(settings: Settings) -> None:
+    production = _validated_settings(
+        settings,
+        environment="production",
+        enable_api_docs=False,
+        cors_allowed_origins=("https://platform.example",),
+    )
+    async with AsyncClient(
+        transport=ASGITransport(app=create_app(production)),
+        base_url="https://platform.example",
+    ) as client:
+        response = await client.get("/health")
+    assert response.headers["Strict-Transport-Security"] == (
+        "max-age=31536000; includeSubDomains"
+    )
+    async with AsyncClient(
+        transport=ASGITransport(app=create_app(production)),
+        base_url="https://attacker.example",
+    ) as client:
+        rejected = await client.get("/health")
+    assert rejected.status_code == 400
 
 
 def test_production_rejects_enabled_api_documentation(settings: Settings) -> None:

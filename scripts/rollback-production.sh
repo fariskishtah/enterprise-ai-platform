@@ -65,6 +65,20 @@ fi
   exit 1
 }
 
+CURRENT_COMPOSE=(
+  docker compose
+  --project-name "$PROJECT_NAME"
+  --env-file "$ENV_FILE"
+  -f "$REPO_ROOT/docker-compose.yml"
+  -f "$REPO_ROOT/docker-compose.prod.yml"
+)
+current_postgres_id="$("${CURRENT_COMPOSE[@]}" ps -q postgres)"
+if [[ -z "$current_postgres_id" ]]; then
+  echo "Error: the current production PostgreSQL container is not running." >&2
+  exit 1
+fi
+current_postgres_image="$(docker inspect --format '{{.Config.Image}}' "$current_postgres_id")"
+
 RESOLVED_REVISION="$(git rev-parse --verify --end-of-options "${REVISION}^{commit}" 2>/dev/null)" || {
   echo "Error: supplied rollback revision is not a local Git commit." >&2
   exit 1
@@ -100,6 +114,23 @@ COMPOSE=(
 
 echo "Validating rollback Compose configuration..."
 "${COMPOSE[@]}" config --quiet
+rollback_postgres_image="$({
+  "${COMPOSE[@]}" config | awk '
+    $0 == "  postgres:" { in_postgres = 1; next }
+    in_postgres && $0 ~ /^    image: / {
+      sub(/^    image: /, "")
+      print
+      exit
+    }
+    in_postgres && $0 ~ /^  [^ ]/ { exit }
+  '
+})"
+if [[ -z "$rollback_postgres_image" || \
+      "$rollback_postgres_image" != "$current_postgres_image" ]]; then
+  echo "Error: refusing rollback because the target PostgreSQL image is not compatible with the running database image." >&2
+  echo "Use a roll-forward application revision that retains the current PostgreSQL image." >&2
+  exit 1
+fi
 
 echo "Pulling and building the supplied revision..."
 "${COMPOSE[@]}" pull --ignore-buildable
