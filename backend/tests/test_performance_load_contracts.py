@@ -12,6 +12,9 @@ _ENTRY_SCRIPTS = (
     _K6_DIR / "api-load.js",
     _K6_DIR / "auth-load.js",
     _K6_DIR / "training-job-load.js",
+    _K6_DIR / "data-rag-load.js",
+    _K6_DIR / "stress.js",
+    _K6_DIR / "soak.js",
 )
 _COMMON = _K6_DIR / "common.js"
 _CI = _ROOT / ".github/workflows/ci.yml"
