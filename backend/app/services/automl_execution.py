@@ -657,6 +657,8 @@ def _training_specification(
         "plugin_id": trial.plugin_id,
         "training_features": data.training_features,
         "evaluation_features": data.evaluation_features,
+        "dataset_version_id": data.dataset_version_id,
+        "dataset_schema_snapshot": data.dataset_schema_snapshot,
         "hyperparameters": trial.parameters,
         "preprocessing": study.preprocessing,
         "random_seed": trial.random_seed,

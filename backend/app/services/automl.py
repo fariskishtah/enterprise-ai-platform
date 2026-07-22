@@ -62,6 +62,7 @@ class AutoMLService:
             study = await self._repository.create_study(
                 id=uuid4(),
                 requested_by_user_id=owner_id,
+                dataset_version_id=specification.data.dataset_version_id,
                 task_type=specification.task_type,
                 status=AutoMLStudyStatus.QUEUED,
                 primary_metric=specification.primary_metric,

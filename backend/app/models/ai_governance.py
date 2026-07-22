@@ -62,6 +62,7 @@ class TrainingJob(Base):
             name="uq_training_jobs_scoped_idempotency",
         ),
         Index("ix_training_jobs_requested_by_user_id", "requested_by_user_id"),
+        Index("ix_training_jobs_dataset_version_id", "dataset_version_id"),
         Index("ix_training_jobs_status", "status"),
         Index("ix_training_jobs_created_at", "created_at"),
         Index("ix_training_jobs_status_started_at", "status", "started_at"),
@@ -82,6 +83,10 @@ class TrainingJob(Base):
         Uuid(as_uuid=True),
         ForeignKey("users.id", ondelete="RESTRICT"),
         nullable=False,
+    )
+    dataset_version_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("dataset_versions.id", ondelete="RESTRICT"),
     )
     algorithm: Mapped[AlgorithmType] = mapped_column(
         SQLAlchemyEnum(

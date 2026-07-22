@@ -35,11 +35,15 @@ class AutoMLReconciliationSchedulerMiddleware(Middleware):
         redis_url: str,
         enqueue: Callable[[], object],
         redis_client: SchedulerRedisClient | None = None,
+        scheduler_key: str = AUTOML_RECONCILIATION_SCHEDULER_KEY,
+        scheduler_name: str = "automl",
     ) -> None:
         self._enabled = enabled
         self._interval_seconds = interval_seconds
         self._client = redis_client or Redis.from_url(redis_url, decode_responses=True)
         self._enqueue = enqueue
+        self._scheduler_key = scheduler_key
+        self._scheduler_name = scheduler_name
         self._stop = Event()
         self._thread: Thread | None = None
 
@@ -50,7 +54,7 @@ class AutoMLReconciliationSchedulerMiddleware(Middleware):
         self._stop.clear()
         self._thread = Thread(
             target=self._run,
-            name="automl-reconciliation-scheduler",
+            name=f"{self._scheduler_name}-reconciliation-scheduler",
             daemon=True,
         )
         self._thread.start()
@@ -66,7 +70,7 @@ class AutoMLReconciliationSchedulerMiddleware(Middleware):
         while not self._stop.is_set():
             try:
                 acquired = self._client.set(
-                    AUTOML_RECONCILIATION_SCHEDULER_KEY,
+                    self._scheduler_key,
                     "scheduled",
                     ex=self._interval_seconds,
                     nx=True,
@@ -77,15 +81,18 @@ class AutoMLReconciliationSchedulerMiddleware(Middleware):
                 emit_safe(
                     logger,
                     logging.ERROR,
-                    "automl_reconciliation_schedule_failed",
+                    "reconciliation_schedule_failed",
                     extra={"error_kind": "redis_unavailable"},
                 )
             except Exception:
                 emit_safe(
                     logger,
                     logging.ERROR,
-                    "automl_reconciliation_enqueue_failed",
-                    extra={"error_kind": "queue_unavailable"},
+                    "reconciliation_enqueue_failed",
+                    extra={
+                        "error_kind": "queue_unavailable",
+                        "job_name": self._scheduler_name,
+                    },
                     exc_info=True,
                 )
             self._stop.wait(self._interval_seconds)

@@ -86,6 +86,7 @@ class AutoMLStudy(Base):
         Index(
             "ix_automl_studies_requester_created", "requested_by_user_id", "created_at"
         ),
+        Index("ix_automl_studies_dataset_version", "dataset_version_id"),
         Index("ix_automl_studies_status_created", "status", "created_at"),
         Index("ix_automl_studies_task_created", "task_type", "created_at"),
         Index("ix_automl_studies_reconciliation", "status", "deadline_at"),
@@ -96,6 +97,10 @@ class AutoMLStudy(Base):
     )
     requested_by_user_id: Mapped[UUID] = mapped_column(
         Uuid(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    dataset_version_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("dataset_versions.id", ondelete="RESTRICT"),
     )
     task_type: Mapped[TaskType] = mapped_column(
         SQLAlchemyEnum(

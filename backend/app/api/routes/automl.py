@@ -1,16 +1,31 @@
 """Authenticated management API for persisted AutoML studies and trials."""
 
+import json
+from hashlib import sha256
 from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.datasets.service import (
+    DatasetConflictError,
+    DatasetNotFoundError,
+    DatasetQueueError,
+    DatasetService,
+)
 from app.dependencies.auth import require_roles
 from app.dependencies.database import get_db_session
+from app.dependencies.datasets import get_dataset_service
 from app.dependencies.rate_limit import enforce_mutation_rate_limit
 from app.ml.automl.champion import ChampionCandidate, rank_champions
-from app.ml.automl.models import AutoMLStudyStatus, AutoMLTrialStatus
+from app.ml.automl.models import (
+    AutoMLDataSpecificationReference,
+    AutoMLStudySpecification,
+    AutoMLStudyStatus,
+    AutoMLTrialStatus,
+)
 from app.ml.automl.queue import AutoMLQueue, DramatiqAutoMLQueue
 from app.ml.automl.search_space import (
     CategoricalSearchParameter,
@@ -57,7 +72,7 @@ def get_automl_queue() -> AutoMLQueue:
     "/algorithms", response_model=list[AutoMLAlgorithmMetadataResponse], responses=_AUTH
 )
 def algorithms(
-    _user: Annotated[User, Depends(require_roles(UserRole.ADMIN, UserRole.ENGINEER))]
+    _user: Annotated[User, Depends(require_roles(UserRole.ADMIN, UserRole.ENGINEER))],
 ) -> list[AutoMLAlgorithmMetadataResponse]:
     result: list[AutoMLAlgorithmMetadataResponse] = []
     for plugin in create_default_plugin_registry().all():
@@ -106,15 +121,63 @@ async def create_study(
         User, Depends(require_roles(UserRole.ADMIN, UserRole.ENGINEER))
     ],
     session: Annotated[AsyncSession, Depends(get_db_session)],
+    dataset_service: Annotated[DatasetService, Depends(get_dataset_service)],
     queue: Annotated[AutoMLQueue, Depends(get_automl_queue)],
     idempotency_key: Annotated[
         str | None, Header(alias="Idempotency-Key", max_length=128)
     ] = None,
 ) -> AutoMLStudySubmissionResponse:
+    specification = payload.to_specification()
+    dataset_version_id = payload.data.dataset_version_id
+    if dataset_version_id is not None:
+        if payload.data.executable:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                "Select exactly one AutoML data source.",
+            )
+        try:
+            snapshot = await dataset_service.resolve_training_snapshot(
+                dataset_version_id,
+                owner_id=(
+                    None if current_user.role is UserRole.ADMIN else current_user.id
+                ),
+            )
+        except DatasetNotFoundError as exc:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+        except DatasetConflictError as exc:
+            raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+        except DatasetQueueError as exc:
+            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
+        try:
+            data = AutoMLDataSpecificationReference(
+                dataset_version_id=snapshot.dataset_version_id,
+                dataset_schema_snapshot=snapshot.schema_snapshot,
+                training_data_fingerprint=_data_fingerprint(
+                    snapshot.training_features, snapshot.training_targets
+                ),
+                evaluation_data_fingerprint=_data_fingerprint(
+                    snapshot.evaluation_features, snapshot.evaluation_targets
+                ),
+                training_row_count=len(snapshot.training_features),
+                evaluation_row_count=len(snapshot.evaluation_features),
+                feature_count=len(snapshot.training_features[0]),
+                training_features=snapshot.training_features,
+                training_targets=snapshot.training_targets,
+                evaluation_features=snapshot.evaluation_features,
+                evaluation_targets=snapshot.evaluation_targets,
+            )
+            specification = AutoMLStudySpecification.model_validate(
+                {**specification.model_dump(mode="python"), "data": data}
+            )
+        except ValidationError as exc:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                "The registered dataset is incompatible with this AutoML study.",
+            ) from exc
     try:
         submission = await _service(session).create_study(
             owner_id=current_user.id,
-            specification=payload.to_specification(),
+            specification=specification,
             idempotency_key=idempotency_key,
         )
     except AutoMLConflictError as exc:
@@ -142,6 +205,15 @@ async def create_study(
         status_url=f"/ai/automl/studies/{study.id}",
         created=submission.created,
     )
+
+
+def _data_fingerprint(features: object, targets: object) -> str:
+    canonical = json.dumps(
+        {"features": features, "targets": targets},
+        allow_nan=False,
+        separators=(",", ":"),
+    )
+    return sha256(canonical.encode("utf-8")).hexdigest()
 
 
 @router.get("/studies", response_model=AutoMLStudyListResponse, responses=_AUTH)
@@ -337,6 +409,8 @@ def _study_detail(value: AutoMLStudy) -> AutoMLStudyDetailResponse:
             "training_row_count",
             "evaluation_row_count",
             "feature_count",
+            "dataset_version_id",
+            "dataset_schema_snapshot",
         )
         if key in data
     }

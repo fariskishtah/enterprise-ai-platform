@@ -2,7 +2,9 @@
 
 import asyncio
 import logging
+from datetime import timedelta
 from functools import lru_cache
+from pathlib import Path
 from typing import Protocol, cast
 from uuid import UUID
 
@@ -12,6 +14,9 @@ from dramatiq.middleware import Retries
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.config.settings import get_settings
+from app.datasets.queue import DramatiqDatasetProcessingQueue
+from app.datasets.service import DatasetLimits, DatasetProcessor
+from app.datasets.storage import LocalDatasetObjectStorage
 from app.db.session import build_session_factory
 from app.ml.automl.queue import DramatiqAutoMLQueue
 from app.ml.composition import (
@@ -38,14 +43,19 @@ from app.observability.tracing import TracingConfig, traced_operation
 from app.observability.worker import WorkerPrometheusMiddleware
 from app.observability.worker_heartbeat import WorkerHeartbeatMiddleware
 from app.observability.worker_logging import WorkerLoggingMiddleware
+from app.rag.queue import DramatiqRAGIndexQueue
 from app.repositories.ai_governance import TrainingJobRepository
 from app.repositories.automl import AutoMLRepository
+from app.repositories.datasets import DatasetRepository
+from app.repositories.rag import RAGRepository
 from app.services.automl_execution import (
     AutoMLCoordinator,
     AutoMLExecutionState,
     AutoMLReconciler,
     AutoMLTrialWorker,
 )
+from app.services.rag import RAGService
+from app.utils.security import utc_now
 
 _settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -168,6 +178,102 @@ def execute_training_job(training_job_id: str) -> None:
         )
 
 
+def _dataset_limits() -> DatasetLimits:
+    return DatasetLimits(
+        upload_bytes=_settings.dataset_upload_max_bytes,
+        maximum_rows=_settings.dataset_max_rows,
+        maximum_columns=_settings.dataset_max_columns,
+        maximum_cell_characters=_settings.dataset_max_cell_characters,
+        maximum_document_characters=_settings.dataset_max_document_characters,
+        stale_after_seconds=_settings.dataset_processing_stale_after_seconds,
+        maximum_enqueue_attempts=(_settings.dataset_processing_max_enqueue_attempts),
+    )
+
+
+@dramatiq.actor(
+    broker=broker,
+    queue_name=_settings.dataset_queue_name,
+    max_retries=_settings.training_job_max_attempts - 1,
+    min_backoff=int(_settings.training_job_retry_base_seconds * 1000),
+)
+@traced_operation("dataset.version_creation", attributes={"trigger": "background"})
+def process_dataset_version(dataset_version_id: str) -> None:
+    """Process one authoritative version from a UUID-only message."""
+    try:
+        version_id = UUID(dataset_version_id)
+    except ValueError:
+        return
+
+    async def process() -> None:
+        async with _worker_session_factory(_settings.database_url)() as session:
+            await DatasetProcessor(
+                repository=DatasetRepository(session),
+                storage=LocalDatasetObjectStorage(Path(_settings.dataset_storage_root)),
+                limits=_dataset_limits(),
+            ).process(version_id)
+
+    asyncio.run(process())
+
+
+@dramatiq.actor(broker=broker, queue_name=_settings.dataset_queue_name)
+@traced_operation("dataset.reconciliation", attributes={"trigger": "scheduled"})
+def reconcile_dataset_processing() -> None:
+    """Requeue stale dataset work using database state as authority."""
+
+    async def reconcile() -> None:
+        async with _worker_session_factory(_settings.database_url)() as session:
+            await DatasetProcessor(
+                repository=DatasetRepository(session),
+                storage=LocalDatasetObjectStorage(Path(_settings.dataset_storage_root)),
+                limits=_dataset_limits(),
+            ).reconcile_stale(DramatiqDatasetProcessingQueue())
+
+    asyncio.run(reconcile())
+
+
+@dramatiq.actor(broker=broker, queue_name=_settings.rag_queue_name)
+@traced_operation("rag.index_build", attributes={"trigger": "background"})
+def build_rag_index(rag_index_build_id: str) -> None:
+    """Build an authorized local index from one UUID-only message."""
+    try:
+        build_id = UUID(rag_index_build_id)
+    except ValueError:
+        return
+
+    async def build() -> None:
+        async with _worker_session_factory(_settings.database_url)() as session:
+            await RAGService(RAGRepository(session)).process_build(build_id)
+
+    asyncio.run(build())
+
+
+@dramatiq.actor(broker=broker, queue_name=_settings.rag_queue_name)
+@traced_operation("rag.reconciliation", attributes={"trigger": "scheduled"})
+def reconcile_rag_indexing() -> None:
+    """Repair a bounded set of stale index-build states."""
+
+    async def reconcile() -> None:
+        now = utc_now()
+        async with _worker_session_factory(_settings.database_url)() as session:
+            service = RAGService(RAGRepository(session))
+            await service.reconcile_stale(
+                queue=DramatiqRAGIndexQueue(),
+                queued_before=now
+                - timedelta(seconds=_settings.rag_queued_stale_after_seconds),
+                running_before=now
+                - timedelta(seconds=_settings.rag_running_stale_after_seconds),
+                limit=_settings.rag_reconciliation_batch_size,
+                maximum_enqueue_attempts=_settings.rag_index_max_enqueue_attempts,
+            )
+            await service.reconcile_stale_messages(
+                before=now
+                - timedelta(seconds=_settings.rag_message_stale_after_seconds),
+                limit=_settings.rag_reconciliation_batch_size,
+            )
+
+    asyncio.run(reconcile())
+
+
 @dramatiq.actor(
     broker=broker,
     queue_name=_settings.training_queue_name,
@@ -248,6 +354,26 @@ broker.add_middleware(
         interval_seconds=_settings.automl_reconciliation_interval_seconds,
         redis_url=_settings.redis_url,
         enqueue=reconcile_automl_execution.send,
+    )
+)
+broker.add_middleware(
+    AutoMLReconciliationSchedulerMiddleware(
+        enabled=_settings.dataset_reconciliation_scheduling_enabled,
+        interval_seconds=_settings.dataset_reconciliation_interval_seconds,
+        redis_url=_settings.redis_url,
+        enqueue=reconcile_dataset_processing.send,
+        scheduler_key="scheduler:dataset:reconciliation:v1",
+        scheduler_name="dataset",
+    )
+)
+broker.add_middleware(
+    AutoMLReconciliationSchedulerMiddleware(
+        enabled=_settings.rag_reconciliation_scheduling_enabled,
+        interval_seconds=_settings.rag_reconciliation_interval_seconds,
+        redis_url=_settings.redis_url,
+        enqueue=reconcile_rag_indexing.send,
+        scheduler_key="scheduler:rag:reconciliation:v1",
+        scheduler_name="rag",
     )
 )
 

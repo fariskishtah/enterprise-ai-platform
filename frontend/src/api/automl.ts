@@ -157,6 +157,34 @@ export interface AutoMLCancelResult {
   readonly cancelled_at: string | null;
 }
 
+export interface AutoMLInlineDataRequest {
+  readonly dataset_version_id?: never;
+  readonly training_data_fingerprint: string;
+  readonly evaluation_data_fingerprint: string;
+  readonly training_row_count: number;
+  readonly evaluation_row_count: number;
+  readonly feature_count: number;
+  readonly training_features: readonly (readonly number[])[];
+  readonly training_targets: readonly number[];
+  readonly evaluation_features: readonly (readonly number[])[];
+  readonly evaluation_targets: readonly number[];
+}
+
+export interface AutoMLRegisteredDataRequest {
+  readonly dataset_version_id: string;
+  readonly training_data_fingerprint?: never;
+  readonly evaluation_data_fingerprint?: never;
+  readonly training_row_count?: never;
+  readonly evaluation_row_count?: never;
+  readonly feature_count?: never;
+  readonly training_features?: never;
+  readonly training_targets?: never;
+  readonly evaluation_features?: never;
+  readonly evaluation_targets?: never;
+}
+
+export type AutoMLDataRequest = AutoMLInlineDataRequest | AutoMLRegisteredDataRequest;
+
 export interface AutoMLStudyRequest {
   readonly task_type: AutoMLTask;
   readonly primary_metric: string;
@@ -166,17 +194,7 @@ export interface AutoMLStudyRequest {
   readonly plugin_ids: readonly string[];
   readonly plugin_search_spaces: readonly AutoMLSearchSpace[];
   readonly preprocessing: { readonly scaler: string; readonly imputer: string };
-  readonly data: {
-    readonly training_data_fingerprint: string;
-    readonly evaluation_data_fingerprint: string;
-    readonly training_row_count: number;
-    readonly evaluation_row_count: number;
-    readonly feature_count: number;
-    readonly training_features: readonly (readonly number[])[];
-    readonly training_targets: readonly number[];
-    readonly evaluation_features: readonly (readonly number[])[];
-    readonly evaluation_targets: readonly number[];
-  };
+  readonly data: AutoMLDataRequest;
   readonly budget: {
     readonly trial_budget: number;
     readonly time_budget_seconds: number;

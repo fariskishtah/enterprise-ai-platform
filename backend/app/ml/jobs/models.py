@@ -67,6 +67,8 @@ class _BaseRandomForestJobSpec(BaseModel):
         min_length=1,
         max_length=MAX_EVALUATION_ROWS,
     )
+    dataset_version_id: UUID | None = None
+    dataset_schema_snapshot: dict[str, object] | None = None
     random_seed: StrictInt | None = None
     experiment_name: str
     run_name: str | None = None
@@ -277,6 +279,7 @@ class TrainingJobRecord:
 
     id: UUID
     requested_by_user_id: UUID
+    dataset_version_id: UUID | None
     key: TrainerKey
     status: TrainingJobStatus
     specification: TrainingJobSpec

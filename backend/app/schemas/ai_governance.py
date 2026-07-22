@@ -86,17 +86,18 @@ class GenericTrainingJobRequest(BaseModel):
 
     task_type: TaskType
     algorithm: str = Field(min_length=3, max_length=64)
-    training_features: list[list[FiniteFloat]] = Field(
-        min_length=2, max_length=MAX_TRAINING_ROWS
+    dataset_version_id: UUID | None = None
+    training_features: list[list[FiniteFloat]] | None = Field(
+        default=None, min_length=2, max_length=MAX_TRAINING_ROWS
     )
-    training_targets: list[StrictInt | FiniteFloat] = Field(
-        min_length=2, max_length=MAX_TRAINING_ROWS
+    training_targets: list[StrictInt | FiniteFloat] | None = Field(
+        default=None, min_length=2, max_length=MAX_TRAINING_ROWS
     )
-    evaluation_features: list[list[FiniteFloat]] = Field(
-        min_length=2, max_length=MAX_EVALUATION_ROWS
+    evaluation_features: list[list[FiniteFloat]] | None = Field(
+        default=None, min_length=2, max_length=MAX_EVALUATION_ROWS
     )
-    evaluation_targets: list[StrictInt | FiniteFloat] = Field(
-        min_length=2, max_length=MAX_EVALUATION_ROWS
+    evaluation_targets: list[StrictInt | FiniteFloat] | None = Field(
+        default=None, min_length=2, max_length=MAX_EVALUATION_ROWS
     )
     hyperparameters: dict[str, object] = Field(default_factory=dict, max_length=32)
     preprocessing: GenericPreprocessingRequest = Field(
@@ -125,6 +126,27 @@ class GenericTrainingJobRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_matrix_and_target_shapes(self) -> "GenericTrainingJobRequest":
+        values = (
+            self.training_features,
+            self.training_targets,
+            self.evaluation_features,
+            self.evaluation_targets,
+        )
+        if self.dataset_version_id is not None:
+            if any(value is not None for value in values):
+                raise ValueError(
+                    "Select exactly one training data source: inline matrices or "
+                    "dataset_version_id."
+                )
+            return self
+        if any(value is None for value in values):
+            raise ValueError(
+                "Inline training requires all feature and target matrices."
+            )
+        assert self.training_features is not None
+        assert self.training_targets is not None
+        assert self.evaluation_features is not None
+        assert self.evaluation_targets is not None
         matrices = (self.training_features, self.evaluation_features)
         widths = []
         for matrix in matrices:
@@ -170,6 +192,7 @@ class TrainingJobResponse(BaseModel):
 
     job_id: UUID
     requested_by_user_id: UUID
+    dataset_version_id: UUID | None
     trainer_key: TrainerKeyResponse
     status: TrainingJobStatus
     created_at: datetime
