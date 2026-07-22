@@ -136,7 +136,10 @@ export function DatasetVersionPage(): ReactElement {
         headingId="dataset-version-heading"
         title={`Version ${version.version_number}`}
       />
-      <div className="mt-5 flex flex-wrap items-center gap-3">
+      <div
+        className="mt-5 flex flex-wrap items-center gap-3"
+        data-testid="dataset-version-status"
+      >
         <LifecycleStatus status={version.status} />
         <span className="text-sm text-muted-foreground">
           {version.original_filename ?? "Generated dataset"}

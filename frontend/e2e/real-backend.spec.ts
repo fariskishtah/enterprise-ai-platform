@@ -71,10 +71,39 @@ interface LocatedKnowledgeBase {
 }
 
 async function login(page: Page, email: string): Promise<void> {
+  if (!email || !password) {
+    throw new Error(
+      `Real-backend E2E credentials missing (email=${email}, password=${password ? "set" : "missing"})`,
+    );
+  }
   await page.goto("/login");
+  await page.evaluate(() => sessionStorage.clear());
   await page.getByLabel("Email address").fill(email);
-  await page.getByLabel("Password").fill(password ?? "");
+  await page.getByLabel("Password").fill(password);
+
+  const responsePromise = page
+    .waitForResponse(
+      (response) =>
+        response.url().includes("/auth/login") &&
+        response.request().method() === "POST",
+      { timeout: 15_000 },
+    )
+    .catch(() => null);
+
   await page.getByRole("button", { name: "Sign in" }).click();
+  const response = await responsePromise;
+
+  if (response !== null && !response.ok()) {
+    const body = await response.text().catch(() => "");
+    throw new Error(`Login for ${email} failed HTTP ${response.status()}: ${body}`);
+  }
+
+  const alert = page.getByRole("alert");
+  if (await alert.isVisible({ timeout: 1000 }).catch(() => false)) {
+    const text = await alert.textContent();
+    throw new Error(`Login for ${email} failed with alert: ${text}`);
+  }
+
   await expect(page).toHaveURL(/\/$/, { timeout: 20_000 });
 }
 
@@ -258,7 +287,9 @@ async function ensureRegisteredDataset(
     .toBe("ready");
 
   await page.goto(`/datasets/${dataset.id}/versions/${versionId}`);
-  await expect(page.getByText("ready", { exact: true })).toBeVisible();
+  await expect(
+    page.getByTestId("dataset-version-status").getByText("ready", { exact: true }),
+  ).toBeVisible();
   return {
     datasetId: dataset.id,
     datasetPage: Math.floor((located?.index ?? 0) / 20),
