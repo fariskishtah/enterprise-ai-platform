@@ -10,6 +10,7 @@ from app.api.routes.ai_monitoring_orchestration import (
 )
 from app.api.routes.ai_retraining import router as ai_retraining_router
 from app.api.routes.auth import router as auth_router
+from app.api.routes.automl import router as automl_router
 from app.api.routes.companies import router as companies_router
 from app.api.routes.factories import router as factories_router
 from app.api.routes.feature_engineering import router as feature_engineering_router
@@ -37,6 +38,7 @@ api_router.include_router(ai_governance_router)
 api_router.include_router(ai_monitoring_router)
 api_router.include_router(ai_monitoring_orchestration_router)
 api_router.include_router(ai_retraining_router)
+api_router.include_router(automl_router)
 api_router.include_router(auth_router)
 api_router.include_router(companies_router)
 api_router.include_router(feature_engineering_router)

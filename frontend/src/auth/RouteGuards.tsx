@@ -49,3 +49,16 @@ export function PublicOnlyRoute(): ReactElement {
   }
   return auth.isAuthenticated ? <Navigate replace to="/" /> : <Outlet />;
 }
+
+export function RoleRoute({
+  roles,
+}: {
+  readonly roles: readonly ("admin" | "engineer" | "operator")[];
+}): ReactElement {
+  const { role } = useAuth();
+  return role !== null && roles.includes(role) ? (
+    <Outlet />
+  ) : (
+    <Navigate replace to="/" />
+  );
+}

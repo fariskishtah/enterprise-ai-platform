@@ -13,10 +13,12 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.config.settings import get_settings
 from app.db.session import build_session_factory
+from app.ml.automl.queue import DramatiqAutoMLQueue
 from app.ml.composition import (
     create_ai_model_registry,
     create_ai_tracked_training_service,
 )
+from app.ml.jobs.automl_scheduling import AutoMLReconciliationSchedulerMiddleware
 from app.ml.jobs.exceptions import RetryableTrainingJobError
 from app.ml.jobs.worker import (
     TrainingJobWorker,
@@ -36,6 +38,14 @@ from app.observability.tracing import TracingConfig, traced_operation
 from app.observability.worker import WorkerPrometheusMiddleware
 from app.observability.worker_heartbeat import WorkerHeartbeatMiddleware
 from app.observability.worker_logging import WorkerLoggingMiddleware
+from app.repositories.ai_governance import TrainingJobRepository
+from app.repositories.automl import AutoMLRepository
+from app.services.automl_execution import (
+    AutoMLCoordinator,
+    AutoMLExecutionState,
+    AutoMLReconciler,
+    AutoMLTrialWorker,
+)
 
 _settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -156,6 +166,90 @@ def execute_training_job(training_job_id: str) -> None:
         raise RetryableTrainingJobError(
             "The job was released for bounded queue retry.",
         )
+
+
+@dramatiq.actor(
+    broker=broker,
+    queue_name=_settings.training_queue_name,
+    max_retries=_settings.training_job_max_attempts - 1,
+    min_backoff=int(_settings.training_job_retry_base_seconds * 1000),
+)
+@traced_operation("automl.coordinator", attributes={"trigger": "background"})
+def coordinate_automl_study(automl_study_id: str) -> None:
+    """Coordinate one authoritative study from its UUID-only message."""
+    try:
+        study_id = UUID(automl_study_id)
+    except ValueError:
+        return
+
+    async def coordinate() -> AutoMLExecutionState:
+        from app.ml.jobs.queue import DramatiqTrainingJobQueue
+        from app.ml.jobs.service import TrainingJobService
+
+        async with _worker_session_factory(_settings.database_url)() as session:
+            training_repository = TrainingJobRepository(session)
+            return await AutoMLCoordinator(
+                repository=AutoMLRepository(session),
+                queue=DramatiqAutoMLQueue(),
+                global_slots=_settings.automl_global_execution_slots,
+                training_service=TrainingJobService(
+                    repository=training_repository,
+                    queue=DramatiqTrainingJobQueue(),
+                    max_attempts=_settings.training_job_max_attempts,
+                ),
+                training_repository=training_repository,
+            ).coordinate(study_id)
+
+    if asyncio.run(coordinate()) is AutoMLExecutionState.RETRY:
+        raise RetryableTrainingJobError("AutoML coordination requires a bounded retry.")
+
+
+@dramatiq.actor(
+    broker=broker,
+    queue_name=_settings.training_queue_name,
+    max_retries=_settings.training_job_max_attempts - 1,
+    min_backoff=int(_settings.training_job_retry_base_seconds * 1000),
+)
+@traced_operation("automl.trial", attributes={"trigger": "background"})
+def execute_automl_trial(automl_trial_id: str) -> None:
+    """Execute one persisted trial from its UUID-only message."""
+    try:
+        trial_id = UUID(automl_trial_id)
+    except ValueError:
+        return
+    outcome = asyncio.run(
+        AutoMLTrialWorker(
+            session_factory=_worker_session_factory(_settings.database_url),
+            queue=DramatiqAutoMLQueue(),
+            lease_seconds=_settings.automl_trial_lease_seconds,
+        ).execute(trial_id)
+    )
+    if outcome is AutoMLExecutionState.RETRY:
+        raise RetryableTrainingJobError("The AutoML trial requires a bounded retry.")
+
+
+@dramatiq.actor(broker=broker, queue_name=_settings.training_queue_name)
+@traced_operation("automl.reconciliation", attributes={"trigger": "scheduled"})
+def reconcile_automl_execution() -> None:
+    """Repair expired leases and nudge nonterminal studies idempotently."""
+
+    async def reconcile() -> None:
+        async with _worker_session_factory(_settings.database_url)() as session:
+            await AutoMLReconciler(
+                AutoMLRepository(session), DramatiqAutoMLQueue()
+            ).reconcile()
+
+    asyncio.run(reconcile())
+
+
+broker.add_middleware(
+    AutoMLReconciliationSchedulerMiddleware(
+        enabled=_settings.automl_reconciliation_scheduling_enabled,
+        interval_seconds=_settings.automl_reconciliation_interval_seconds,
+        redis_url=_settings.redis_url,
+        enqueue=reconcile_automl_execution.send,
+    )
+)
 
 
 async def _synchronize_retraining_request(training_job_id: UUID) -> None:

@@ -164,6 +164,12 @@ class Settings(BaseSettings):
     training_job_retry_base_seconds: PositiveFloat = 5.0
     training_job_stale_after_seconds: PositiveInt = 3600
     training_job_orphaned_after_seconds: PositiveInt = 60
+    automl_global_execution_slots: PositiveInt = Field(default=1, le=4)
+    automl_trial_lease_seconds: PositiveInt = Field(default=300, le=21600)
+    automl_reconciliation_scheduling_enabled: bool = True
+    automl_reconciliation_interval_seconds: PositiveInt = Field(
+        default=60, ge=10, le=3600
+    )
     promotion_audit_pending_after_seconds: PositiveInt = 300
     promotion_regression_min_r2: FiniteFloat = Field(default=0.0, le=1)
     promotion_regression_min_relative_rmse_improvement: float = Field(
