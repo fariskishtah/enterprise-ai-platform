@@ -98,16 +98,7 @@ class LocalExtractiveGenerationProvider:
             )
 
         question_terms = _significant_terms(question)
-        candidates: list[tuple[int, int, str]] = []
-        for result in evidence:
-            for sentence in _SENTENCE_BOUNDARY.split(result.excerpt):
-                normalized = " ".join(sentence.split()).strip()
-                if not normalized:
-                    continue
-                terms = _significant_terms(normalized)
-                overlap = len(question_terms & terms)
-                candidates.append((overlap, -result.rank, normalized))
-        if not candidates or max(item[0] for item in candidates) == 0:
+        if not question_terms:
             return GroundedAnswer(
                 content=(
                     "The registered documents do not contain enough evidence to "
@@ -117,7 +108,39 @@ class LocalExtractiveGenerationProvider:
                 cited_ranks=(),
             )
 
-        _overlap, negative_rank, sentence = max(candidates)
+        min_required_overlap = 1 if len(question_terms) == 1 else 2
+        min_required_coverage = 0.5
+
+        candidates: list[tuple[float, int, int, str]] = []
+        for result in evidence:
+            for sentence in _SENTENCE_BOUNDARY.split(result.excerpt):
+                normalized = " ".join(sentence.split()).strip()
+                if not normalized:
+                    continue
+                terms = _significant_terms(normalized)
+                overlap_terms = question_terms & terms
+                overlap_count = len(overlap_terms)
+                coverage = overlap_count / len(question_terms)
+
+                if (
+                    overlap_count < min_required_overlap
+                    or coverage < min_required_coverage
+                ):
+                    continue
+
+                candidates.append((coverage, overlap_count, -result.rank, normalized))
+
+        if not candidates:
+            return GroundedAnswer(
+                content=(
+                    "The registered documents do not contain enough evidence to "
+                    "answer this question."
+                ),
+                outcome=GroundedOutcome.INSUFFICIENT_EVIDENCE,
+                cited_ranks=(),
+            )
+
+        _coverage, _overlap, negative_rank, sentence = max(candidates)
         rank = -negative_rank
         bounded_sentence = sentence[:_MAX_ANSWER_CHARACTERS].rstrip()
         return GroundedAnswer(

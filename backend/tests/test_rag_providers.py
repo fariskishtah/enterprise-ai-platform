@@ -88,3 +88,84 @@ def test_extractive_generation_explicitly_reports_insufficient_evidence() -> Non
     assert answer.outcome is GroundedOutcome.INSUFFICIENT_EVIDENCE
     assert answer.cited_ranks == ()
     assert "not contain enough evidence" in answer.content
+
+
+def test_extractive_generation_supported_question_returns_answer_and_citation() -> None:
+    provider = LocalExtractiveGenerationProvider()
+    evidence = (
+        RetrievalResult(
+            chunk_id=uuid4(),
+            document_id=uuid4(),
+            dataset_version_id=uuid4(),
+            rank=1,
+            score=0.95,
+            excerpt="The hydraulic pressure threshold is 42 bar for all machines.",
+            document_title="Machine Manual",
+            page_number=1,
+            section="Specs",
+        ),
+    )
+    answer = provider.generate(
+        question="What is the hydraulic pressure threshold?",
+        evidence=evidence,
+        recent_history=(),
+    )
+
+    assert answer.outcome is GroundedOutcome.GROUNDED
+    assert answer.cited_ranks == (1,)
+    assert "hydraulic pressure threshold is 42 bar" in answer.content
+
+
+def test_extractive_generation_revenue_question_returns_insufficient_evidence() -> None:
+    provider = LocalExtractiveGenerationProvider()
+    evidence = (
+        RetrievalResult(
+            chunk_id=uuid4(),
+            document_id=uuid4(),
+            dataset_version_id=uuid4(),
+            rank=1,
+            score=0.30,
+            excerpt=(
+                "FactoryMind operating procedures: Section 1. "
+                "Safety guidelines must be followed on all shifts."
+            ),
+            document_title="Operations Handbook",
+            page_number=1,
+            section="General",
+        ),
+    )
+    answer = provider.generate(
+        question="What is the annual revenue of FactoryMind?",
+        evidence=evidence,
+        recent_history=(),
+    )
+
+    assert answer.outcome is GroundedOutcome.INSUFFICIENT_EVIDENCE
+    assert answer.cited_ranks == ()
+    assert "not contain enough evidence" in answer.content
+
+
+def test_extractive_generation_unrelated_retrieved_chunk_is_not_cited() -> None:
+    provider = LocalExtractiveGenerationProvider()
+    evidence = (
+        RetrievalResult(
+            chunk_id=uuid4(),
+            document_id=uuid4(),
+            dataset_version_id=uuid4(),
+            rank=1,
+            score=0.15,
+            excerpt="General introduction to company policies and cafeteria hours.",
+            document_title="Intro",
+            page_number=None,
+            section=None,
+        ),
+    )
+    answer = provider.generate(
+        question="What is the spindle rotation speed limit?",
+        evidence=evidence,
+        recent_history=(),
+    )
+
+    assert answer.outcome is GroundedOutcome.INSUFFICIENT_EVIDENCE
+    assert answer.cited_ranks == ()
+    assert "not contain enough evidence" in answer.content
