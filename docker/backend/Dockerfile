@@ -17,7 +17,8 @@ COPY backend/alembic.ini ./alembic.ini
 
 RUN groupadd --gid 10001 app \
     && useradd --uid 10001 --gid 10001 --no-create-home --shell /usr/sbin/nologin app \
-    && mkdir -p /app/data/mlflow /app/data/model-artifacts /app/data/ai-artifacts \
+    && mkdir -p /app/data/mlflow /app/data/model-artifacts \
+        /app/data/ai-artifacts /app/data/datasets \
     && chown -R 10001:10001 /app/data
 
 USER 10001:10001
