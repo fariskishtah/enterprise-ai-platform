@@ -386,6 +386,18 @@ jobs:
             --volume "$PWD/performance/k6:/scripts:ro" \
             grafana/k6:2.1.0 \
             inspect /scripts/training-job-load.js
+          docker run --rm \
+            --volume "$PWD/performance/k6:/scripts:ro" \
+            grafana/k6:2.1.0 \
+            inspect /scripts/data-rag-load.js
+          docker run --rm \
+            --volume "$PWD/performance/k6:/scripts:ro" \
+            grafana/k6:2.1.0 \
+            inspect /scripts/stress.js
+          docker run --rm \
+            --volume "$PWD/performance/k6:/scripts:ro" \
+            grafana/k6:2.1.0 \
+            inspect /scripts/soak.js
 
   container-build:
     name: Container Build (${{ matrix.name }})

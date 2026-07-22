@@ -592,7 +592,7 @@ class RAGService:
             ) from exc
         except Exception as exc:
             await self._fail_build(
-                build_id=running.id,
+                build_id=build_id,
                 knowledge_base_id=knowledge_base.id,
                 error_code="rag_index_unavailable",
                 safe_message="The document index could not be completed.",
@@ -1070,6 +1070,7 @@ class RAGService:
                 generation_provider=self._generation.provider_name,
                 generation_model=self._generation.model_name,
             )
+            assistant_id = assistant.id
             await self._repository.commit()
             emit_safe(
                 audit_logger,
@@ -1181,7 +1182,7 @@ class RAGService:
         except Exception as exc:
             await self._repository.rollback()
             await self._repository.fail_active_message(
-                message_id=assistant.id,
+                message_id=assistant_id,
                 values={
                     "content": "The grounded answer could not be completed.",
                     "character_count": len(
