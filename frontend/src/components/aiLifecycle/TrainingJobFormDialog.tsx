@@ -1,4 +1,11 @@
-import { useEffect, useMemo, useState, type FormEvent, type ReactElement } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+  type ReactElement,
+} from "react";
 
 import {
   createTrainingJob,
@@ -12,6 +19,7 @@ import {
   primaryButtonClassName,
   secondaryButtonClassName,
 } from "../hierarchy/ResourceStates";
+import { RegisteredDatasetVersionSelect } from "./RegisteredDatasetVersionSelect";
 
 const examples = {
   classification: {
@@ -75,6 +83,8 @@ export function TrainingJobFormDialog({
   readonly onCreated: (id: string) => void;
 }): ReactElement {
   const [task, setTask] = useState<TrainingTask>("regression");
+  const [dataSource, setDataSource] = useState<"inline" | "registered">("inline");
+  const [datasetVersionId, setDatasetVersionId] = useState("");
   const [trainingFeatures, setTrainingFeatures] = useState<string>(
     examples.regression.features,
   );
@@ -98,6 +108,7 @@ export function TrainingJobFormDialog({
   const [description, setDescription] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const submissionInFlight = useRef(false);
 
   const availableAlgorithms = useMemo(
     () => algorithms.filter((item) => item.supported_tasks.includes(task)),
@@ -143,35 +154,17 @@ export function TrainingJobFormDialog({
 
   const submit = async (event: FormEvent): Promise<void> => {
     event.preventDefault();
+    if (submissionInFlight.current) return;
     setError(null);
     try {
-      const trainX = parseMatrix(trainingFeatures, "Training features");
-      const evaluateX = parseMatrix(evaluationFeatures, "Evaluation features");
-      const trainY = parseTargets(
-        trainingTargets,
-        "Training targets",
-        task === "classification",
-      );
-      const evaluateY = parseTargets(
-        evaluationTargets,
-        "Evaluation targets",
-        task === "classification",
-      );
-      if (trainX.length !== trainY.length)
-        throw new Error("Training feature and target row counts must match.");
-      if (evaluateX.length !== evaluateY.length)
-        throw new Error("Evaluation feature and target row counts must match.");
-      if (trainX[0].length !== evaluateX[0].length)
-        throw new Error("Training and evaluation feature column counts must match.");
       const rawTags = parseObject(tags, "Tags");
       if (Object.values(rawTags).some((value) => typeof value !== "string"))
         throw new Error("Every tag value must be a string.");
       if (!/^[-+]?\d+$/.test(seed.trim()))
         throw new Error("Random seed must be an integer.");
       if (experiment.trim() === "") throw new Error("Experiment name is required.");
-      const payload: TrainingRequest = {
-        evaluation_features: evaluateX,
-        evaluation_targets: evaluateY,
+      if (!algorithm) throw new Error("Select an available algorithm.");
+      const metadata = {
         experiment_name: experiment.trim(),
         hyperparameters: parameterValues,
         model_description: description.trim() || null,
@@ -179,11 +172,41 @@ export function TrainingJobFormDialog({
         registered_model_name: modelName.trim() || null,
         run_name: runName.trim() || null,
         tags: rawTags as Record<string, string>,
-        training_features: trainX,
-        training_targets: trainY,
       };
+      let payload: TrainingRequest;
+      if (dataSource === "registered") {
+        if (datasetVersionId === "")
+          throw new Error("Select a ready registered dataset version.");
+        payload = { ...metadata, dataset_version_id: datasetVersionId };
+      } else {
+        const trainX = parseMatrix(trainingFeatures, "Training features");
+        const evaluateX = parseMatrix(evaluationFeatures, "Evaluation features");
+        const trainY = parseTargets(
+          trainingTargets,
+          "Training targets",
+          task === "classification",
+        );
+        const evaluateY = parseTargets(
+          evaluationTargets,
+          "Evaluation targets",
+          task === "classification",
+        );
+        if (trainX.length !== trainY.length)
+          throw new Error("Training feature and target row counts must match.");
+        if (evaluateX.length !== evaluateY.length)
+          throw new Error("Evaluation feature and target row counts must match.");
+        if (trainX[0].length !== evaluateX[0].length)
+          throw new Error("Training and evaluation feature column counts must match.");
+        payload = {
+          ...metadata,
+          evaluation_features: evaluateX,
+          evaluation_targets: evaluateY,
+          training_features: trainX,
+          training_targets: trainY,
+        };
+      }
+      submissionInFlight.current = true;
       setBusy(true);
-      if (!algorithm) throw new Error("Select an available algorithm.");
       const result = await createTrainingJob(task, payload, algorithm.id, {
         imputer,
         scaler,
@@ -193,6 +216,7 @@ export function TrainingJobFormDialog({
       setError(
         caught instanceof Error ? caught.message : "Unable to submit the training job.",
       );
+      submissionInFlight.current = false;
       setBusy(false);
     }
   };
@@ -275,36 +299,76 @@ export function TrainingJobFormDialog({
             </p>
           ) : null}
         </div>
-        <p className="rounded-md bg-neutral-100 p-3 text-xs text-neutral-700">
-          Compact valid example: features {examples[task].features}; targets{" "}
-          {examples[task].targets}.
-        </p>
-        <div className="grid gap-4 sm:grid-cols-2">
-          {field(
-            "training-features",
-            "Training features (JSON matrix)",
-            trainingFeatures,
-            setTrainingFeatures,
-          )}
-          {field(
-            "training-targets",
-            `Training targets (${task === "classification" ? "integer " : ""}JSON array)`,
-            trainingTargets,
-            setTrainingTargets,
-          )}
-          {field(
-            "evaluation-features",
-            "Evaluation features (JSON matrix)",
-            evaluationFeatures,
-            setEvaluationFeatures,
-          )}
-          {field(
-            "evaluation-targets",
-            "Evaluation targets (JSON array)",
-            evaluationTargets,
-            setEvaluationTargets,
-          )}
-        </div>
+        <fieldset>
+          <legend className="text-sm font-medium">Data source</legend>
+          <div className="mt-2 flex flex-wrap gap-4">
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                checked={dataSource === "inline"}
+                name="training-data-source"
+                onChange={() => {
+                  setDataSource("inline");
+                  setError(null);
+                }}
+                type="radio"
+              />
+              Inline matrices
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                checked={dataSource === "registered"}
+                name="training-data-source"
+                onChange={() => {
+                  setDataSource("registered");
+                  setError(null);
+                }}
+                type="radio"
+              />
+              Registered dataset version
+            </label>
+          </div>
+        </fieldset>
+        {dataSource === "registered" ? (
+          <RegisteredDatasetVersionSelect
+            disabled={busy}
+            id="training-dataset-version"
+            onChange={setDatasetVersionId}
+            value={datasetVersionId}
+          />
+        ) : (
+          <>
+            <p className="rounded-md bg-neutral-100 p-3 text-xs text-neutral-700">
+              Compact valid example: features {examples[task].features}; targets{" "}
+              {examples[task].targets}.
+            </p>
+            <div className="grid gap-4 sm:grid-cols-2">
+              {field(
+                "training-features",
+                "Training features (JSON matrix)",
+                trainingFeatures,
+                setTrainingFeatures,
+              )}
+              {field(
+                "training-targets",
+                `Training targets (${task === "classification" ? "integer " : ""}JSON array)`,
+                trainingTargets,
+                setTrainingTargets,
+              )}
+              {field(
+                "evaluation-features",
+                "Evaluation features (JSON matrix)",
+                evaluationFeatures,
+                setEvaluationFeatures,
+              )}
+              {field(
+                "evaluation-targets",
+                "Evaluation targets (JSON array)",
+                evaluationTargets,
+                setEvaluationTargets,
+              )}
+            </div>
+          </>
+        )}
         {algorithm && algorithm.parameters.length ? (
           <fieldset className="grid gap-4 rounded-md border border-border p-4 sm:grid-cols-2">
             <legend className="px-1 text-sm font-medium">Hyperparameters</legend>

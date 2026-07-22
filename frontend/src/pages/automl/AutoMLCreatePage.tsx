@@ -12,6 +12,7 @@ import {
   createAutoMLStudy,
   getAutoMLAlgorithms,
   type AutoMLAlgorithm,
+  type AutoMLDataRequest,
   type AutoMLSearchParameter,
   type AutoMLRequestSearchParameter,
   type AutoMLSearchSpace,
@@ -19,6 +20,7 @@ import {
   type MetricDirection,
 } from "../../api/automl";
 import { useAuth } from "../../auth/useAuth";
+import { RegisteredDatasetVersionSelect } from "../../components/aiLifecycle/RegisteredDatasetVersionSelect";
 import {
   InlineNotice,
   primaryButtonClassName,
@@ -48,6 +50,8 @@ interface FormState {
   readonly task: AutoMLTask;
   readonly metric: string;
   readonly plugins: readonly string[];
+  readonly dataSource: "inline" | "registered";
+  readonly datasetVersionId: string;
   readonly trainingFeatures: string;
   readonly trainingTargets: string;
   readonly evaluationFeatures: string;
@@ -66,6 +70,8 @@ interface FormState {
 
 const initial: FormState = {
   concurrency: 1,
+  dataSource: "inline",
+  datasetVersionId: "",
   evaluationFeatures: "",
   evaluationTargets: "",
   folds: 2,
@@ -96,6 +102,7 @@ export function AutoMLCreatePage(): ReactElement {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const idempotencyKey = useRef(crypto.randomUUID());
+  const submissionInFlight = useRef(false);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -183,31 +190,59 @@ export function AutoMLCreatePage(): ReactElement {
   };
 
   const submit = async (): Promise<void> => {
+    if (submissionInFlight.current) return;
+    submissionInFlight.current = true;
+    setSubmitting(true);
     setError(null);
     try {
-      const trainingFeatures = parseMatrix(form.trainingFeatures, "Training features");
-      const evaluationFeatures = parseMatrix(
-        form.evaluationFeatures,
-        "Evaluation features",
-      );
-      const trainingTargets = parseVector(
-        form.trainingTargets,
-        form.task,
-        "Training targets",
-      );
-      const evaluationTargets = parseVector(
-        form.evaluationTargets,
-        form.task,
-        "Evaluation targets",
-      );
-      validateRows(
-        trainingFeatures,
-        trainingTargets,
-        evaluationFeatures,
-        evaluationTargets,
-        form.folds,
-        form.task,
-      );
+      let data: AutoMLDataRequest;
+      if (form.dataSource === "registered") {
+        if (form.datasetVersionId === "")
+          throw new Error("Select a ready registered dataset version.");
+        data = { dataset_version_id: form.datasetVersionId };
+      } else {
+        const trainingFeatures = parseMatrix(
+          form.trainingFeatures,
+          "Training features",
+        );
+        const evaluationFeatures = parseMatrix(
+          form.evaluationFeatures,
+          "Evaluation features",
+        );
+        const trainingTargets = parseVector(
+          form.trainingTargets,
+          form.task,
+          "Training targets",
+        );
+        const evaluationTargets = parseVector(
+          form.evaluationTargets,
+          form.task,
+          "Evaluation targets",
+        );
+        validateRows(
+          trainingFeatures,
+          trainingTargets,
+          evaluationFeatures,
+          evaluationTargets,
+          form.folds,
+          form.task,
+        );
+        data = {
+          evaluation_data_fingerprint: await digest(
+            JSON.stringify([evaluationFeatures, evaluationTargets]),
+          ),
+          evaluation_features: evaluationFeatures,
+          evaluation_row_count: evaluationFeatures.length,
+          evaluation_targets: evaluationTargets,
+          feature_count: trainingFeatures[0].length,
+          training_data_fingerprint: await digest(
+            JSON.stringify([trainingFeatures, trainingTargets]),
+          ),
+          training_features: trainingFeatures,
+          training_row_count: trainingFeatures.length,
+          training_targets: trainingTargets,
+        };
+      }
       if (form.concurrency > form.trials)
         throw new Error("Max concurrent trials cannot exceed the trial budget.");
       if (form.trialTimeout > form.studyTimeout)
@@ -241,7 +276,6 @@ export function AutoMLCreatePage(): ReactElement {
           task_type: form.task,
         };
       });
-      setSubmitting(true);
       const submission = await createAutoMLStudy(
         {
           budget: {
@@ -251,21 +285,7 @@ export function AutoMLCreatePage(): ReactElement {
             time_budget_seconds: form.studyTimeout,
             trial_budget: form.trials,
           },
-          data: {
-            evaluation_data_fingerprint: await digest(
-              JSON.stringify([evaluationFeatures, evaluationTargets]),
-            ),
-            evaluation_features: evaluationFeatures,
-            evaluation_row_count: evaluationFeatures.length,
-            evaluation_targets: evaluationTargets,
-            feature_count: trainingFeatures[0].length,
-            training_data_fingerprint: await digest(
-              JSON.stringify([trainingFeatures, trainingTargets]),
-            ),
-            training_features: trainingFeatures,
-            training_row_count: trainingFeatures.length,
-            training_targets: trainingTargets,
-          },
+          data,
           metric_direction: selectedMetric[2] as MetricDirection,
           plugin_ids: form.plugins,
           plugin_search_spaces: selectedSpaces,
@@ -288,6 +308,7 @@ export function AutoMLCreatePage(): ReactElement {
       });
     } catch (caught) {
       setError(hierarchyError(caught));
+      submissionInFlight.current = false;
       setSubmitting(false);
     }
   };
@@ -407,36 +428,70 @@ export function AutoMLCreatePage(): ReactElement {
         <fieldset className="rounded-lg border border-border bg-card p-5">
           <legend className="px-2 font-semibold">Bounded data</legend>
           <p className="mb-4 text-sm text-muted-foreground">
-            Enter one comma-separated feature row per line and comma-separated targets.
-            Data is validated and stored by the backend; it is never returned by study
-            APIs.
+            Select an immutable ready dataset version or provide bounded matrices
+            inline. The two sources are mutually exclusive.
           </p>
-          <div className="grid gap-4 lg:grid-cols-2">
-            <TextArea
-              label="Training features"
-              value={form.trainingFeatures}
-              onChange={(value) => update("trainingFeatures", value)}
-              placeholder={"0.1, 1.2\n0.4, 1.8"}
-            />
-            <TextArea
-              label="Training targets"
-              value={form.trainingTargets}
-              onChange={(value) => update("trainingTargets", value)}
-              placeholder="0, 1"
-            />
-            <TextArea
-              label="Evaluation features"
-              value={form.evaluationFeatures}
-              onChange={(value) => update("evaluationFeatures", value)}
-              placeholder={"0.2, 1.4\n0.5, 2.0"}
-            />
-            <TextArea
-              label="Evaluation targets"
-              value={form.evaluationTargets}
-              onChange={(value) => update("evaluationTargets", value)}
-              placeholder="0, 1"
-            />
+          <div className="mb-5 flex flex-wrap gap-4">
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                checked={form.dataSource === "inline"}
+                name="automl-data-source"
+                onChange={() => {
+                  update("dataSource", "inline");
+                  setError(null);
+                }}
+                type="radio"
+              />
+              Inline matrices
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                checked={form.dataSource === "registered"}
+                name="automl-data-source"
+                onChange={() => {
+                  update("dataSource", "registered");
+                  setError(null);
+                }}
+                type="radio"
+              />
+              Registered dataset version
+            </label>
           </div>
+          {form.dataSource === "registered" ? (
+            <RegisteredDatasetVersionSelect
+              disabled={submitting}
+              id="automl-dataset-version"
+              onChange={(value) => update("datasetVersionId", value)}
+              value={form.datasetVersionId}
+            />
+          ) : (
+            <div className="grid gap-4 lg:grid-cols-2">
+              <TextArea
+                label="Training features"
+                value={form.trainingFeatures}
+                onChange={(value) => update("trainingFeatures", value)}
+                placeholder={"0.1, 1.2\n0.4, 1.8"}
+              />
+              <TextArea
+                label="Training targets"
+                value={form.trainingTargets}
+                onChange={(value) => update("trainingTargets", value)}
+                placeholder="0, 1"
+              />
+              <TextArea
+                label="Evaluation features"
+                value={form.evaluationFeatures}
+                onChange={(value) => update("evaluationFeatures", value)}
+                placeholder={"0.2, 1.4\n0.5, 2.0"}
+              />
+              <TextArea
+                label="Evaluation targets"
+                value={form.evaluationTargets}
+                onChange={(value) => update("evaluationTargets", value)}
+                placeholder="0, 1"
+              />
+            </div>
+          )}
         </fieldset>
         <details className="rounded-lg border border-border bg-card p-5">
           <summary className="cursor-pointer font-semibold">Advanced controls</summary>

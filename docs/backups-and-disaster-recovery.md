@@ -1,37 +1,58 @@
 # Backups and disaster recovery
 
 This runbook covers the repository's local Docker Compose deployment. PostgreSQL
-is the source of truth for business records, users, training-job state, model
-governance, and monitoring metadata. Redis is a persistent queue/cache boundary;
-MLflow, model artifacts, and observability stores are local supporting data.
+is the source of truth for business records, users, training-job state, dataset
+lineage, RAG metadata, model governance, and monitoring metadata. Uploaded
+dataset source objects live on the managed `dataset-data` volume and must be
+recovered with their PostgreSQL metadata. Redis is a persistent queue/cache
+boundary; MLflow, model artifacts, and observability stores are local supporting
+data.
 
 ## Data classification and recovery priority
 
 | Priority | Data | Local persistence | Recovery expectation |
 | --- | --- | --- | --- |
-| 1 | PostgreSQL business and control-plane data | `postgres-data` named volume plus backups | Restore the latest verified backup first. |
+| 1 | PostgreSQL business/control-plane data and uploaded dataset objects | `postgres-data` and `dataset-data` named volumes plus paired backups | Restore and validate one matching database/object recovery point first. |
 | 2 | MLflow and model artifacts | `mlflow-data`, `model-artifact-data`, and `ai-artifact-data` | Preserve volumes; reconcile artifacts with PostgreSQL after database recovery. |
 | 3 | Redis queues and cache | AOF on `redis-data` with `appendfsync everysec` | Recover AOF where possible, then reconcile jobs against PostgreSQL. |
 | 4 | Prometheus, logs, traces, dashboards, and alert state | Local named volumes and source-controlled configuration | Best effort; telemetry history is not required to recover business state. |
 
 Local named volumes are not backups: host or Docker storage loss can remove them
-together. The scripts below create and test portable PostgreSQL archives without
-reading credentials on the host or mounting the live database volume.
+together. The scripts below create and test a portable PostgreSQL archive plus a
+read-only archive of the managed dataset volume without reading database
+credentials on the host or mounting the live database volume.
 
-## Create a PostgreSQL backup
+## Create a paired application backup
 
-Start PostgreSQL, then run the backup from anywhere inside the repository:
+Start PostgreSQL and the backend, then run the backup from anywhere inside the
+repository:
 
 ```bash
-docker compose up -d postgres
+docker compose up -d postgres backend
 ./scripts/backup-postgres.sh
 ```
 
-The script executes `pg_dump` inside the existing PostgreSQL 16 service, writes
-a custom-format archive to a temporary file, calculates SHA-256, and atomically
-renames the completed archive and checksum. The default destination is
-`backups/postgres/`, which Git ignores. It does not stop PostgreSQL or touch a
-Docker volume.
+The script first executes `pg_dump` inside the existing pgvector-enabled
+PostgreSQL 16 service. It then resolves the backend's managed `dataset-data`
+mount and reads it through a locked-down, networkless, read-only ephemeral
+container. Dataset objects are immutable and durably written before their
+metadata transaction commits, so this database-first snapshot can include a
+harmless newer unreferenced object but cannot omit an object referenced by the
+database snapshot under the current lifecycle.
+
+The completed set contains matching timestamped files and SHA-256 sidecars:
+
+```text
+postgres-YYYYmmddTHHMMSSZ.dump
+postgres-YYYYmmddTHHMMSSZ.dump.sha256
+dataset-YYYYmmddTHHMMSSZ.tar.gz
+dataset-YYYYmmddTHHMMSSZ.tar.gz.sha256
+```
+
+All four files are built under temporary names. Dataset artifacts are published
+first and the PostgreSQL checksum is published last as the usable-set completion
+marker. The default destination is `backups/postgres/`, which Git ignores. The
+script does not stop a service, write to a managed volume, or delete a volume.
 
 The default retention is seven days. Override the destination or retention for
 one invocation with shell environment variables:
@@ -40,9 +61,9 @@ one invocation with shell environment variables:
 BACKUP_DIR=/safe/local/path RETENTION_DAYS=14 ./scripts/backup-postgres.sh
 ```
 
-Only files named `postgres-*.dump` or `postgres-*.dump.sha256` that are older
-than the configured period are removed, and only from the configured backup
-directory. Unrelated files and nested directories are left unchanged.
+Only matching PostgreSQL and dataset archive/checksum names older than the
+configured period are removed, and only from the configured backup directory.
+Unrelated files and nested directories are left unchanged.
 
 ## Verify a backup restore
 
@@ -52,12 +73,15 @@ Verify every backup intended for recovery:
 ./scripts/verify-postgres-backup.sh backups/postgres/postgres-YYYYmmddTHHMMSSZ.dump
 ```
 
-The verifier checks the adjacent `.sha256` file when present, validates the
-archive catalog, and restores into a new disposable container using the exact
-PostgreSQL image resolved from Compose. It inspects restored schemas and tables,
-never restores into the live database, never attaches `postgres-data`, and
-automatically removes the temporary container. A missing checksum is reported;
-production recovery policy should reject unchecksummed archives.
+The verifier infers the paired dataset archive from the timestamp, or accepts it
+explicitly as a second argument. For a pair, both `.sha256` files are required.
+It validates archive paths and entry types, restores PostgreSQL into a new
+disposable container using the exact pgvector-enabled image resolved from
+Compose, and confirms the `vector` extension plus restored schemas and tables.
+It never restores into the live database, never attaches `postgres-data` or
+`dataset-data`, and automatically removes the temporary database container.
+Legacy PostgreSQL-only archives remain inspectable, but they are not sufficient
+to recover dataset/RAG source objects.
 
 ## Scheduling
 
@@ -77,18 +101,19 @@ been restored successfully is not sufficient recovery evidence.
 These are engineering targets for a single-host development deployment, not a
 production SLA:
 
-- PostgreSQL RPO: 24 hours, assuming the documented daily backup completes.
-- PostgreSQL RTO: 60 minutes to select, verify, restore, migrate, and validate a
-  modest local database.
+- PostgreSQL and dataset-object RPO: 24 hours, assuming the documented paired
+  daily backup completes and both archives remain together.
+- PostgreSQL and dataset-object RTO: 60 minutes to select, verify, restore,
+  migrate, reconcile, and validate a modest local installation.
 - Redis RPO: up to approximately one second with AOF `appendfsync everysec`.
   Queued or in-flight work can still be duplicated or lost and must be
   reconciled against PostgreSQL.
 - Observability RPO/RTO: best effort. Source-controlled configuration can be
   recreated, but local metrics, logs, traces, and alert history may be lost.
 
-The PostgreSQL targets assume the latest archive and checksum remain accessible,
-Docker and the repository are available, and the archive has passed a recent
-restore verification.
+These targets assume the latest matching archives and both checksums remain
+accessible, Docker and the repository are available, and the pair has passed a
+recent restore verification.
 
 ## Redis recovery expectations
 
@@ -111,29 +136,34 @@ not implemented because irreplaceable business state belongs in PostgreSQL.
 - **PostgreSQL container loss, volume intact:** recreate the service with
   `docker compose up -d postgres`; do not restore unless data validation shows
   the volume is unusable or incomplete.
-- **PostgreSQL volume or host storage loss:** provision clean replacement
-  storage, verify the selected off-volume archive, and perform the controlled
-  manual restore below.
+- **PostgreSQL or dataset volume loss:** provision clean replacement storage,
+  verify one matching off-volume pair, and perform the controlled manual restore
+  below. Do not combine timestamps.
 - **Corruption or operator error:** stop application writers, preserve evidence,
   select the newest backup from before the event, verify it ephemerally, and
   restore to clean storage.
 - **Redis loss:** restart with the existing AOF volume if available, then
   reconcile PostgreSQL job state. Do not flush queues as a recovery shortcut.
-- **Whole-host loss:** rebuild from source control, restore PostgreSQL from an
-  off-host backup, restore required model artifacts, then recreate Redis and
-  observability services.
+- **Whole-host loss:** rebuild from source control, restore PostgreSQL and
+  dataset objects from one off-host backup pair, restore required model
+  artifacts, then recreate Redis and observability services.
 
 ## Recovery order
 
 1. Declare the incident, stop backend and worker writes, record the failure
    window, and preserve affected volumes and logs. Never run `docker compose
    down -v`.
-2. Inventory available PostgreSQL archives and checksums. Select the newest
-   archive consistent with the incident time and required RPO.
+2. Inventory PostgreSQL/dataset archive pairs and checksums. Select the newest
+   complete matching timestamp consistent with the incident time and required
+   RPO.
 3. Run `./scripts/verify-postgres-backup.sh BACKUP_FILE`. Do not continue if the
    checksum, catalog, restore, or inspection fails.
-4. Provision a clean PostgreSQL 16 instance and empty target database. Keep the
-   failed live volume detached so rollback and investigation remain possible.
+4. Provision a clean pgvector-enabled PostgreSQL 16 instance, empty target
+   database, and empty dataset-object destination. Keep failed live volumes
+   detached so rollback and investigation remain possible. The migration role
+   must be able to run `CREATE EXTENSION vector`, or a database administrator
+   must pre-provision that extension on the target database with `public` on the
+   migration `search_path`.
 5. Perform the authorized manual restore from inside that clean instance:
 
    ```bash
@@ -143,19 +173,29 @@ not implemented because irreplaceable business state belongs in PostgreSQL.
    This command is intentionally not automated. Confirm the target connection
    and obtain explicit approval because selecting a live target can be
    destructive. Never restore over the existing development database.
-6. Apply any required Alembic migrations once, then validate PostgreSQL before
+6. Restore the matching dataset archive only into the clean managed dataset
+   volume. This is intentionally an authorized manual operation: verify the
+   archive checksum and destination twice, reject symbolic links or traversal,
+   and never extract over the failed live volume. Then verify stored object
+   digests against ready dataset-version metadata.
+7. Apply any required Alembic migrations once, then validate PostgreSQL,
+   including the `vector` extension and `vector(256)` embedding column, before
    reconnecting other services.
-7. Restore or validate MLflow and model-artifact volumes, checking exact model
+8. Restore or validate MLflow and model-artifact volumes, checking exact model
    versions and aliases against PostgreSQL records.
-8. Start Redis and workers. Reconcile queued, stale, and in-flight work from
+9. Start Redis and workers. Reconcile queued, stale, and in-flight work from
    authoritative PostgreSQL state before enabling producers.
-9. Start the backend, then frontend, then the observability stack. Keep external
+10. Start the backend, then frontend, then the observability stack. Keep external
    writes disabled until the checks below pass.
 
 ## Verification after recovery
 
 - Confirm PostgreSQL readiness, the expected Alembic revision, schema/table
-  counts, representative business-record counts, and a read-only API request.
+  counts, the `vector` extension, representative business-record counts, and a
+  read-only API request.
+- Confirm every ready dataset version's managed object is present and its stored
+  SHA-256 digest matches; then run one bounded RAG retrieval against a known
+  ready knowledge base.
 - Confirm authentication, a representative authorized write/read cycle, and
   model registry aliases point to available artifacts.
 - Confirm Redis reports `appendonly=yes` and `appendfsync=everysec`, workers are
@@ -167,7 +207,7 @@ not implemented because irreplaceable business state belongs in PostgreSQL.
 
 ## Production limitations
 
-This local workflow has no off-host copy, encryption, access policy, immutable
+This local workflow has no built-in off-host copy, encryption, access policy, immutable
 retention, point-in-time recovery, scheduler monitoring, geographic redundancy,
 or automated recovery orchestration. A production design should use encrypted,
 access-controlled off-host backups, PostgreSQL WAL archiving or managed PITR,

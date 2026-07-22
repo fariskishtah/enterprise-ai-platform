@@ -36,14 +36,84 @@ _SAFE_ATTRIBUTE_PATTERN: Final = re.compile(r"^[A-Za-z0-9_.:-]{1,64}$")
 _DOMAIN_ATTRIBUTE_NAMES: Final = frozenset(
     {
         "algorithm",
+        "dataset_kind",
+        "final_status",
         "task_type",
         "lifecycle_status",
+        "processing_stage",
+        "provider_type",
         "trigger",
         "alert_type",
         "severity",
         "outcome",
     }
 )
+_DOMAIN_SPAN_NAMES: Final = frozenset(
+    {
+        "alert.reconciliation",
+        "automl.coordinator",
+        "automl.dataset_resolution",
+        "automl.reconciliation",
+        "automl.trial",
+        "chatbot.answer_generation",
+        "chatbot.generation",
+        "dataset.document_chunking",
+        "dataset.document_extraction",
+        "dataset.embedding",
+        "dataset.reconciliation",
+        "dataset.upload_storage",
+        "dataset.version_creation",
+        "maintenance.monitoring_evaluation_retention",
+        "maintenance.prediction_event_retention",
+        "monitoring.evaluation",
+        "monitoring.reference_profile_reconciliation",
+        "prediction.execution",
+        "promotion.decision",
+        "rag.index_build",
+        "rag.reconciliation",
+        "rag.retrieval",
+        "retraining.decision",
+        "retraining.reconciliation",
+        "training.dataset_resolution",
+        "training.execution",
+        "training.job_submission",
+    }
+)
+_DOMAIN_ATTRIBUTE_VALUES: Final = {
+    "dataset_kind": frozenset({"tabular", "document_collection", "unknown"}),
+    "final_status": frozenset(
+        {
+            "active",
+            "archived",
+            "cancelled",
+            "completed",
+            "failed",
+            "pending",
+            "processing",
+            "queued",
+            "ready",
+            "running",
+            "succeeded",
+            "unknown",
+        }
+    ),
+    "processing_stage": frozenset(
+        {
+            "upload",
+            "validation",
+            "extraction",
+            "chunking",
+            "embedding",
+            "indexing",
+            "retrieval",
+            "generation",
+            "unknown",
+        }
+    ),
+    "provider_type": frozenset(
+        {"deterministic", "local", "mock", "external", "unknown"}
+    ),
+}
 _EXCLUDED_TRACE_PATHS: Final = frozenset(
     {"/health", "/metrics", "/docs", "/openapi.json", "/redoc"}
 )
@@ -183,7 +253,7 @@ def start_domain_span(
     safe_attributes = _safe_domain_attributes(attributes or {})
     tracer = trace.get_tracer(_INSTRUMENTATION_NAME)
     with tracer.start_as_current_span(
-        name,
+        _safe_domain_span_name(name),
         kind=SpanKind.INTERNAL,
         attributes=safe_attributes,
         record_exception=False,
@@ -365,13 +435,19 @@ def _disable_redis_search_enrichment() -> None:
 def _safe_domain_attributes(attributes: Mapping[str, str]) -> dict[str, str]:
     safe: dict[str, str] = {}
     for key, value in attributes.items():
-        if (
-            key in _DOMAIN_ATTRIBUTE_NAMES
-            and isinstance(value, str)
-            and _SAFE_ATTRIBUTE_PATTERN.fullmatch(value) is not None
-        ):
+        if key not in _DOMAIN_ATTRIBUTE_NAMES or not isinstance(value, str):
+            continue
+        vocabulary = _DOMAIN_ATTRIBUTE_VALUES.get(key)
+        if vocabulary is not None:
+            safe[key] = value if value in vocabulary else "unknown"
+        elif _SAFE_ATTRIBUTE_PATTERN.fullmatch(value) is not None:
             safe[key] = value
     return safe
+
+
+def _safe_domain_span_name(name: str) -> str:
+    """Use a fixed span vocabulary so resource data cannot enter span names."""
+    return name if name in _DOMAIN_SPAN_NAMES else "domain.operation"
 
 
 def _safe_method(value: object) -> str:

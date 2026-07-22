@@ -153,6 +153,39 @@ def test_deployment_scripts_are_executable_and_non_destructive() -> None:
     assert _text(_SCRIPTS[0]).count("alembic upgrade head") == 1
     assert "git worktree add" in _text(_SCRIPTS[2])
     assert '--project-name "$PROJECT_NAME"' in suite
+    assert "current_postgres_image" in _text(_SCRIPTS[2])
+    assert "target PostgreSQL image is not compatible" in _text(_SCRIPTS[2])
+    assert "pg_extension WHERE extname" in _text(_SCRIPTS[1])
+    assert "/operational-status" in _text(_SCRIPTS[1])
+
+
+def test_data_rag_runtime_settings_are_mapped_to_api_and_worker() -> None:
+    services = _yaml(_BASE_COMPOSE)["services"]
+    expected = {
+        "DATASET_UPLOAD_MAX_BYTES",
+        "DATASET_MAX_ROWS",
+        "DATASET_MAX_COLUMNS",
+        "DATASET_MAX_CELL_CHARACTERS",
+        "DATASET_MAX_DOCUMENT_CHARACTERS",
+        "DATASET_PROCESSING_STALE_AFTER_SECONDS",
+        "DATASET_RECONCILIATION_SCHEDULING_ENABLED",
+        "DATASET_RECONCILIATION_INTERVAL_SECONDS",
+        "DATASET_QUEUE_NAME",
+        "RAG_QUEUE_NAME",
+        "RAG_QUEUED_STALE_AFTER_SECONDS",
+        "RAG_RUNNING_STALE_AFTER_SECONDS",
+        "RAG_MESSAGE_STALE_AFTER_SECONDS",
+        "RAG_RECONCILIATION_BATCH_SIZE",
+        "RAG_RECONCILIATION_SCHEDULING_ENABLED",
+        "RAG_RECONCILIATION_INTERVAL_SECONDS",
+    }
+
+    for service_name in ("backend", "training-worker"):
+        environment = services[service_name]["environment"]
+        assert expected <= environment.keys(), service_name
+        assert services[service_name]["volumes"][-1] == (
+            "dataset-data:/app/data/datasets"
+        )
 
 
 def test_frontend_keeps_local_development_and_adds_production_stage() -> None:

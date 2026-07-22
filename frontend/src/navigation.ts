@@ -3,8 +3,11 @@ export type NavigationRole = "admin" | "engineer" | "operator";
 export type NavigationIcon =
   | "audit"
   | "automl"
+  | "chat"
   | "dashboard"
+  | "datasets"
   | "factories"
+  | "knowledge"
   | "models"
   | "monitoring"
   | "predictions"
@@ -42,6 +45,13 @@ export const navigationItems: readonly NavigationItem[] = [
     path: "/sensor-data",
   },
   {
+    description: "Authorized immutable datasets and document versions.",
+    icon: "datasets",
+    label: "Dataset Registry",
+    path: "/datasets",
+    roles: ["admin", "engineer"],
+  },
+  {
     description: "Background model training execution.",
     icon: "training-jobs",
     label: "Training Jobs",
@@ -73,6 +83,20 @@ export const navigationItems: readonly NavigationItem[] = [
     icon: "predictions",
     label: "Predictions",
     path: "/predictions",
+  },
+  {
+    description: "Grounded indexes over registered document datasets.",
+    icon: "knowledge",
+    label: "Knowledge Bases",
+    path: "/knowledge",
+    roles: ["admin", "engineer"],
+  },
+  {
+    description: "Citation-aware answers from authorized registered evidence.",
+    icon: "chat",
+    label: "AI Assistant",
+    path: "/chat",
+    roles: ["admin", "engineer"],
   },
   {
     description: "Model health, data quality, and drift.",

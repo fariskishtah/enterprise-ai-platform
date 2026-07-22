@@ -69,6 +69,25 @@ class AutoMLStudyCreateRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_domain_contract(self) -> AutoMLStudyCreateRequest:
+        if self.data.dataset_version_id is not None and any(
+            value is not None
+            for value in (
+                self.data.dataset_schema_snapshot,
+                self.data.training_data_fingerprint,
+                self.data.evaluation_data_fingerprint,
+                self.data.training_row_count,
+                self.data.evaluation_row_count,
+                self.data.feature_count,
+                self.data.training_features,
+                self.data.training_targets,
+                self.data.evaluation_features,
+                self.data.evaluation_targets,
+            )
+        ):
+            raise ValueError(
+                "Select exactly one AutoML data source: inline data or "
+                "dataset_version_id."
+            )
         self.to_specification()
         return self
 

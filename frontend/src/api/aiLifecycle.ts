@@ -19,6 +19,7 @@ export interface TrainingJobSubmission {
 export interface TrainingJob {
   readonly job_id: string;
   readonly requested_by_user_id: string;
+  readonly dataset_version_id: string | null;
   readonly trainer_key: TrainerKey;
   readonly status: TrainingJobStatus;
   readonly created_at: string;
@@ -45,11 +46,7 @@ export interface TrainingJobPage {
   readonly offset: number;
 }
 
-export interface TrainingRequest {
-  readonly training_features: number[][];
-  readonly training_targets: number[];
-  readonly evaluation_features: number[][];
-  readonly evaluation_targets: number[];
+interface TrainingRequestMetadata {
   readonly hyperparameters: Record<string, unknown>;
   readonly random_seed: number | null;
   readonly experiment_name: string;
@@ -58,6 +55,25 @@ export interface TrainingRequest {
   readonly tags: Record<string, string>;
   readonly model_description: string | null;
 }
+
+interface InlineTrainingData {
+  readonly dataset_version_id?: never;
+  readonly training_features: number[][];
+  readonly training_targets: number[];
+  readonly evaluation_features: number[][];
+  readonly evaluation_targets: number[];
+}
+
+interface RegisteredTrainingData {
+  readonly dataset_version_id: string;
+  readonly training_features?: never;
+  readonly training_targets?: never;
+  readonly evaluation_features?: never;
+  readonly evaluation_targets?: never;
+}
+
+export type TrainingRequest = TrainingRequestMetadata &
+  (InlineTrainingData | RegisteredTrainingData);
 
 export interface AlgorithmParameter {
   readonly name: string;

@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactElement, type ReactNode } from "react";
+import { useEffect, useId, useRef, type ReactElement, type ReactNode } from "react";
 
 import { secondaryButtonClassName } from "./ResourceStates";
 import { buttonClassName } from "../ui/buttonStyles";
@@ -15,6 +15,7 @@ export function Dialog({
   readonly title: string;
 }): ReactElement {
   const dialogRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
   useEffect(() => {
     const previouslyFocused = document.activeElement;
     const focusable = (): HTMLElement[] =>
@@ -49,7 +50,12 @@ export function Dialog({
   }, [onClose]);
 
   return (
-    <div aria-modal="true" className="fixed inset-0 z-50 overflow-y-auto" role="dialog">
+    <div
+      aria-labelledby={titleId}
+      aria-modal="true"
+      className="fixed inset-0 z-50 overflow-y-auto"
+      role="dialog"
+    >
       <button
         aria-label="Close dialog"
         className="fixed inset-0 bg-neutral-950/60"
@@ -65,7 +71,10 @@ export function Dialog({
             <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-purple-700">
               Action required
             </p>
-            <h2 className="text-xl font-semibold tracking-tight text-neutral-950">
+            <h2
+              className="text-xl font-semibold tracking-tight text-neutral-950"
+              id={titleId}
+            >
               {title}
             </h2>
             {description === undefined ? null : (

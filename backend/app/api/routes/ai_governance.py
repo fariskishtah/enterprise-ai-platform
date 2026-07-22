@@ -15,9 +15,17 @@ from fastapi import (
     Response,
     status,
 )
+from pydantic import ValidationError
 
 from app.config.settings import Settings, get_settings
+from app.datasets.service import (
+    DatasetConflictError,
+    DatasetNotFoundError,
+    DatasetQueueError,
+    DatasetService,
+)
 from app.dependencies.auth import require_roles
+from app.dependencies.datasets import get_dataset_service
 from app.dependencies.operational import require_training_worker_available
 from app.dependencies.rate_limit import enforce_mutation_rate_limit
 from app.dependencies.services import (
@@ -159,6 +167,7 @@ async def submit_generic_training_job(
         Depends(require_roles(UserRole.ADMIN, UserRole.ENGINEER)),
     ],
     service: Annotated[TrainingJobService, Depends(get_training_job_service)],
+    dataset_service: Annotated[DatasetService, Depends(get_dataset_service)],
     settings: Annotated[Settings, Depends(get_settings)],
     idempotency_key: Annotated[
         str | None,
@@ -166,8 +175,42 @@ async def submit_generic_training_job(
     ] = None,
 ) -> TrainingJobSubmissionResponse:
     """Validate a plugin request, persist it, and enqueue only its UUID."""
+    dataset_snapshot = None
+    if payload.dataset_version_id is not None:
+        try:
+            dataset_snapshot = await dataset_service.resolve_training_snapshot(
+                payload.dataset_version_id,
+                owner_id=(
+                    None if current_user.role is UserRole.ADMIN else current_user.id
+                ),
+            )
+        except DatasetNotFoundError as exc:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+        except DatasetConflictError as exc:
+            raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+        except DatasetQueueError as exc:
+            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
+        training_features = dataset_snapshot.training_features
+        training_targets = dataset_snapshot.training_targets
+        evaluation_features = dataset_snapshot.evaluation_features
+        evaluation_targets = dataset_snapshot.evaluation_targets
+    else:
+        assert payload.training_features is not None
+        assert payload.training_targets is not None
+        assert payload.evaluation_features is not None
+        assert payload.evaluation_targets is not None
+        training_features = tuple(tuple(row) for row in payload.training_features)
+        training_targets = tuple(payload.training_targets)
+        evaluation_features = tuple(tuple(row) for row in payload.evaluation_features)
+        evaluation_targets = tuple(payload.evaluation_targets)
     try:
         plugin = PLUGIN_REGISTRY.get(payload.algorithm, payload.task_type)
+        if payload.task_type is TaskType.CLASSIFICATION and any(
+            type(value) is not int for value in (*training_targets, *evaluation_targets)
+        ):
+            raise ModelPluginError(
+                "Classification datasets require integer target labels."
+            )
         parameters = dict(plugin.validate_parameters(payload.hyperparameters))
         registered_model_name = (
             payload.registered_model_name
@@ -176,9 +219,13 @@ async def submit_generic_training_job(
             )
         )
         common: dict[str, object] = {
-            "training_features": tuple(tuple(row) for row in payload.training_features),
-            "evaluation_features": tuple(
-                tuple(row) for row in payload.evaluation_features
+            "training_features": training_features,
+            "evaluation_features": evaluation_features,
+            "dataset_version_id": (
+                dataset_snapshot.dataset_version_id if dataset_snapshot else None
+            ),
+            "dataset_schema_snapshot": (
+                dataset_snapshot.schema_snapshot if dataset_snapshot else None
             ),
             "random_seed": payload.random_seed,
             "experiment_name": payload.experiment_name,
@@ -216,22 +263,18 @@ async def submit_generic_training_job(
                 specification = RandomForestClassificationJobSpec(
                     **common,
                     hyperparameters=random_forest_parameters,
-                    training_targets=tuple(
-                        int(value) for value in payload.training_targets
-                    ),
+                    training_targets=tuple(int(value) for value in training_targets),
                     evaluation_targets=tuple(
-                        int(value) for value in payload.evaluation_targets
+                        int(value) for value in evaluation_targets
                     ),
                 )
             else:
                 specification = RandomForestRegressionJobSpec(
                     **common,
                     hyperparameters=random_forest_parameters,
-                    training_targets=tuple(
-                        float(value) for value in payload.training_targets
-                    ),
+                    training_targets=tuple(float(value) for value in training_targets),
                     evaluation_targets=tuple(
-                        float(value) for value in payload.evaluation_targets
+                        float(value) for value in evaluation_targets
                     ),
                 )
         elif payload.task_type is TaskType.CLASSIFICATION:
@@ -243,12 +286,8 @@ async def submit_generic_training_job(
                     scaler=payload.preprocessing.scaler,
                     imputer=payload.preprocessing.imputer,
                 ),
-                training_targets=tuple(
-                    int(value) for value in payload.training_targets
-                ),
-                evaluation_targets=tuple(
-                    int(value) for value in payload.evaluation_targets
-                ),
+                training_targets=tuple(int(value) for value in training_targets),
+                evaluation_targets=tuple(int(value) for value in evaluation_targets),
             )
         else:
             specification = PluginRegressionJobSpec(
@@ -259,15 +298,16 @@ async def submit_generic_training_job(
                     scaler=payload.preprocessing.scaler,
                     imputer=payload.preprocessing.imputer,
                 ),
-                training_targets=tuple(
-                    float(value) for value in payload.training_targets
-                ),
-                evaluation_targets=tuple(
-                    float(value) for value in payload.evaluation_targets
-                ),
+                training_targets=tuple(float(value) for value in training_targets),
+                evaluation_targets=tuple(float(value) for value in evaluation_targets),
             )
     except ModelPluginError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail="Training data is incompatible with the selected algorithm.",
+        ) from exc
     submission = await _submit(
         service=service,
         current_user=current_user,
@@ -818,6 +858,7 @@ def _job_response(job: TrainingJobRecord) -> TrainingJobResponse:
     return TrainingJobResponse(
         job_id=job.id,
         requested_by_user_id=job.requested_by_user_id,
+        dataset_version_id=job.dataset_version_id,
         trainer_key=TrainerKeyResponse(
             algorithm=job.key.algorithm,
             task_type=job.key.task_type,

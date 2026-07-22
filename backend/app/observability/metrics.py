@@ -26,6 +26,71 @@ _HTTP_DURATION_BUCKETS = (
 )
 _JOB_DURATION_BUCKETS = (0.1, 0.5, 1.0, 5.0, 15.0, 30.0, 60.0, 300.0, 900.0)
 _EVALUATION_DURATION_BUCKETS = (0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 15.0, 30.0)
+_RETRIEVED_CHUNK_BUCKETS = (0, 1, 2, 3, 5, 10, 20, 50)
+
+_DATASET_KINDS = frozenset({"tabular", "document_collection"})
+_DATASET_EVENTS = frozenset(
+    {
+        "dataset_created",
+        "version_created",
+        "upload_stored",
+        "processing_started",
+        "processing_terminal",
+        "dataset_archived",
+        "version_cancelled",
+        "reconciled",
+    }
+)
+_PROCESSING_STAGES = frozenset(
+    {"upload", "validation", "extraction", "chunking", "embedding", "indexing"}
+)
+_RAG_INDEX_EVENTS = frozenset(
+    {
+        "knowledge_base_created",
+        "dataset_attached",
+        "build_created",
+        "build_started",
+        "build_terminal",
+        "build_cancelled",
+        "reconciled",
+    }
+)
+_FINAL_STATUSES = frozenset(
+    {
+        "active",
+        "archived",
+        "cancelled",
+        "completed",
+        "failed",
+        "pending",
+        "processing",
+        "queued",
+        "ready",
+        "running",
+        "succeeded",
+    }
+)
+_RETRIEVAL_STATUSES = frozenset(
+    {"succeeded", "insufficient_evidence", "failed", "cancelled"}
+)
+_CHATBOT_OUTCOMES = frozenset(
+    {"grounded", "insufficient_evidence", "failed", "cancelled"}
+)
+_PROCESS_WORKLOADS = frozenset(
+    {
+        "dataset_processing",
+        "document_extraction",
+        "document_chunking",
+        "dataset_embedding",
+        "rag_indexing",
+        "rag_retrieval",
+        "chatbot_generation",
+    }
+)
+_RECONCILIATION_WORKLOADS = frozenset(
+    {"dataset_processing", "rag_indexing", "chatbot_generation"}
+)
+_RECONCILIATION_OUTCOMES = frozenset({"repaired", "unchanged", "failed"})
 
 HTTP_REQUESTS = Counter(
     "http_requests_total",
@@ -139,6 +204,67 @@ AUTOML_SLOTS_IN_USE = Gauge(
     "automl_execution_slots_in_use",
     "Durable AutoML execution slots currently held by this worker flow.",
     ("service", "environment"),
+)
+
+DATASET_LIFECYCLE = Counter(
+    "dataset_lifecycle_total",
+    "Bounded dataset and immutable-version lifecycle outcomes.",
+    ("service", "environment", "dataset_kind", "event", "final_status"),
+)
+DATASET_PROCESSING_DURATION = Histogram(
+    "dataset_processing_duration_seconds",
+    "Dataset upload, validation, extraction, chunking, and embedding duration.",
+    ("service", "environment", "dataset_kind", "stage", "final_status"),
+    buckets=_JOB_DURATION_BUCKETS,
+)
+RAG_INDEX_LIFECYCLE = Counter(
+    "rag_index_lifecycle_total",
+    "Bounded knowledge-base and RAG index-build lifecycle outcomes.",
+    ("service", "environment", "event", "final_status"),
+)
+RAG_INDEX_DURATION = Histogram(
+    "rag_index_duration_seconds",
+    "RAG index processing duration by fixed processing stage.",
+    ("service", "environment", "stage", "final_status"),
+    buckets=_JOB_DURATION_BUCKETS,
+)
+RAG_RETRIEVALS = Counter(
+    "rag_retrieval_requests_total",
+    "Authorized bounded RAG retrieval outcomes.",
+    ("service", "environment", "final_status"),
+)
+RAG_RETRIEVAL_DURATION = Histogram(
+    "rag_retrieval_duration_seconds",
+    "Authorized RAG retrieval duration without query or resource labels.",
+    ("service", "environment", "final_status"),
+    buckets=_EVALUATION_DURATION_BUCKETS,
+)
+RAG_RETRIEVED_CHUNKS = Histogram(
+    "rag_retrieved_chunks",
+    "Number of authorized chunks returned by one bounded retrieval.",
+    ("service", "environment", "final_status"),
+    buckets=_RETRIEVED_CHUNK_BUCKETS,
+)
+CHATBOT_MESSAGES = Counter(
+    "chatbot_generation_total",
+    "Grounded chatbot generation outcomes without conversation or content labels.",
+    ("service", "environment", "outcome"),
+)
+CHATBOT_GENERATION_DURATION = Histogram(
+    "chatbot_generation_duration_seconds",
+    "Grounded chatbot generation duration by bounded outcome.",
+    ("service", "environment", "outcome"),
+    buckets=_JOB_DURATION_BUCKETS,
+)
+PROCESS_TIMEOUTS = Counter(
+    "bounded_process_timeouts_total",
+    "Bounded processing operations terminated after their configured timeout.",
+    ("service", "environment", "workload"),
+)
+RECONCILIATION_REPAIRS = Counter(
+    "reconciliation_repairs_total",
+    "Dataset, RAG, and chatbot reconciliation outcomes.",
+    ("service", "environment", "workload", "outcome"),
 )
 
 
@@ -382,11 +508,149 @@ def record_automl_slot_delta(delta: int) -> None:
     )
 
 
+def record_dataset_lifecycle(
+    *, dataset_kind: str, event: str, final_status: str
+) -> None:
+    """Record dataset state without accepting names, IDs, or storage metadata."""
+    labels = _base_labels()
+    _safe_record(
+        "dataset_lifecycle_total",
+        lambda: DATASET_LIFECYCLE.labels(
+            **labels,
+            dataset_kind=_bounded_label(dataset_kind, _DATASET_KINDS),
+            event=_bounded_label(event, _DATASET_EVENTS),
+            final_status=_bounded_label(final_status, _FINAL_STATUSES),
+        ).inc(),
+    )
+
+
+def record_dataset_processing(
+    *,
+    dataset_kind: str,
+    stage: str,
+    final_status: str,
+    duration_seconds: float,
+) -> None:
+    """Observe one bounded dataset-processing stage without content labels."""
+    labels = _base_labels()
+    _safe_record(
+        "dataset_processing_duration_seconds",
+        lambda: DATASET_PROCESSING_DURATION.labels(
+            **labels,
+            dataset_kind=_bounded_label(dataset_kind, _DATASET_KINDS),
+            stage=_bounded_label(stage, _PROCESSING_STAGES),
+            final_status=_bounded_label(final_status, _FINAL_STATUSES),
+        ).observe(max(duration_seconds, 0.0)),
+    )
+
+
+def record_rag_index_lifecycle(*, event: str, final_status: str) -> None:
+    """Record a knowledge-base/index transition using fixed vocabulary only."""
+    labels = _base_labels()
+    _safe_record(
+        "rag_index_lifecycle_total",
+        lambda: RAG_INDEX_LIFECYCLE.labels(
+            **labels,
+            event=_bounded_label(event, _RAG_INDEX_EVENTS),
+            final_status=_bounded_label(final_status, _FINAL_STATUSES),
+        ).inc(),
+    )
+
+
+def record_rag_index_processing(
+    *, stage: str, final_status: str, duration_seconds: float
+) -> None:
+    """Observe a fixed RAG index stage without knowledge-base identifiers."""
+    labels = _base_labels()
+    _safe_record(
+        "rag_index_duration_seconds",
+        lambda: RAG_INDEX_DURATION.labels(
+            **labels,
+            stage=_bounded_label(stage, _PROCESSING_STAGES),
+            final_status=_bounded_label(final_status, _FINAL_STATUSES),
+        ).observe(max(duration_seconds, 0.0)),
+    )
+
+
+def record_rag_retrieval(
+    *, final_status: str, duration_seconds: float, retrieved_chunks: int
+) -> None:
+    """Record authorized retrieval latency and bounded result size without text."""
+    labels = _base_labels()
+    safe_status = _bounded_label(final_status, _RETRIEVAL_STATUSES)
+    metric_labels = {**labels, "final_status": safe_status}
+    _safe_record(
+        "rag_retrieval_requests_total",
+        lambda: RAG_RETRIEVALS.labels(**metric_labels).inc(),
+    )
+    _safe_record(
+        "rag_retrieval_duration_seconds",
+        lambda: RAG_RETRIEVAL_DURATION.labels(**metric_labels).observe(
+            max(duration_seconds, 0.0)
+        ),
+    )
+    _safe_record(
+        "rag_retrieved_chunks",
+        lambda: RAG_RETRIEVED_CHUNKS.labels(**metric_labels).observe(
+            max(retrieved_chunks, 0)
+        ),
+    )
+
+
+def record_chatbot_generation(*, outcome: str, duration_seconds: float) -> None:
+    """Record grounded generation without prompts, answers, or conversation IDs."""
+    labels = _base_labels()
+    safe_outcome = _bounded_label(outcome, _CHATBOT_OUTCOMES)
+    metric_labels = {**labels, "outcome": safe_outcome}
+    _safe_record(
+        "chatbot_generation_total",
+        lambda: CHATBOT_MESSAGES.labels(**metric_labels).inc(),
+    )
+    _safe_record(
+        "chatbot_generation_duration_seconds",
+        lambda: CHATBOT_GENERATION_DURATION.labels(**metric_labels).observe(
+            max(duration_seconds, 0.0)
+        ),
+    )
+
+
+def record_process_timeout(*, workload: str) -> None:
+    """Count one timeout using a fixed workload label."""
+    labels = _base_labels()
+    _safe_record(
+        "bounded_process_timeouts_total",
+        lambda: PROCESS_TIMEOUTS.labels(
+            **labels,
+            workload=_bounded_label(workload, _PROCESS_WORKLOADS),
+        ).inc(),
+    )
+
+
+def record_reconciliation_repair(
+    *, workload: str, outcome: str, count: int = 1
+) -> None:
+    """Count bounded reconciliation outcomes without resource identifiers."""
+    labels = _base_labels()
+    _safe_record(
+        "reconciliation_repairs_total",
+        lambda: RECONCILIATION_REPAIRS.labels(
+            **labels,
+            workload=_bounded_label(workload, _RECONCILIATION_WORKLOADS),
+            outcome=_bounded_label(outcome, _RECONCILIATION_OUTCOMES),
+        ).inc(max(count, 0)),
+    )
+
+
 def _base_labels() -> dict[str, str]:
     return {
         "service": _context.service,
         "environment": _context.environment,
     }
+
+
+def _bounded_label(value: str, vocabulary: frozenset[str]) -> str:
+    """Collapse unexpected values so callers cannot create cardinality leaks."""
+    return value if value in vocabulary else "unknown"
 
 
 def _safe_record(metric_name: str, operation: Callable[[], None]) -> None:

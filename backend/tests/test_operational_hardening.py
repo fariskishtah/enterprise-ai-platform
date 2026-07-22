@@ -24,8 +24,15 @@ class MemoryStore:
         return self.counts[key], min(window_seconds, 41)
 
 
-def mutation_request(path: str = "/ai/predictions/random-forest/regression") -> Request:
-    return Request({"type": "http", "method": "POST", "path": path, "headers": []})
+def mutation_request(
+    path: str = "/ai/predictions/random-forest/regression",
+    *,
+    route_template: str | None = None,
+) -> Request:
+    scope = {"type": "http", "method": "POST", "path": path, "headers": []}
+    if route_template is not None:
+        scope["route"] = SimpleNamespace(path=route_template)
+    return Request(scope)  # type: ignore[arg-type]
 
 
 @pytest.mark.anyio
@@ -74,6 +81,41 @@ async def test_authenticated_mutation_limit_fails_closed_without_redis(
     assert caught.value.status_code == 503
     assert caught.value.detail == "A required service is unavailable."
     assert "redis" not in str(caught.value.detail).lower()
+
+
+@pytest.mark.anyio
+async def test_mutation_limit_uses_route_template_instead_of_resource_uuid(
+    settings: Settings,
+) -> None:
+    limited = settings.model_copy(
+        update={"mutation_rate_limit_enabled": True, "mutation_rate_limit_requests": 1}
+    )
+    store = MemoryStore()
+    user = SimpleNamespace(id=uuid4())
+    route_template = "/ai/datasets/{dataset_id}/archive"
+
+    first_request = mutation_request(
+        f"/ai/datasets/{uuid4()}/archive",
+        route_template=route_template,
+    )
+    await enforce_mutation_rate_limit(  # type: ignore[arg-type]
+        first_request,
+        user,
+        limited,
+        store,
+    )
+    with pytest.raises(HTTPException) as caught:
+        await enforce_mutation_rate_limit(  # type: ignore[arg-type]
+            mutation_request(
+                f"/ai/datasets/{uuid4()}/archive", route_template=route_template
+            ),
+            user,
+            limited,
+            store,
+        )
+
+    assert caught.value.status_code == 429
+    assert len(store.counts) == 1
 
 
 class FakeRedis:

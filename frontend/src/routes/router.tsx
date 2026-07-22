@@ -37,6 +37,16 @@ import { AutoMLStudiesPage } from "../pages/automl/AutoMLStudiesPage";
 import { AutoMLCreatePage } from "../pages/automl/AutoMLCreatePage";
 import { AutoMLStudyDetailPage } from "../pages/automl/AutoMLStudyDetailPage";
 import { AutoMLTrialDetailPage } from "../pages/automl/AutoMLTrialDetailPage";
+import { DatasetCreatePage } from "../pages/datasets/DatasetCreatePage";
+import { DatasetDetailPage } from "../pages/datasets/DatasetDetailPage";
+import { DatasetDocumentPage } from "../pages/datasets/DatasetDocumentPage";
+import { DatasetsPage } from "../pages/datasets/DatasetsPage";
+import { DatasetVersionPage } from "../pages/datasets/DatasetVersionPage";
+import { KnowledgeBaseCreatePage } from "../pages/knowledge/KnowledgeBaseCreatePage";
+import { KnowledgeBaseDetailPage } from "../pages/knowledge/KnowledgeBaseDetailPage";
+import { KnowledgeBasesPage } from "../pages/knowledge/KnowledgeBasesPage";
+import { ChatPage } from "../pages/chat/ChatPage";
+import { ConversationPage } from "../pages/chat/ConversationPage";
 
 const placeholderRoutes = [
   ["users", "Users & Roles", "User access and role administration."],
@@ -74,6 +84,23 @@ export const router = createBrowserRouter([
             element: <UploadJobDetailPage />,
             path: "sensor-data/uploads/:uploadJobId",
           },
+          {
+            children: [
+              { element: <DatasetsPage />, index: true },
+              { element: <DatasetCreatePage />, path: "new" },
+              { element: <DatasetDetailPage />, path: ":datasetId" },
+              {
+                element: <DatasetVersionPage />,
+                path: ":datasetId/versions/:versionId",
+              },
+              {
+                element: <DatasetDocumentPage />,
+                path: ":datasetId/versions/:versionId/documents/:documentId",
+              },
+            ],
+            element: <RoleRoute roles={["admin", "engineer"]} />,
+            path: "datasets",
+          },
           { element: <TrainingJobsPage />, path: "training" },
           { element: <TrainingJobDetailPage />, path: "training/:trainingJobId" },
           {
@@ -105,6 +132,26 @@ export const router = createBrowserRouter([
           {
             element: <PredictionEventDetailPage />,
             path: "predictions/history/:id",
+          },
+          {
+            children: [
+              { element: <KnowledgeBasesPage />, index: true },
+              { element: <KnowledgeBaseCreatePage />, path: "new" },
+              {
+                element: <KnowledgeBaseDetailPage />,
+                path: ":knowledgeBaseId",
+              },
+            ],
+            element: <RoleRoute roles={["admin", "engineer"]} />,
+            path: "knowledge",
+          },
+          {
+            children: [
+              { element: <ChatPage />, index: true },
+              { element: <ConversationPage />, path: ":conversationId" },
+            ],
+            element: <RoleRoute roles={["admin", "engineer"]} />,
+            path: "chat",
           },
           { element: <MonitoringPage />, path: "monitoring" },
           {

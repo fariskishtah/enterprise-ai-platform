@@ -6,6 +6,7 @@ import json
 from enum import StrEnum
 from hashlib import sha256
 from typing import Annotated
+from uuid import UUID
 
 from pydantic import (
     BaseModel,
@@ -80,11 +81,13 @@ class AutoMLDataSpecificationReference(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    training_data_fingerprint: Sha256Digest
-    evaluation_data_fingerprint: Sha256Digest
-    training_row_count: int = Field(ge=2, le=MAX_TRAINING_ROWS)
-    evaluation_row_count: int = Field(ge=2, le=MAX_EVALUATION_ROWS)
-    feature_count: int = Field(ge=1, le=10_000)
+    dataset_version_id: UUID | None = None
+    dataset_schema_snapshot: dict[str, object] | None = None
+    training_data_fingerprint: Sha256Digest | None = None
+    evaluation_data_fingerprint: Sha256Digest | None = None
+    training_row_count: int | None = Field(default=None, ge=2, le=MAX_TRAINING_ROWS)
+    evaluation_row_count: int | None = Field(default=None, ge=2, le=MAX_EVALUATION_ROWS)
+    feature_count: int | None = Field(default=None, ge=1, le=10_000)
     training_features: tuple[tuple[StrictFiniteFloat, ...], ...] | None = Field(
         default=None, min_length=2, max_length=MAX_TRAINING_ROWS
     )
@@ -100,12 +103,25 @@ class AutoMLDataSpecificationReference(BaseModel):
 
     @model_validator(mode="after")
     def validate_execution_snapshot(self) -> AutoMLDataSpecificationReference:
+        metadata = (
+            self.training_data_fingerprint,
+            self.evaluation_data_fingerprint,
+            self.training_row_count,
+            self.evaluation_row_count,
+            self.feature_count,
+        )
         values = (
             self.training_features,
             self.training_targets,
             self.evaluation_features,
             self.evaluation_targets,
         )
+        if self.dataset_version_id is not None and all(
+            value is None for value in (*metadata, *values)
+        ):
+            return self
+        if any(value is None for value in metadata):
+            raise ValueError("AutoML data metadata must be supplied as a complete set.")
         if all(value is None for value in values):
             return self
         if any(value is None for value in values):
@@ -116,6 +132,9 @@ class AutoMLDataSpecificationReference(BaseModel):
         assert self.training_targets is not None
         assert self.evaluation_features is not None
         assert self.evaluation_targets is not None
+        assert self.training_row_count is not None
+        assert self.evaluation_row_count is not None
+        assert self.feature_count is not None
         matrices = (self.training_features, self.evaluation_features)
         if any(
             not matrix or any(len(row) != self.feature_count for row in matrix)

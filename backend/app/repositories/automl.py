@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.ml.automl.models import AutoMLStudyStatus, AutoMLTrialStatus
 from app.ml.domain import TaskType
 from app.models.automl import AutoMLExecutionSlot, AutoMLStudy, AutoMLTrial
+from app.models.datasets import DatasetUsageReference
 from app.utils.security import as_utc
 
 
@@ -37,6 +38,15 @@ class AutoMLRepository:
         entity = AutoMLStudy(**values)
         self._session.add(entity)
         await self._session.flush()
+        if entity.dataset_version_id is not None:
+            self._session.add(
+                DatasetUsageReference(
+                    dataset_version_id=entity.dataset_version_id,
+                    usage_type="automl_study",
+                    reference_id=entity.id,
+                )
+            )
+            await self._session.flush()
         await self._session.refresh(entity)
         return entity
 

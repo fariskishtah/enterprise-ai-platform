@@ -67,6 +67,10 @@ class Settings(BaseSettings):
     mutation_rate_limit_enabled: bool = True
     mutation_rate_limit_requests: PositiveInt = Field(default=30, le=1000)
     mutation_rate_limit_window_seconds: PositiveInt = Field(default=60, le=3600)
+    http_request_max_bytes: PositiveInt = Field(
+        default=50 * 1024 * 1024,
+        le=100 * 1024 * 1024,
+    )
     cors_allowed_origins: tuple[str, ...] = (
         "http://localhost:5173",
         "http://127.0.0.1:5173",
@@ -153,6 +157,46 @@ class Settings(BaseSettings):
         min_length=1,
     )
     ai_artifact_root: str = Field(default="../ml/ai-artifacts", min_length=1)
+    dataset_storage_root: str = Field(default="../data/datasets", min_length=1)
+    dataset_upload_max_bytes: PositiveInt = Field(
+        default=10 * 1024 * 1024,
+        le=50 * 1024 * 1024,
+    )
+    dataset_max_rows: PositiveInt = Field(default=10_000, le=100_000)
+    dataset_max_columns: PositiveInt = Field(default=256, le=1_000)
+    dataset_max_cell_characters: PositiveInt = Field(default=10_000, le=100_000)
+    dataset_max_document_characters: PositiveInt = Field(
+        default=1_000_000,
+        le=2_000_000,
+    )
+    dataset_processing_stale_after_seconds: PositiveInt = Field(
+        default=900,
+        le=86_400,
+    )
+    dataset_processing_max_enqueue_attempts: PositiveInt = Field(default=3, le=10)
+    dataset_reconciliation_scheduling_enabled: bool = True
+    dataset_reconciliation_interval_seconds: PositiveInt = Field(
+        default=60, ge=10, le=3600
+    )
+    dataset_queue_name: str = Field(
+        default="ai-training",
+        min_length=1,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9_.-]+$",
+    )
+    rag_queue_name: str = Field(
+        default="ai-training",
+        min_length=1,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9_.-]+$",
+    )
+    rag_queued_stale_after_seconds: PositiveInt = Field(default=300, le=86_400)
+    rag_running_stale_after_seconds: PositiveInt = Field(default=900, le=86_400)
+    rag_index_max_enqueue_attempts: PositiveInt = Field(default=3, le=10)
+    rag_message_stale_after_seconds: PositiveInt = Field(default=300, le=86_400)
+    rag_reconciliation_batch_size: PositiveInt = Field(default=100, le=1000)
+    rag_reconciliation_scheduling_enabled: bool = True
+    rag_reconciliation_interval_seconds: PositiveInt = Field(default=60, ge=10, le=3600)
     ai_default_registered_model_prefix: RegisteredModelPrefix = "ai_core"
     training_queue_name: str = Field(
         default="ai-training",

@@ -25,6 +25,7 @@ from app.ml.promotion.models import (
     PromotionOperationOutcome,
 )
 from app.models.ai_governance import ModelPromotionAudit, TrainingJob
+from app.models.datasets import DatasetUsageReference
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,6 +66,7 @@ class TrainingJobRepository:
         entity = TrainingJob(
             id=job_id,
             requested_by_user_id=requested_by_user_id,
+            dataset_version_id=specification.dataset_version_id,
             algorithm=key.algorithm,
             task_type=key.task_type,
             status=TrainingJobStatus.QUEUED,
@@ -79,6 +81,15 @@ class TrainingJobRepository:
         )
         self._session.add(entity)
         await self._session.flush()
+        if specification.dataset_version_id is not None:
+            self._session.add(
+                DatasetUsageReference(
+                    dataset_version_id=specification.dataset_version_id,
+                    usage_type="training_job",
+                    reference_id=entity.id,
+                )
+            )
+            await self._session.flush()
         await self._session.refresh(entity)
         return _job_record(entity)
 
@@ -575,6 +586,7 @@ def _job_record(entity: TrainingJob) -> TrainingJobRecord:
     return TrainingJobRecord(
         id=entity.id,
         requested_by_user_id=entity.requested_by_user_id,
+        dataset_version_id=entity.dataset_version_id,
         key=TrainerKey(entity.algorithm, entity.task_type),
         status=entity.status,
         specification=parse_training_job_spec(

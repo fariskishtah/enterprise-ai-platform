@@ -116,11 +116,27 @@ done
 echo "Checking internal data and application health..."
 "${COMPOSE[@]}" exec -T postgres \
   sh -ec 'pg_isready -q -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
+"${COMPOSE[@]}" exec -T postgres sh -ceu '
+  extension_version="$(psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc \
+    "SELECT extversion FROM pg_extension WHERE extname = '\''vector'\''")"
+  test -n "$extension_version"
+'
 "${COMPOSE[@]}" exec -T redis redis-cli ping >/dev/null
 "${COMPOSE[@]}" exec -T reverse-proxy \
   wget -q --spider http://backend:8000/health
 "${COMPOSE[@]}" exec -T reverse-proxy \
   wget -q --spider http://frontend:8080/healthz
+"${COMPOSE[@]}" exec -T backend python -c '
+import json
+import urllib.request
+
+with urllib.request.urlopen("http://127.0.0.1:8000/operational-status", timeout=10) as response:
+    payload = json.load(response)
+required = ("dataset_storage", "embedding_provider", "generation_provider", "rag_index")
+unavailable = [name for name in required if payload.get(name) != "available"]
+if unavailable:
+    raise SystemExit("Optional data/RAG capability check failed: " + ", ".join(unavailable))
+'
 
 assert_not_published() {
   local service="$1"

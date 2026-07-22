@@ -8,6 +8,13 @@ from app.models.ai_retraining import (
     ModelRetrainingRequest,
 )
 from app.models.automl import AutoMLExecutionSlot, AutoMLStudy, AutoMLTrial
+from app.models.datasets import (
+    Dataset,
+    DatasetUsageReference,
+    DatasetVersion,
+    DocumentChunk,
+    DocumentRecord,
+)
 from app.models.manufacturing import Company, Factory, Machine
 from app.models.mlops import (
     Experiment,
@@ -20,6 +27,16 @@ from app.models.monitoring_orchestration import (
     MonitoringAlertEntity,
     MonitoringJobLockEntity,
     PredictionOutcomeEntity,
+)
+from app.models.rag import (
+    RAGChunkEmbedding,
+    RAGConversation,
+    RAGIndexBuild,
+    RAGIndexedChunk,
+    RAGKnowledgeBase,
+    RAGKnowledgeBaseDatasetVersion,
+    RAGMessage,
+    RAGMessageCitation,
 )
 from app.models.sensor import Sensor
 from app.models.sensor_data import (
@@ -36,6 +53,11 @@ __all__ = [
     "AutoMLStudy",
     "AutoMLTrial",
     "Company",
+    "Dataset",
+    "DatasetUsageReference",
+    "DatasetVersion",
+    "DocumentChunk",
+    "DocumentRecord",
     "Experiment",
     "Factory",
     "Machine",
@@ -50,6 +72,14 @@ __all__ = [
     "MonitoringJobLockEntity",
     "ReadingQuality",
     "ReadingSource",
+    "RAGChunkEmbedding",
+    "RAGConversation",
+    "RAGIndexBuild",
+    "RAGIndexedChunk",
+    "RAGKnowledgeBase",
+    "RAGKnowledgeBaseDatasetVersion",
+    "RAGMessage",
+    "RAGMessageCitation",
     "RefreshToken",
     "PredictionEventEntity",
     "PredictionOutcomeEntity",
