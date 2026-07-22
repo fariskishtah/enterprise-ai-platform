@@ -30,6 +30,14 @@ export function RouteErrorPage(): ReactElement {
   const error = useRouteError();
   const status = isRouteErrorResponse(error) ? error.status : 500;
 
+  if (status === 404) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-stone-50 px-6 text-neutral-950">
+        <NotFoundPage />
+      </main>
+    );
+  }
+
   return (
     <main className="flex min-h-screen items-center justify-center bg-stone-50 px-6 text-neutral-950">
       <section aria-labelledby="route-error-heading" className="max-w-lg text-center">

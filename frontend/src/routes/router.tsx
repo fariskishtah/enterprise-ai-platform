@@ -107,6 +107,7 @@ export const router = createBrowserRouter([
             children: [
               { element: <AutoMLStudiesPage />, index: true },
               { element: <AutoMLCreatePage />, path: "new" },
+              { element: <AutoMLStudyDetailPage />, path: ":studyId" },
               { element: <AutoMLStudyDetailPage />, path: "studies/:studyId" },
               {
                 element: <AutoMLTrialDetailPage />,
