@@ -1,0 +1,116 @@
+groups:
+  - name: data-rag-alerts
+    interval: 30s
+    rules:
+      - alert: DatasetProcessingFailures
+        expr: sum(increase(dataset_lifecycle_total{event="processing_terminal",final_status="failed"}[15m])) > 2
+        for: 5m
+        labels:
+          severity: warning
+          service: training-worker
+          component: dataset-processing
+          team: ai-platform
+          slo: dataset-processing
+        annotations:
+          summary: Dataset processing failures are elevated
+          description: More than two registered dataset versions failed processing in the last fifteen minutes.
+          runbook_url: docs/runbooks/worker-down.md
+          dashboard_url: http://localhost:3000/d/data-rag-operations
+
+      - alert: RAGEmbeddingFailures
+        expr: sum(increase(rag_index_duration_seconds_count{stage="embedding",final_status="failed"}[15m])) > 2
+        for: 5m
+        labels:
+          severity: warning
+          service: training-worker
+          component: embedding
+          team: ai-platform
+          slo: rag-retrieval
+        annotations:
+          summary: RAG embedding failures are elevated
+          description: More than two bounded RAG embedding stages failed in the last fifteen minutes.
+          runbook_url: docs/runbooks/worker-down.md
+          dashboard_url: http://localhost:3000/d/data-rag-operations
+
+      - alert: RAGIndexBuildFailures
+        expr: sum(increase(rag_index_lifecycle_total{event="build_terminal",final_status="failed"}[15m])) > 1
+        for: 5m
+        labels:
+          severity: warning
+          service: training-worker
+          component: rag-index
+          team: ai-platform
+          slo: rag-retrieval
+        annotations:
+          summary: RAG index builds are failing
+          description: Multiple registered knowledge-base index builds failed in the last fifteen minutes.
+          runbook_url: docs/runbooks/worker-down.md
+          dashboard_url: http://localhost:3000/d/data-rag-operations
+
+      - alert: RAGRetrievalErrorRate
+        expr: |
+          sum(rate(rag_retrieval_requests_total{final_status="failed"}[10m]))
+          /
+          clamp_min(sum(rate(rag_retrieval_requests_total[10m])), 0.001)
+          > 0.10
+        for: 10m
+        labels:
+          severity: warning
+          service: backend
+          component: rag-retrieval
+          team: ai-platform
+          slo: rag-retrieval
+        annotations:
+          summary: RAG retrieval error rate is elevated
+          description: More than ten percent of authorized retrievals have failed for ten minutes.
+          runbook_url: docs/runbooks/backend-down.md
+          dashboard_url: http://localhost:3000/d/data-rag-operations
+
+      - alert: ChatbotGenerationErrorRate
+        expr: |
+          sum(rate(chatbot_generation_total{outcome="failed"}[10m]))
+          /
+          clamp_min(sum(rate(chatbot_generation_total[10m])), 0.001)
+          > 0.10
+        for: 10m
+        labels:
+          severity: warning
+          service: backend
+          component: chatbot-generation
+          team: ai-platform
+          slo: chatbot-grounding
+        annotations:
+          summary: Chatbot generation error rate is elevated
+          description: More than ten percent of bounded chatbot generation attempts have failed for ten minutes.
+          runbook_url: docs/runbooks/backend-down.md
+          dashboard_url: http://localhost:3000/d/data-rag-operations
+
+      - alert: DataRAGProcessTimeouts
+        expr: sum(increase(bounded_process_timeouts_total[10m])) > 0
+        for: 5m
+        labels:
+          severity: warning
+          service: training-worker
+          component: bounded-processing
+          team: ai-platform
+          slo: background-job-success
+        annotations:
+          summary: A bounded data or RAG operation timed out
+          description: At least one dataset, retrieval, indexing, or generation operation reached its configured timeout.
+          runbook_url: docs/runbooks/worker-down.md
+          dashboard_url: http://localhost:3000/d/data-rag-operations
+
+      - alert: DataRAGReconciliationFailures
+        expr: sum(increase(reconciliation_repairs_total{outcome="failed"}[15m])) > 0
+        for: 5m
+        labels:
+          severity: warning
+          service: training-worker
+          component: reconciliation
+          team: ai-platform
+          slo: background-job-success
+        annotations:
+          summary: Data or RAG reconciliation is failing
+          description: A dataset, RAG index, or chatbot reconciliation pass could not complete safely.
+          runbook_url: docs/runbooks/worker-down.md
+          dashboard_url: http://localhost:3000/d/data-rag-operations

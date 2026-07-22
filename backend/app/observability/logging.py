@@ -65,6 +65,7 @@ _PLATFORM_FIELDS: Final = (
     "reason",
     "actor_role",
     "required_roles",
+    "resource_kind",
 )
 
 _configuration_lock = Lock()

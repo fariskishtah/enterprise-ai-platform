@@ -41,12 +41,23 @@ logger = logging.getLogger("app.worker")
 
 _ACTOR_JOB_NAMES = {
     "execute_training_job": "training",
+    "coordinate_automl_study": "automl_coordination",
+    "execute_automl_trial": "automl_trial",
+    "reconcile_automl_execution": "automl_reconciliation",
     "execute_scheduled_monitoring": "monitoring_evaluation",
     "execute_prediction_event_retention": "prediction_event_retention",
     "execute_monitoring_evaluation_retention": "monitoring_evaluation_retention",
     "execute_reference_profile_reconciliation": "reference_profile_reconciliation",
     "execute_retraining_reconciliation": "retraining_reconciliation",
     "execute_stale_alert_reconciliation": "stale_alert_reconciliation",
+    "process_dataset_version": "dataset_processing",
+    "extract_document": "document_extraction",
+    "chunk_document": "document_chunking",
+    "embed_dataset_version": "dataset_embedding",
+    "reconcile_dataset_processing": "dataset_reconciliation",
+    "build_rag_index": "rag_indexing",
+    "reconcile_rag_indexing": "rag_index_reconciliation",
+    "generate_chatbot_message": "chatbot_generation",
 }
 _TRACE_CONTEXT_OPTION: Final = "otel_trace_context"
 _TRACEPARENT_PATTERN: Final = re.compile(r"^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$")

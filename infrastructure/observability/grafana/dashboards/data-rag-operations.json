@@ -1,0 +1,105 @@
+{
+  "annotations": {"list": []},
+  "editable": false,
+  "graphTooltip": 1,
+  "panels": [
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+      "id": 1,
+      "options": {"legend": {"displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"editorMode": "code", "expr": "sum by (dataset_kind, event, final_status) (rate(dataset_lifecycle_total{service=~\"$service\",environment=~\"$environment\"}[$__rate_interval]))", "legendFormat": "{{dataset_kind}} {{event}} {{final_status}}", "range": true, "refId": "A"}],
+      "title": "Dataset lifecycle",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+      "id": 2,
+      "options": {"legend": {"displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"editorMode": "code", "expr": "histogram_quantile(0.95, sum by (le, stage, final_status) (rate(dataset_processing_duration_seconds_bucket{service=~\"$service\",environment=~\"$environment\"}[$__rate_interval])))", "legendFormat": "P95 {{stage}} {{final_status}}", "range": true, "refId": "A"}],
+      "title": "Dataset processing duration",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+      "id": 3,
+      "options": {"legend": {"displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"editorMode": "code", "expr": "sum by (event, final_status) (rate(rag_index_lifecycle_total{service=~\"$service\",environment=~\"$environment\"}[$__rate_interval]))", "legendFormat": "{{event}} {{final_status}}", "range": true, "refId": "A"}],
+      "title": "RAG index lifecycle",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+      "id": 4,
+      "options": {"legend": {"displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"editorMode": "code", "expr": "histogram_quantile(0.95, sum by (le, final_status) (rate(rag_retrieval_duration_seconds_bucket{service=~\"$service\",environment=~\"$environment\"}[$__rate_interval])))", "legendFormat": "P95 {{final_status}}", "range": true, "refId": "A"}],
+      "title": "RAG retrieval latency",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+      "id": 5,
+      "options": {"legend": {"displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"editorMode": "code", "expr": "histogram_quantile(0.95, sum by (le, final_status) (rate(rag_retrieved_chunks_bucket{service=~\"$service\",environment=~\"$environment\"}[$__rate_interval])))", "legendFormat": "P95 {{final_status}}", "range": true, "refId": "A"}],
+      "title": "Retrieved chunk count",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+      "id": 6,
+      "options": {"legend": {"displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"editorMode": "code", "expr": "sum by (outcome) (rate(chatbot_generation_total{service=~\"$service\",environment=~\"$environment\"}[$__rate_interval]))", "legendFormat": "{{outcome}}", "range": true, "refId": "A"}],
+      "title": "Chatbot grounded outcomes",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 24},
+      "id": 7,
+      "options": {"legend": {"displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"editorMode": "code", "expr": "histogram_quantile(0.95, sum by (le, outcome) (rate(chatbot_generation_duration_seconds_bucket{service=~\"$service\",environment=~\"$environment\"}[$__rate_interval])))", "legendFormat": "P95 {{outcome}}", "range": true, "refId": "A"}],
+      "title": "Chatbot generation duration",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 24},
+      "id": 8,
+      "options": {"legend": {"displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [
+        {"editorMode": "code", "expr": "sum by (workload) (rate(bounded_process_timeouts_total{service=~\"$service\",environment=~\"$environment\"}[$__rate_interval]))", "legendFormat": "timeout {{workload}}", "range": true, "refId": "A"},
+        {"editorMode": "code", "expr": "sum by (workload, outcome) (rate(reconciliation_repairs_total{service=~\"$service\",environment=~\"$environment\"}[$__rate_interval]))", "legendFormat": "reconcile {{workload}} {{outcome}}", "range": true, "refId": "B"}
+      ],
+      "title": "Timeouts and reconciliation",
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 41,
+  "tags": ["datasets", "rag", "chatbot", "observability"],
+  "templating": {
+    "list": [
+      {"current": {"text": "All", "value": "$__all"}, "datasource": {"type": "prometheus", "uid": "prometheus"}, "definition": "label_values({__name__=~\"(dataset|rag|chatbot|bounded_process|reconciliation).*\"}, service)", "includeAll": true, "label": "Service", "name": "service", "options": [], "query": {"query": "label_values({__name__=~\"(dataset|rag|chatbot|bounded_process|reconciliation).*\"}, service)", "refId": "PrometheusVariableQueryEditor-VariableQuery"}, "refresh": 1, "regex": "", "type": "query"},
+      {"current": {"text": "All", "value": "$__all"}, "datasource": {"type": "prometheus", "uid": "prometheus"}, "definition": "label_values(dataset_lifecycle_total{service=~\"$service\"}, environment)", "includeAll": true, "label": "Environment", "name": "environment", "options": [], "query": {"query": "label_values(dataset_lifecycle_total{service=~\"$service\"}, environment)", "refId": "PrometheusVariableQueryEditor-VariableQuery"}, "refresh": 1, "regex": "", "type": "query"}
+    ]
+  },
+  "time": {"from": "now-24h", "to": "now"},
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Data, RAG, and Chatbot Operations",
+  "uid": "data-rag-operations",
+  "version": 1
+}
