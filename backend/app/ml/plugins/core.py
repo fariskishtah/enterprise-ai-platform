@@ -14,6 +14,7 @@ import numpy.typing as npt
 from sklearn.base import BaseEstimator  # type: ignore[import-untyped]
 
 if TYPE_CHECKING:
+    from app.ml.automl.search_space import PluginAutoMLSearchSpace
 
     class _BaseCalibratedSVC:
         cv: int
@@ -175,6 +176,11 @@ class ModelPlugin:
     feature_importance_support: bool = False
     coefficient_support: bool = False
     permutation_importance_support: bool = True
+    automl_search_space: PluginAutoMLSearchSpace | None = None
+
+    def __post_init__(self) -> None:
+        if self.automl_search_space is not None:
+            self.validate_automl_search_space(self.automl_search_space)
 
     def validate_parameters(
         self, supplied: Mapping[str, object]
@@ -209,6 +215,49 @@ class ModelPlugin:
             "local_explainability": False,
             "dependency_available": True,
         }
+
+    def validate_automl_search_space(
+        self, search_space: PluginAutoMLSearchSpace
+    ) -> None:
+        """Require an AutoML space to narrow this plugin's public parameters."""
+        from app.ml.automl.search_space import (
+            FloatSearchParameter,
+            IntegerSearchParameter,
+        )
+
+        if (
+            search_space.plugin_id != self.id
+            or search_space.task_type is not self.key.task_type
+        ):
+            raise ModelPluginError("The AutoML search space does not match the plugin.")
+        definitions = {definition.name: definition for definition in self.parameters}
+        for parameter in search_space.parameters:
+            definition = definitions.get(parameter.name)
+            if definition is None:
+                raise ModelPluginError(
+                    "The AutoML search space contains an unknown parameter."
+                )
+            if isinstance(parameter, IntegerSearchParameter):
+                if definition.kind != "integer":
+                    raise ModelPluginError("The AutoML parameter kind is incompatible.")
+                definition.validate(parameter.low)
+                definition.validate(parameter.high)
+                definition.validate(parameter.default)
+            elif isinstance(parameter, FloatSearchParameter):
+                if definition.kind != "number":
+                    raise ModelPluginError("The AutoML parameter kind is incompatible.")
+                definition.validate(parameter.low)
+                definition.validate(parameter.high)
+                definition.validate(parameter.default)
+            else:
+                expected = (
+                    "boolean" if isinstance(parameter.default, bool) else "choice"
+                )
+                if definition.kind != expected:
+                    raise ModelPluginError("The AutoML parameter kind is incompatible.")
+                for choice in parameter.choices:
+                    definition.validate(choice)
+                definition.validate(parameter.default)
 
 
 class ModelPluginRegistry:
@@ -466,6 +515,14 @@ class SafeCalibratedSVC(_BaseCalibratedSVC):
 
 def create_default_plugin_registry() -> ModelPluginRegistry:
     """Build the dependency-free core sklearn catalog."""
+    from app.ml.automl.search_space import (
+        CategoricalSearchParameter,
+        FloatSearchParameter,
+        IntegerSearchParameter,
+        PluginAutoMLSearchSpace,
+        SearchParameter,
+    )
+
     registry = ModelPluginRegistry()
 
     def add(
@@ -477,6 +534,7 @@ def create_default_plugin_registry() -> ModelPluginRegistry:
         factory: EstimatorFactory,
         parameters: tuple[ParameterDefinition, ...] = (),
         scaler: ScalerChoice = "none",
+        automl_search_space: PluginAutoMLSearchSpace | None = None,
         **capabilities: bool,
     ) -> None:
         registry.register(
@@ -488,9 +546,55 @@ def create_default_plugin_registry() -> ModelPluginRegistry:
                 factory,
                 parameters,
                 scaler,
+                automl_search_space=automl_search_space,
                 **capabilities,
             )
         )
+
+    def space(
+        plugin_id: str,
+        task_type: TaskType,
+        *parameters: SearchParameter,
+        probability_support: bool = False,
+    ) -> PluginAutoMLSearchSpace:
+        return PluginAutoMLSearchSpace(
+            plugin_id=plugin_id,
+            task_type=task_type,
+            parameters=parameters,
+            probability_support=probability_support,
+        )
+
+    def integer(
+        name: str, low: int, high: int, default: int, step: int = 1
+    ) -> IntegerSearchParameter:
+        return IntegerSearchParameter(
+            name=name, low=low, high=high, default=default, step=step
+        )
+
+    def number(
+        name: str,
+        low: float,
+        high: float,
+        default: float,
+        *,
+        step: float | None = None,
+        log_scale: bool = False,
+    ) -> FloatSearchParameter:
+        return FloatSearchParameter(
+            name=name,
+            low=low,
+            high=high,
+            default=default,
+            step=step,
+            log_scale=log_scale,
+        )
+
+    def categorical(
+        name: str,
+        choices: tuple[bool | str, ...],
+        default: bool | str,
+    ) -> CategoricalSearchParameter:
+        return CategoricalSearchParameter(name=name, choices=choices, default=default)
 
     add(
         "logistic_regression",
@@ -510,6 +614,13 @@ def create_default_plugin_registry() -> ModelPluginRegistry:
             _choice("class_weight", "none", ("none", "balanced")),
         ),
         "standard",
+        automl_search_space=space(
+            "logistic_regression",
+            TaskType.CLASSIFICATION,
+            number("C", 0.01, 100.0, 1.0, log_scale=True),
+            categorical("class_weight", ("none", "balanced"), "none"),
+            probability_support=True,
+        ),
         probability_support=True,
         decision_function_support=True,
         coefficient_support=True,
@@ -526,6 +637,13 @@ def create_default_plugin_registry() -> ModelPluginRegistry:
             random_state=_seed(s),
         ),
         (_int("max_depth", 8, 1, 64), _int("min_samples_leaf", 1, 1, 100)),
+        automl_search_space=space(
+            "decision_tree_classification",
+            TaskType.CLASSIFICATION,
+            integer("max_depth", 2, 32, 8, 2),
+            integer("min_samples_leaf", 1, 10, 1),
+            probability_support=True,
+        ),
         probability_support=True,
         feature_importance_support=True,
     )
@@ -546,6 +664,14 @@ def create_default_plugin_registry() -> ModelPluginRegistry:
             _int("n_estimators", 100, 1, 500),
             _int("max_depth", 12, 1, 64),
             _int("min_samples_leaf", 1, 1, 100),
+        ),
+        automl_search_space=space(
+            "extra_trees_classification",
+            TaskType.CLASSIFICATION,
+            integer("n_estimators", 50, 200, 100, 25),
+            integer("max_depth", 4, 32, 12, 4),
+            integer("min_samples_leaf", 1, 10, 1),
+            probability_support=True,
         ),
         probability_support=True,
         feature_importance_support=True,
@@ -610,6 +736,14 @@ def create_default_plugin_registry() -> ModelPluginRegistry:
             _number("learning_rate", 0.1, 0.001, 1.0),
             _int("max_depth", 3, 1, 16),
         ),
+        automl_search_space=space(
+            "gradient_boosting_classification",
+            TaskType.CLASSIFICATION,
+            integer("n_estimators", 50, 200, 100, 25),
+            number("learning_rate", 0.01, 0.3, 0.1, log_scale=True),
+            integer("max_depth", 1, 5, 3),
+            probability_support=True,
+        ),
         probability_support=True,
         feature_importance_support=True,
     )
@@ -630,6 +764,14 @@ def create_default_plugin_registry() -> ModelPluginRegistry:
             _int("n_estimators", 100, 1, 500),
             _int("max_depth", 12, 1, 64),
             _int("min_samples_leaf", 1, 1, 100),
+        ),
+        automl_search_space=space(
+            "random_forest_classification",
+            TaskType.CLASSIFICATION,
+            integer("n_estimators", 50, 200, 100, 25),
+            integer("max_depth", 4, 32, 12, 4),
+            integer("min_samples_leaf", 1, 10, 1),
+            probability_support=True,
         ),
         probability_support=True,
         feature_importance_support=True,
@@ -656,6 +798,12 @@ def create_default_plugin_registry() -> ModelPluginRegistry:
         ),
         (_number("alpha", 1.0, 0.0, 10000.0), _bool("fit_intercept", True)),
         "standard",
+        automl_search_space=space(
+            "ridge_regression",
+            TaskType.REGRESSION,
+            number("alpha", 0.001, 100.0, 1.0, log_scale=True),
+            categorical("fit_intercept", (True, False), True),
+        ),
         coefficient_support=True,
     )
     add(
@@ -676,6 +824,12 @@ def create_default_plugin_registry() -> ModelPluginRegistry:
             _int("max_iter", 2000, 100, 10000),
         ),
         "standard",
+        automl_search_space=space(
+            "lasso_regression",
+            TaskType.REGRESSION,
+            number("alpha", 0.0001, 10.0, 0.1, log_scale=True),
+            categorical("fit_intercept", (True, False), True),
+        ),
         coefficient_support=True,
     )
     add(
@@ -698,6 +852,13 @@ def create_default_plugin_registry() -> ModelPluginRegistry:
             _int("max_iter", 2000, 100, 10000),
         ),
         "standard",
+        automl_search_space=space(
+            "elastic_net_regression",
+            TaskType.REGRESSION,
+            number("alpha", 0.0001, 10.0, 0.1, log_scale=True),
+            number("l1_ratio", 0.1, 0.9, 0.5, step=0.1),
+            categorical("fit_intercept", (True, False), True),
+        ),
         coefficient_support=True,
     )
     add(
@@ -712,6 +873,12 @@ def create_default_plugin_registry() -> ModelPluginRegistry:
             random_state=_seed(s),
         ),
         (_int("max_depth", 8, 1, 64), _int("min_samples_leaf", 1, 1, 100)),
+        automl_search_space=space(
+            "decision_tree_regression",
+            TaskType.REGRESSION,
+            integer("max_depth", 2, 32, 8, 2),
+            integer("min_samples_leaf", 1, 10, 1),
+        ),
         feature_importance_support=True,
     )
     add(
@@ -731,6 +898,13 @@ def create_default_plugin_registry() -> ModelPluginRegistry:
             _int("n_estimators", 100, 1, 500),
             _int("max_depth", 12, 1, 64),
             _int("min_samples_leaf", 1, 1, 100),
+        ),
+        automl_search_space=space(
+            "extra_trees_regression",
+            TaskType.REGRESSION,
+            integer("n_estimators", 50, 200, 100, 25),
+            integer("max_depth", 4, 32, 12, 4),
+            integer("min_samples_leaf", 1, 10, 1),
         ),
         feature_importance_support=True,
     )
@@ -787,6 +961,18 @@ def create_default_plugin_registry() -> ModelPluginRegistry:
                 "loss", "squared_error", ("squared_error", "absolute_error", "huber")
             ),
         ),
+        automl_search_space=space(
+            "gradient_boosting_regression",
+            TaskType.REGRESSION,
+            integer("n_estimators", 50, 200, 100, 25),
+            number("learning_rate", 0.01, 0.3, 0.1, log_scale=True),
+            integer("max_depth", 1, 5, 3),
+            categorical(
+                "loss",
+                ("squared_error", "absolute_error", "huber"),
+                "squared_error",
+            ),
+        ),
         feature_importance_support=True,
     )
     add(
@@ -806,6 +992,13 @@ def create_default_plugin_registry() -> ModelPluginRegistry:
             _int("n_estimators", 100, 1, 500),
             _int("max_depth", 12, 1, 64),
             _int("min_samples_leaf", 1, 1, 100),
+        ),
+        automl_search_space=space(
+            "random_forest_regression",
+            TaskType.REGRESSION,
+            integer("n_estimators", 50, 200, 100, 25),
+            integer("max_depth", 4, 32, 12, 4),
+            integer("min_samples_leaf", 1, 10, 1),
         ),
         feature_importance_support=True,
     )
