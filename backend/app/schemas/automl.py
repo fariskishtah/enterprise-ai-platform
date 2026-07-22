@@ -148,6 +148,18 @@ class AutoMLTrialListResponse(BaseModel):
     offset: int
 
 
+class AutoMLLeaderboardEntryResponse(BaseModel):
+    rank: int = Field(ge=1)
+    trial_id: UUID
+    trial_number: int
+    plugin_id: str
+    status: AutoMLTrialStatus
+    primary_metric_value: float | None
+    metric_standard_deviation: float | None
+    duration_seconds: float | None
+    parameters: dict[str, object]
+
+
 class AutoMLStudySubmissionResponse(BaseModel):
     study_id: UUID
     status: AutoMLStudyStatus

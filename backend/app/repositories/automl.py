@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.ml.automl.models import AutoMLStudyStatus, AutoMLTrialStatus
 from app.ml.domain import TaskType
 from app.models.automl import AutoMLExecutionSlot, AutoMLStudy, AutoMLTrial
+from app.utils.security import as_utc
 
 
 @dataclass(frozen=True, slots=True)
@@ -300,6 +301,206 @@ class AutoMLRepository:
             .all()
         )
         return AutoMLTrialPage(tuple(rows), total)
+
+    async def list_all_trials(self, study_id: UUID) -> tuple[AutoMLTrial, ...]:
+        return tuple(
+            (
+                await self._session.execute(
+                    select(AutoMLTrial)
+                    .where(AutoMLTrial.study_id == study_id)
+                    .order_by(AutoMLTrial.trial_number, AutoMLTrial.id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+    async def set_study_queue_identifier(
+        self, *, study_id: UUID, queue_message_id: str, expected_version: int
+    ) -> AutoMLStudy | None:
+        statement = (
+            update(AutoMLStudy)
+            .where(
+                AutoMLStudy.id == study_id,
+                AutoMLStudy.state_version == expected_version,
+                AutoMLStudy.status.in_(
+                    (AutoMLStudyStatus.QUEUED, AutoMLStudyStatus.RUNNING)
+                ),
+            )
+            .values(
+                queue_message_id=queue_message_id,
+                state_version=AutoMLStudy.state_version + 1,
+            )
+            .returning(AutoMLStudy)
+        )
+        return (await self._session.execute(statement)).scalar_one_or_none()
+
+    async def set_trial_queue_identifier(
+        self, *, trial_id: UUID, queue_message_id: str, expected_version: int
+    ) -> AutoMLTrial | None:
+        statement = (
+            update(AutoMLTrial)
+            .where(
+                AutoMLTrial.id == trial_id,
+                AutoMLTrial.status == AutoMLTrialStatus.QUEUED,
+                AutoMLTrial.state_version == expected_version,
+            )
+            .values(
+                queue_message_id=queue_message_id,
+                state_version=AutoMLTrial.state_version + 1,
+            )
+            .returning(AutoMLTrial)
+        )
+        return (await self._session.execute(statement)).scalar_one_or_none()
+
+    async def claim_trial_and_slot(
+        self,
+        *,
+        trial_id: UUID,
+        now: datetime,
+        lease_expires_at: datetime,
+    ) -> tuple[AutoMLTrial, AutoMLExecutionSlot] | None:
+        trial = (
+            await self._session.execute(
+                select(AutoMLTrial)
+                .where(
+                    AutoMLTrial.id == trial_id,
+                    AutoMLTrial.status == AutoMLTrialStatus.QUEUED,
+                    AutoMLTrial.attempt_count < AutoMLTrial.max_attempts,
+                )
+                .with_for_update()
+            )
+        ).scalar_one_or_none()
+        if trial is None:
+            return None
+        study = (
+            await self._session.execute(
+                select(AutoMLStudy)
+                .where(
+                    AutoMLStudy.id == trial.study_id,
+                    AutoMLStudy.status == AutoMLStudyStatus.RUNNING,
+                    AutoMLStudy.cancel_requested_at.is_(None),
+                )
+                .with_for_update()
+            )
+        ).scalar_one_or_none()
+        if study is None or (
+            study.deadline_at is not None and as_utc(study.deadline_at) <= now
+        ):
+            return None
+        active = int(
+            await self._session.scalar(
+                select(func.count())
+                .select_from(AutoMLTrial)
+                .where(
+                    AutoMLTrial.study_id == study.id,
+                    AutoMLTrial.status == AutoMLTrialStatus.RUNNING,
+                    AutoMLTrial.lease_expires_at > now,
+                )
+            )
+            or 0
+        )
+        if active >= study.max_concurrent_trials:
+            return None
+        slot = (
+            await self._session.execute(
+                select(AutoMLExecutionSlot)
+                .where(
+                    (AutoMLExecutionSlot.trial_id.is_(None))
+                    | (AutoMLExecutionSlot.lease_expires_at <= now)
+                )
+                .order_by(AutoMLExecutionSlot.slot_number)
+                .with_for_update(skip_locked=True)
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if slot is None:
+            return None
+        slot.trial_id = trial.id
+        slot.lease_expires_at = lease_expires_at
+        slot.state_version += 1
+        trial.status = AutoMLTrialStatus.RUNNING
+        trial.started_at = now
+        trial.lease_expires_at = lease_expires_at
+        trial.attempt_count += 1
+        trial.state_version += 1
+        await self._session.flush()
+        return trial, slot
+
+    async def release_slot(
+        self,
+        *,
+        slot_number: int,
+        trial_id: UUID,
+        expected_version: int,
+    ) -> bool:
+        result = await self._session.execute(
+            update(AutoMLExecutionSlot)
+            .where(
+                AutoMLExecutionSlot.slot_number == slot_number,
+                AutoMLExecutionSlot.trial_id == trial_id,
+                AutoMLExecutionSlot.state_version == expected_version,
+            )
+            .values(
+                trial_id=None,
+                lease_expires_at=None,
+                state_version=AutoMLExecutionSlot.state_version + 1,
+            )
+        )
+        return bool(type_cast(CursorResult[tuple[object]], result).rowcount)
+
+    async def reclaim_expired_slots(self, now: datetime) -> int:
+        result = await self._session.execute(
+            update(AutoMLExecutionSlot)
+            .where(
+                AutoMLExecutionSlot.trial_id.is_not(None),
+                AutoMLExecutionSlot.lease_expires_at <= now,
+            )
+            .values(
+                trial_id=None,
+                lease_expires_at=None,
+                state_version=AutoMLExecutionSlot.state_version + 1,
+            )
+        )
+        return int(type_cast(CursorResult[tuple[object]], result).rowcount)
+
+    async def release_expired_trials(self, now: datetime) -> int:
+        result = await self._session.execute(
+            update(AutoMLTrial)
+            .where(
+                AutoMLTrial.status == AutoMLTrialStatus.RUNNING,
+                AutoMLTrial.lease_expires_at <= now,
+                AutoMLTrial.attempt_count < AutoMLTrial.max_attempts,
+            )
+            .values(
+                status=AutoMLTrialStatus.QUEUED,
+                lease_expires_at=None,
+                queue_message_id=None,
+                state_version=AutoMLTrial.state_version + 1,
+                error_code="expired_lease_recovered",
+                safe_error_message="The trial was recovered after an expired lease.",
+            )
+        )
+        return int(type_cast(CursorResult[tuple[object]], result).rowcount)
+
+    async def fail_exhausted_expired_trials(self, now: datetime) -> int:
+        result = await self._session.execute(
+            update(AutoMLTrial)
+            .where(
+                AutoMLTrial.status == AutoMLTrialStatus.RUNNING,
+                AutoMLTrial.lease_expires_at <= now,
+                AutoMLTrial.attempt_count >= AutoMLTrial.max_attempts,
+            )
+            .values(
+                status=AutoMLTrialStatus.FAILED,
+                lease_expires_at=None,
+                finished_at=now,
+                state_version=AutoMLTrial.state_version + 1,
+                error_code="retry_exhausted",
+                safe_error_message="The trial exhausted its infrastructure retries.",
+            )
+        )
+        return int(type_cast(CursorResult[tuple[object]], result).rowcount)
 
     async def conditionally_transition_trial(
         self,

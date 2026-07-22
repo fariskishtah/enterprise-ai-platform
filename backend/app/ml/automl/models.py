@@ -25,6 +25,7 @@ from app.ml.registry.naming import validate_registered_model_name
 from app.ml.training_limits import MAX_EVALUATION_ROWS, MAX_TRAINING_ROWS
 
 Sha256Digest = Annotated[str, Field(pattern=r"^[a-f0-9]{64}$")]
+StrictFiniteFloat = Annotated[float, Field(strict=True, allow_inf_nan=False)]
 
 
 class AutoMLStudyStatus(StrEnum):
@@ -84,6 +85,56 @@ class AutoMLDataSpecificationReference(BaseModel):
     training_row_count: int = Field(ge=2, le=MAX_TRAINING_ROWS)
     evaluation_row_count: int = Field(ge=2, le=MAX_EVALUATION_ROWS)
     feature_count: int = Field(ge=1, le=10_000)
+    training_features: tuple[tuple[StrictFiniteFloat, ...], ...] | None = Field(
+        default=None, min_length=2, max_length=MAX_TRAINING_ROWS
+    )
+    training_targets: tuple[StrictInt | StrictFiniteFloat, ...] | None = Field(
+        default=None, min_length=2, max_length=MAX_TRAINING_ROWS
+    )
+    evaluation_features: tuple[tuple[StrictFiniteFloat, ...], ...] | None = Field(
+        default=None, min_length=2, max_length=MAX_EVALUATION_ROWS
+    )
+    evaluation_targets: tuple[StrictInt | StrictFiniteFloat, ...] | None = Field(
+        default=None, min_length=2, max_length=MAX_EVALUATION_ROWS
+    )
+
+    @model_validator(mode="after")
+    def validate_execution_snapshot(self) -> AutoMLDataSpecificationReference:
+        values = (
+            self.training_features,
+            self.training_targets,
+            self.evaluation_features,
+            self.evaluation_targets,
+        )
+        if all(value is None for value in values):
+            return self
+        if any(value is None for value in values):
+            raise ValueError(
+                "AutoML execution data must be supplied as a complete set."
+            )
+        assert self.training_features is not None
+        assert self.training_targets is not None
+        assert self.evaluation_features is not None
+        assert self.evaluation_targets is not None
+        matrices = (self.training_features, self.evaluation_features)
+        if any(
+            not matrix or any(len(row) != self.feature_count for row in matrix)
+            for matrix in matrices
+        ):
+            raise ValueError("AutoML feature matrices must match feature_count.")
+        if len(self.training_features) != len(self.training_targets):
+            raise ValueError("AutoML training rows and targets must align.")
+        if len(self.evaluation_features) != len(self.evaluation_targets):
+            raise ValueError("AutoML evaluation rows and targets must align.")
+        if len(self.training_features) != self.training_row_count:
+            raise ValueError("AutoML training row metadata must match the snapshot.")
+        if len(self.evaluation_features) != self.evaluation_row_count:
+            raise ValueError("AutoML evaluation row metadata must match the snapshot.")
+        return self
+
+    @property
+    def executable(self) -> bool:
+        return self.training_features is not None
 
 
 class AutoMLStudySpecification(BaseModel):
@@ -110,6 +161,18 @@ class AutoMLStudySpecification(BaseModel):
 
     @model_validator(mode="after")
     def validate_study(self) -> AutoMLStudySpecification:
+        if self.task_type is TaskType.CLASSIFICATION and (
+            self.data.training_targets is not None
+            and self.data.evaluation_targets is not None
+            and any(
+                type(value) is not int
+                for value in (
+                    *self.data.training_targets,
+                    *self.data.evaluation_targets,
+                )
+            )
+        ):
+            raise ValueError("Classification AutoML targets must be integer labels.")
         if len(set(self.plugin_ids)) != len(self.plugin_ids):
             raise ValueError("AutoML plugin IDs must be unique.")
         spaces = {space.plugin_id: space for space in self.plugin_search_spaces}

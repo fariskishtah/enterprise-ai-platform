@@ -4,6 +4,7 @@ from pathlib import Path
 from uuid import UUID
 
 import pytest
+from app.api.routes.automl import get_automl_queue
 from app.config.settings import Settings
 from app.ml.automl.models import AutoMLTrialStatus
 from app.models.user import User, UserRole
@@ -13,6 +14,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from tests.ai_api_support import ai_api_client, auth_headers
+
+
+class FakeAutoMLQueue:
+    def enqueue_study(self, study_id: UUID) -> str:
+        return f"study-{study_id}"
+
+    def enqueue_trial(self, trial_id: UUID) -> str:
+        return f"trial-{trial_id}"
 
 
 def automl_payload() -> dict[str, object]:
@@ -70,8 +79,9 @@ async def test_automl_metadata_submission_idempotency_listing_and_cancellation(
 ) -> None:
     async with ai_api_client(settings, session_factory, tmp_path=tmp_path) as (
         client,
-        _,
+        application,
     ):
+        application.dependency_overrides[get_automl_queue] = FakeAutoMLQueue
         headers = await auth_headers(
             client,
             session_factory,
@@ -145,8 +155,9 @@ async def test_automl_conflict_owner_hiding_admin_access_and_operator_denial(
 ) -> None:
     async with ai_api_client(settings, session_factory, tmp_path=tmp_path) as (
         client,
-        _,
+        application,
     ):
+        application.dependency_overrides[get_automl_queue] = FakeAutoMLQueue
         owner = await auth_headers(
             client,
             session_factory,

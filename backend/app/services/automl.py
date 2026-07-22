@@ -14,6 +14,7 @@ from app.ml.automl.models import (
 from app.ml.domain import TaskType
 from app.models.automl import AutoMLStudy, AutoMLTrial
 from app.observability.logging import emit_safe
+from app.observability.metrics import record_automl_event
 from app.repositories.automl import AutoMLRepository, AutoMLStudyPage, AutoMLTrialPage
 from app.utils.security import utc_now
 
@@ -106,6 +107,7 @@ class AutoMLService:
                 "task_type": specification.task_type.value,
             },
         )
+        record_automl_event(event="study_created", final_status="queued")
         return AutoMLSubmission(study, True)
 
     def _replay(self, study: AutoMLStudy, fingerprint: str) -> AutoMLSubmission:
@@ -236,6 +238,7 @@ class AutoMLService:
                 raise AutoMLConflictError(
                     "The AutoML study changed before cancellation was requested."
                 )
+            await self._repository.mark_queued_trials_cancelled(study_id, now)
             await self._repository.commit()
             outcome = "requested"
         else:

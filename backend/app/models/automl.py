@@ -232,8 +232,9 @@ class AutoMLTrial(Base):
         ),
         UniqueConstraint(
             "study_id",
+            "plugin_id",
             "parameter_fingerprint",
-            name="uq_automl_trials_study_fingerprint",
+            name="uq_automl_trials_study_plugin_fingerprint",
         ),
         Index("ix_automl_trials_study_status", "study_id", "status"),
         Index("ix_automl_trials_study_plugin", "study_id", "plugin_id"),

@@ -124,6 +124,22 @@ BACKGROUND_JOBS_PROCESSED = Counter(
     "Dramatiq actor executions that reached a bounded terminal outcome.",
     ("service", "environment", "job_name", "final_status"),
 )
+AUTOML_LIFECYCLE = Counter(
+    "automl_lifecycle_total",
+    "Bounded AutoML study, trial, reconciliation, and handoff outcomes.",
+    ("service", "environment", "event", "final_status"),
+)
+AUTOML_TRIAL_DURATION = Histogram(
+    "automl_trial_duration_seconds",
+    "Terminal AutoML trial duration.",
+    ("service", "environment", "final_status"),
+    buckets=_JOB_DURATION_BUCKETS,
+)
+AUTOML_SLOTS_IN_USE = Gauge(
+    "automl_execution_slots_in_use",
+    "Durable AutoML execution slots currently held by this worker flow.",
+    ("service", "environment"),
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -336,6 +352,33 @@ def record_background_job_processed(*, job_name: str, final_status: str) -> None
             job_name=job_name,
             final_status=final_status,
         ).inc(),
+    )
+
+
+def record_automl_event(
+    *, event: str, final_status: str, duration_seconds: float | None = None
+) -> None:
+    labels = _base_labels()
+    _safe_record(
+        "automl_lifecycle_total",
+        lambda: AUTOML_LIFECYCLE.labels(
+            **labels, event=event, final_status=final_status
+        ).inc(),
+    )
+    if event == "trial_terminal" and duration_seconds is not None:
+        _safe_record(
+            "automl_trial_duration_seconds",
+            lambda: AUTOML_TRIAL_DURATION.labels(
+                **labels, final_status=final_status
+            ).observe(max(duration_seconds, 0.0)),
+        )
+
+
+def record_automl_slot_delta(delta: int) -> None:
+    labels = _base_labels()
+    _safe_record(
+        "automl_execution_slots_in_use",
+        lambda: AUTOML_SLOTS_IN_USE.labels(**labels).inc(delta),
     )
 
 

@@ -9,7 +9,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.dependencies.auth import require_roles
 from app.dependencies.database import get_db_session
 from app.dependencies.rate_limit import enforce_mutation_rate_limit
+from app.ml.automl.champion import ChampionCandidate, rank_champions
 from app.ml.automl.models import AutoMLStudyStatus, AutoMLTrialStatus
+from app.ml.automl.queue import AutoMLQueue, DramatiqAutoMLQueue
 from app.ml.automl.search_space import (
     CategoricalSearchParameter,
     FloatSearchParameter,
@@ -23,6 +25,7 @@ from app.repositories.automl import AutoMLRepository
 from app.schemas.automl import (
     AutoMLAlgorithmMetadataResponse,
     AutoMLCancelResponse,
+    AutoMLLeaderboardEntryResponse,
     AutoMLSearchParameterResponse,
     AutoMLStudyCreateRequest,
     AutoMLStudyDetailResponse,
@@ -44,6 +47,10 @@ _AUTH: dict[int | str, dict[str, object]] = {
 
 def _service(session: AsyncSession) -> AutoMLService:
     return AutoMLService(AutoMLRepository(session))
+
+
+def get_automl_queue() -> AutoMLQueue:
+    return DramatiqAutoMLQueue()
 
 
 @router.get(
@@ -99,6 +106,7 @@ async def create_study(
         User, Depends(require_roles(UserRole.ADMIN, UserRole.ENGINEER))
     ],
     session: Annotated[AsyncSession, Depends(get_db_session)],
+    queue: Annotated[AutoMLQueue, Depends(get_automl_queue)],
     idempotency_key: Annotated[
         str | None, Header(alias="Idempotency-Key", max_length=128)
     ] = None,
@@ -112,6 +120,21 @@ async def create_study(
     except AutoMLConflictError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
     study = submission.study
+    if submission.created:
+        try:
+            message_id = queue.enqueue_study(study.id)
+            updated = await AutoMLRepository(session).set_study_queue_identifier(
+                study_id=study.id,
+                queue_message_id=message_id,
+                expected_version=study.state_version,
+            )
+            if updated is not None:
+                await session.commit()
+                study = updated
+            else:
+                await session.rollback()
+        except Exception:
+            await session.rollback()
     return AutoMLStudySubmissionResponse(
         study_id=study.id,
         status=study.status,
@@ -304,13 +327,25 @@ def _study_summary(value: AutoMLStudy) -> AutoMLStudySummaryResponse:
 
 
 def _study_detail(value: AutoMLStudy) -> AutoMLStudyDetailResponse:
+    data = value.data_specification
+    safe_data = {
+        key: data[key]
+        for key in (
+            "training_data_fingerprint",
+            "evaluation_data_fingerprint",
+            "training_row_count",
+            "evaluation_row_count",
+            "feature_count",
+        )
+        if key in data
+    }
     return AutoMLStudyDetailResponse(
         **_study_summary(value).model_dump(),
         random_seed=value.random_seed,
         sampler_type=value.sampler_type,
         search_spaces=value.search_spaces,
         preprocessing=value.preprocessing,
-        data_specification=value.data_specification,
+        data_specification=safe_data,
         cross_validation_folds=value.cross_validation_folds,
         time_budget_seconds=value.time_budget_seconds,
         per_trial_timeout_seconds=value.per_trial_timeout_seconds,
@@ -336,3 +371,71 @@ def _trial_summary(value: AutoMLTrial) -> AutoMLTrialSummaryResponse:
         started_at=value.started_at,
         finished_at=value.finished_at,
     )
+
+
+@router.get(
+    "/studies/{study_id}/leaderboard",
+    response_model=list[AutoMLLeaderboardEntryResponse],
+    responses={**_AUTH, 404: {"description": "Study not found."}},
+)
+async def get_leaderboard(
+    study_id: UUID,
+    current_user: Annotated[
+        User, Depends(require_roles(UserRole.ADMIN, UserRole.ENGINEER))
+    ],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> list[AutoMLLeaderboardEntryResponse]:
+    service = _service(session)
+    try:
+        study = await service.get_study(
+            study_id=study_id,
+            user_id=current_user.id,
+            is_admin=current_user.role is UserRole.ADMIN,
+        )
+        page = await service.list_trials(
+            study_id=study_id,
+            user_id=current_user.id,
+            is_admin=current_user.role is UserRole.ADMIN,
+            status=AutoMLTrialStatus.SUCCEEDED,
+            plugin_id=None,
+            limit=100,
+            offset=0,
+            metric_descending=False,
+        )
+    except AutoMLNotFoundError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+    by_id = {trial.id: trial for trial in page.items}
+    candidates = tuple(
+        ChampionCandidate(
+            trial.id,
+            trial.trial_number,
+            trial.primary_metric_value,
+            float(
+                (trial.aggregate_metrics or {}).get(
+                    f"{study.primary_metric}_std", 1e308
+                )
+            ),
+        )
+        for trial in page.items
+        if trial.primary_metric_value is not None
+    )
+    return [
+        AutoMLLeaderboardEntryResponse(
+            rank=index,
+            trial_id=candidate.trial_id,
+            trial_number=candidate.trial_number,
+            plugin_id=by_id[candidate.trial_id].plugin_id,
+            status=by_id[candidate.trial_id].status,
+            primary_metric_value=candidate.primary_metric_value,
+            metric_standard_deviation=(
+                (by_id[candidate.trial_id].aggregate_metrics or {}).get(
+                    f"{study.primary_metric}_std"
+                )
+            ),
+            duration_seconds=by_id[candidate.trial_id].duration_seconds,
+            parameters=by_id[candidate.trial_id].parameters,
+        )
+        for index, candidate in enumerate(
+            rank_champions(candidates, study.metric_direction), start=1
+        )
+    ]
