@@ -55,8 +55,11 @@ export function RoleRoute({
 }: {
   readonly roles: readonly ("admin" | "engineer" | "operator")[];
 }): ReactElement {
-  const { role } = useAuth();
-  return role !== null && roles.includes(role) ? (
+  const auth = useAuth();
+  if (auth.status === "loading") {
+    return <AuthLoadingScreen />;
+  }
+  return auth.role !== null && roles.includes(auth.role) ? (
     <Outlet />
   ) : (
     <Navigate replace to="/" />
