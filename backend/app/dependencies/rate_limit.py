@@ -80,7 +80,7 @@ def get_auth_rate_limit_store(
 
 def _privacy_safe_key(request: Request, secret_key: str) -> str:
     client_host = request.client.host if request.client is not None else "unknown"
-    source = f"{request.url.path}|{client_host}".encode()
+    source = f"{_operation_path(request)}|{client_host}".encode()
     digest = hmac.new(secret_key.encode(), source, hashlib.sha256).hexdigest()
     return f"auth-rate-limit:v1:{digest}"
 
@@ -140,9 +140,22 @@ def _privacy_safe_mutation_key(
     user_id: object,
     secret_key: str,
 ) -> str:
-    source = f"{request.url.path}|{user_id}".encode()
+    source = f"{_operation_path(request)}|{user_id}".encode()
     digest = hmac.new(secret_key.encode(), source, hashlib.sha256).hexdigest()
     return f"mutation-rate-limit:v1:{digest}"
+
+
+def _operation_path(request: Request) -> str:
+    """Use the resolved route template so resource UUIDs cannot split buckets."""
+    route = request.scope.get("route")
+    route_path = getattr(route, "path", None)
+    if (
+        isinstance(route_path, str)
+        and route_path.startswith("/")
+        and len(route_path) <= 512
+    ):
+        return route_path
+    return request.url.path[:512]
 
 
 async def enforce_mutation_rate_limit(

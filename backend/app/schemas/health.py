@@ -31,5 +31,15 @@ class OperationalStatusResponse(BaseModel):
     redis: Literal["available", "unavailable"]
     queue: Literal["available", "unavailable"]
     training_worker: Literal["available", "unavailable", "unknown"]
+    dataset_storage: Literal["available", "unavailable", "unknown"] = "unknown"
+    embedding_provider: Literal["available", "unavailable", "disabled", "unknown"] = (
+        "unknown"
+    )
+    generation_provider: Literal["available", "unavailable", "disabled", "unknown"] = (
+        "unknown"
+    )
+    rag_index: Literal["available", "unavailable", "degraded", "unknown"] = "unknown"
+    dataset_reconciliation_scheduler: Literal["enabled", "disabled"] = "disabled"
+    rag_reconciliation_scheduler: Literal["enabled", "disabled"] = "disabled"
     status: Literal["operational", "degraded"]
     timestamp: datetime

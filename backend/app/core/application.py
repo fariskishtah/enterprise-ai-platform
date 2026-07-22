@@ -1,10 +1,14 @@
 """FastAPI application factory."""
 
+from urllib.parse import urlsplit
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.api.router import api_router
 from app.config.settings import Settings, get_settings
+from app.core.request_limits import RequestBodyLimitMiddleware
 from app.core.security_headers import SecurityHeadersMiddleware
 from app.observability import (
     FastAPITracingMiddleware,
@@ -41,6 +45,27 @@ OPENAPI_TAGS = [
             "Explicit controlled retraining policies, audited drift decisions, "
             "persisted cooldown and quota state, trusted source-job lineage, "
             "background candidate creation, and advisory metric comparison."
+        ),
+    },
+    {
+        "name": "AI Datasets",
+        "description": (
+            "Owner-scoped immutable tabular and document dataset versions, "
+            "bounded ingestion, schema metadata, lineage, and archival."
+        ),
+    },
+    {
+        "name": "rag",
+        "description": (
+            "Authorized registered-document knowledge bases, local indexing, "
+            "bounded vector retrieval, and citation-ready evidence."
+        ),
+    },
+    {
+        "name": "chat",
+        "description": (
+            "Asynchronous grounded conversations over authorized knowledge "
+            "bases with persisted citations and insufficient-evidence outcomes."
         ),
     },
     {"name": "auth", "description": "Authentication and token management."},
@@ -92,32 +117,32 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         title=resolved_settings.project_name,
         version=resolved_settings.app_version,
         description=(
-            "Manufacturing APIs and the AI Core's authenticated synchronous and "
-            "background Random Forest training, model governance, and registered "
-            "prediction workflows with privacy-preserving monitoring, drift, and "
-            "controlled candidate retraining."
+            "Manufacturing APIs and authenticated AI workflows spanning versioned "
+            "datasets, training, model governance, prediction monitoring, AutoML, "
+            "controlled retraining, authorized registered-document retrieval, and "
+            "grounded citation-aware chat."
         ),
         docs_url=docs_url,
         openapi_url=openapi_url,
         openapi_tags=OPENAPI_TAGS,
         redoc_url=redoc_url,
     )
+    if resolved_settings.environment == "production":
+        public_hosts = {
+            parsed.hostname
+            for origin in resolved_settings.cors_allowed_origins
+            if (parsed := urlsplit(origin)).hostname is not None
+        }
+        application.add_middleware(
+            TrustedHostMiddleware,
+            allowed_hosts=sorted({*public_hosts, "backend", "localhost"}),
+        )
+    # The streaming limiter stays inside response hardening, request context,
+    # metrics, tracing, and CORS so its early 413 response receives the same
+    # headers and observability treatment as application responses.
     application.add_middleware(
-        CORSMiddleware,
-        allow_origins=list(resolved_settings.cors_allowed_origins),
-        allow_credentials=resolved_settings.cors_allow_credentials,
-        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-        allow_headers=[
-            "Authorization",
-            "Content-Type",
-            resolved_settings.request_id_header,
-            resolved_settings.correlation_id_header,
-        ],
-        expose_headers=[
-            "Retry-After",
-            resolved_settings.request_id_header,
-            resolved_settings.correlation_id_header,
-        ],
+        RequestBodyLimitMiddleware,
+        maximum_bytes=resolved_settings.http_request_max_bytes,
     )
     configure_metrics(
         enabled=resolved_settings.observability_metrics_enabled,
@@ -164,10 +189,33 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     if settings is not None:
         application.dependency_overrides[get_settings] = lambda: resolved_settings
     application.include_router(api_router)
-    application.add_middleware(SecurityHeadersMiddleware)
+    application.add_middleware(
+        SecurityHeadersMiddleware,
+        enable_hsts=resolved_settings.environment == "production",
+    )
     application.add_middleware(
         FastAPITracingMiddleware,
         enabled=resolved_settings.tracing_enabled,
         excluded_paths=noisy_paths,
+    )
+    # CORS must wrap every other middleware so even early security rejections are
+    # readable only by explicitly allowed browser origins.
+    application.add_middleware(
+        CORSMiddleware,
+        allow_origins=list(resolved_settings.cors_allowed_origins),
+        allow_credentials=resolved_settings.cors_allow_credentials,
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=[
+            "Authorization",
+            "Content-Type",
+            "Idempotency-Key",
+            resolved_settings.request_id_header,
+            resolved_settings.correlation_id_header,
+        ],
+        expose_headers=[
+            "Retry-After",
+            resolved_settings.request_id_header,
+            resolved_settings.correlation_id_header,
+        ],
     )
     return application
