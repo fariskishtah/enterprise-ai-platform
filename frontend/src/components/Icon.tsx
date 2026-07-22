@@ -13,6 +13,7 @@ const paths: Record<NavigationIcon | UtilityIcon, ReactElement> = {
   audit: (
     <path d="M9 12.75 11.25 15 15 10.5m6-3.75V18a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 18V6a2.25 2.25 0 0 1 2.25-2.25h8.25L21 6.75Z" />
   ),
+  automl: <path d="M4 19.5h16M6 16V9m4 7V5m4 11v-4m4 4V7M4.5 4.5l4 3 4-4 7 2" />,
   "chevron-left": <path d="m15 18-6-6 6-6" />,
   close: <path d="M6 18 18 6M6 6l12 12" />,
   dashboard: (

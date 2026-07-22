@@ -2,6 +2,7 @@ export type NavigationRole = "admin" | "engineer" | "operator";
 
 export type NavigationIcon =
   | "audit"
+  | "automl"
   | "dashboard"
   | "factories"
   | "models"
@@ -45,6 +46,13 @@ export const navigationItems: readonly NavigationItem[] = [
     icon: "training-jobs",
     label: "Training Jobs",
     path: "/training",
+    roles: ["admin", "engineer"],
+  },
+  {
+    description: "Bounded algorithm search and cross-validation studies.",
+    icon: "automl",
+    label: "AutoML Studio",
+    path: "/automl",
     roles: ["admin", "engineer"],
   },
   {

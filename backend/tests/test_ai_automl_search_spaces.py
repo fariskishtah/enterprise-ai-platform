@@ -253,6 +253,7 @@ def test_seed_and_space_fingerprints_are_stable_and_sensitive() -> None:
         trial_number=2,
         space_fingerprint=fingerprint,
     )
+    assert 0 <= seed <= 2**31 - 1
     assert seed == derive_trial_seed(
         study_seed=5,
         plugin_id=plugin.id,

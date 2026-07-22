@@ -14,7 +14,10 @@ export function Breadcrumbs({
   readonly items: readonly BreadcrumbItem[];
 }): ReactElement {
   return (
-    <nav aria-label="Breadcrumb" className="mb-6 text-xs font-medium text-neutral-500">
+    <nav
+      aria-label="Breadcrumb"
+      className="mb-6 text-xs font-medium text-secondary-foreground"
+    >
       <ol className="flex flex-wrap items-center gap-2.5">
         {items.map((item, index) => (
           <li className="flex items-center gap-2" key={`${item.label}-${index}`}>
@@ -24,7 +27,7 @@ export function Breadcrumbs({
               </span>
             ) : null}
             {item.to === undefined ? (
-              <span aria-current="page" className="font-semibold text-neutral-800">
+              <span aria-current="page" className="font-semibold text-foreground">
                 {item.label}
               </span>
             ) : (

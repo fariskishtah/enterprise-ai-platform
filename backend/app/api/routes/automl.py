@@ -269,6 +269,7 @@ async def get_trial(
         max_attempts=value.max_attempts,
         fold_metrics=value.fold_metrics,
         aggregate_metrics=value.aggregate_metrics,
+        error_code=value.error_code,
         safe_error_message=value.safe_error_message,
     )
 
@@ -354,6 +355,7 @@ def _study_detail(value: AutoMLStudy) -> AutoMLStudyDetailResponse:
         registered_model_name=value.registered_model_name,
         best_trial_id=value.best_trial_id,
         champion_training_job_id=value.champion_training_job_id,
+        error_code=value.error_code,
         safe_error_message=value.safe_error_message,
     )
 

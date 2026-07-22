@@ -110,4 +110,37 @@ test.describe("real staging backend", () => {
     ).toEqual([]);
     expect(errors).toEqual([]);
   });
+
+  test("engineer completes a bounded real AutoML study", async ({ page }) => {
+    test.setTimeout(120_000);
+    test.skip(
+      !accounts.engineer || !password,
+      "Disposable engineer credentials are required.",
+    );
+    const errors = collectUnexpectedBrowserErrors(page);
+    await login(page, accounts.engineer ?? "");
+    await page.goto("/automl/new");
+    await expect(page.locator("#automl-create-heading")).toBeVisible();
+    await page
+      .getByRole("group", { name: "Algorithms" })
+      .getByRole("checkbox")
+      .first()
+      .check();
+    await page.getByLabel("Training features").fill("0\n1\n2\n3\n4\n5");
+    await page.getByLabel("Training targets").fill("0,1,2,3,4,5");
+    await page.getByLabel("Evaluation features").fill("0.5\n4.5");
+    await page.getByLabel("Evaluation targets").fill("0.5,4.5");
+    await page.getByRole("button", { name: "Create and start study" }).click();
+    await expect(page).toHaveURL(/\/automl\/studies\/[0-9a-f-]+$/);
+    await expect(page.getByText("Succeeded", { exact: true }).first()).toBeVisible({
+      timeout: 90_000,
+    });
+    await page.getByRole("tab", { name: "Leaderboard" }).click();
+    await expect(page.getByRole("link", { name: /Trial \d+/ }).first()).toBeVisible();
+    await page.getByRole("tab", { name: "Champion" }).click();
+    await expect(
+      page.getByText("Champion registration was not requested"),
+    ).toBeVisible();
+    expect(errors).toEqual([]);
+  });
 });

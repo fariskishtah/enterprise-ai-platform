@@ -107,6 +107,7 @@ class AutoMLStudyDetailResponse(AutoMLStudySummaryResponse):
     registered_model_name: str | None
     best_trial_id: UUID | None
     champion_training_job_id: UUID | None
+    error_code: str | None
     safe_error_message: str | None
 
 
@@ -131,6 +132,7 @@ class AutoMLTrialDetailResponse(AutoMLTrialSummaryResponse):
     max_attempts: int
     fold_metrics: list[dict[str, float]] | None
     aggregate_metrics: dict[str, float] | None
+    error_code: str | None
     safe_error_message: str | None
 
 

@@ -65,7 +65,7 @@ export function Topbar({
         >
           <span
             aria-hidden="true"
-            className="flex h-7 w-7 items-center justify-center rounded-md bg-neutral-900 text-[10px] text-white"
+            className="flex h-7 w-7 items-center justify-center rounded-md bg-[var(--sidebar)] text-[10px] text-inverse"
           >
             {initials}
           </span>

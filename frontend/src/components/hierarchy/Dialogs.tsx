@@ -1,4 +1,4 @@
-import { useEffect, type ReactElement, type ReactNode } from "react";
+import { useEffect, useRef, type ReactElement, type ReactNode } from "react";
 
 import { secondaryButtonClassName } from "./ResourceStates";
 import { buttonClassName } from "../ui/buttonStyles";
@@ -14,14 +14,38 @@ export function Dialog({
   readonly onClose: () => void;
   readonly title: string;
 }): ReactElement {
+  const dialogRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    const closeOnEscape = (event: KeyboardEvent): void => {
+    const previouslyFocused = document.activeElement;
+    const focusable = (): HTMLElement[] =>
+      Array.from(
+        dialogRef.current?.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])',
+        ) ?? [],
+      );
+    focusable()[0]?.focus();
+    const handleKeyboard = (event: KeyboardEvent): void => {
       if (event.key === "Escape") {
         onClose();
+      } else if (event.key === "Tab") {
+        const items = focusable();
+        if (items.length === 0) return;
+        const first = items[0];
+        const last = items[items.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first.focus();
+        }
       }
     };
-    window.addEventListener("keydown", closeOnEscape);
-    return () => window.removeEventListener("keydown", closeOnEscape);
+    window.addEventListener("keydown", handleKeyboard);
+    return () => {
+      window.removeEventListener("keydown", handleKeyboard);
+      if (previouslyFocused instanceof HTMLElement) previouslyFocused.focus();
+    };
   }, [onClose]);
 
   return (
@@ -32,7 +56,10 @@ export function Dialog({
         onClick={onClose}
         type="button"
       />
-      <div className="relative mx-auto my-6 w-[calc(100%-2rem)] max-w-2xl overflow-hidden rounded-lg border border-neutral-300 bg-white shadow-lg sm:my-12">
+      <div
+        className="relative mx-auto my-6 w-[calc(100%-2rem)] max-w-2xl overflow-hidden rounded-lg border border-neutral-300 bg-white shadow-lg sm:my-12"
+        ref={dialogRef}
+      >
         <div className="flex items-start justify-between gap-4 border-b border-neutral-200 bg-neutral-50 px-6 py-5 sm:px-7">
           <div>
             <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-purple-700">

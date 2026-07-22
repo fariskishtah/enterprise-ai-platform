@@ -18,6 +18,7 @@ from app.ml.composition import (
     create_ai_model_registry,
     create_ai_tracked_training_service,
 )
+from app.ml.jobs.automl_scheduling import AutoMLReconciliationSchedulerMiddleware
 from app.ml.jobs.exceptions import RetryableTrainingJobError
 from app.ml.jobs.worker import (
     TrainingJobWorker,
@@ -239,6 +240,16 @@ def reconcile_automl_execution() -> None:
             ).reconcile()
 
     asyncio.run(reconcile())
+
+
+broker.add_middleware(
+    AutoMLReconciliationSchedulerMiddleware(
+        enabled=_settings.automl_reconciliation_scheduling_enabled,
+        interval_seconds=_settings.automl_reconciliation_interval_seconds,
+        redis_url=_settings.redis_url,
+        enqueue=reconcile_automl_execution.send,
+    )
+)
 
 
 async def _synchronize_retraining_request(training_job_id: UUID) -> None:

@@ -1,6 +1,6 @@
 import { createBrowserRouter } from "react-router-dom";
 
-import { ProtectedRoute, PublicOnlyRoute } from "../auth/RouteGuards";
+import { ProtectedRoute, PublicOnlyRoute, RoleRoute } from "../auth/RouteGuards";
 import { AppShell } from "../components/AppShell";
 import { Dashboard } from "../pages/Dashboard";
 import { LoginPage } from "../pages/LoginPage";
@@ -33,6 +33,10 @@ import { PredictionHistoryPage } from "../pages/intelligence/PredictionHistoryPa
 import { PredictionsPage } from "../pages/intelligence/PredictionsPage";
 import { RetrainingPage } from "../pages/intelligence/RetrainingPage";
 import { RetrainingRequestPage } from "../pages/intelligence/RetrainingRequestPage";
+import { AutoMLStudiesPage } from "../pages/automl/AutoMLStudiesPage";
+import { AutoMLCreatePage } from "../pages/automl/AutoMLCreatePage";
+import { AutoMLStudyDetailPage } from "../pages/automl/AutoMLStudyDetailPage";
+import { AutoMLTrialDetailPage } from "../pages/automl/AutoMLTrialDetailPage";
 
 const placeholderRoutes = [
   ["users", "Users & Roles", "User access and role administration."],
@@ -72,6 +76,19 @@ export const router = createBrowserRouter([
           },
           { element: <TrainingJobsPage />, path: "training" },
           { element: <TrainingJobDetailPage />, path: "training/:trainingJobId" },
+          {
+            children: [
+              { element: <AutoMLStudiesPage />, index: true },
+              { element: <AutoMLCreatePage />, path: "new" },
+              { element: <AutoMLStudyDetailPage />, path: "studies/:studyId" },
+              {
+                element: <AutoMLTrialDetailPage />,
+                path: "studies/:studyId/trials/:trialId",
+              },
+            ],
+            element: <RoleRoute roles={["admin", "engineer"]} />,
+            path: "automl",
+          },
           { element: <EvaluationsPage />, path: "evaluations" },
           {
             element: <TrainingEvaluationPage />,

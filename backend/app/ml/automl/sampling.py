@@ -33,7 +33,7 @@ def search_space_fingerprint(search_space: PluginAutoMLSearchSpace) -> str:
 def derive_trial_seed(
     *, study_seed: int, plugin_id: str, trial_number: int, space_fingerprint: str
 ) -> int:
-    """Derive a stable positive 63-bit seed without Python hash randomization."""
+    """Derive a stable non-negative database-safe seed without hash randomization."""
     if trial_number < 0:
         raise ValueError("Trial number must be non-negative.")
     payload = json.dumps(
@@ -46,8 +46,11 @@ def derive_trial_seed(
         separators=(",", ":"),
         sort_keys=True,
     )
-    return int.from_bytes(sha256(payload.encode("utf-8")).digest()[:8], "big") & (
-        2**63 - 1
+    # PostgreSQL ``INTEGER`` is the persisted contract for trial seeds. Keeping the
+    # derived value within its positive range also works with every supported ML
+    # library's random-state parameter.
+    return int.from_bytes(sha256(payload.encode("utf-8")).digest()[:4], "big") & (
+        2**31 - 1
     )
 
 
