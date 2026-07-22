@@ -1,3 +1,5 @@
+name: ai-manufacturing-platform
+
 services:
   backend:
     build:
@@ -11,11 +13,11 @@ services:
       tempo:
         condition: service_healthy
     environment:
-      DATABASE_URL: ${DATABASE_URL}
-      ENVIRONMENT: ${ENVIRONMENT}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://ai_manufacturing:ai_manufacturing_password@postgres:5432/ai_manufacturing}
+      ENVIRONMENT: ${ENVIRONMENT:-local}
       ENABLE_API_DOCS: ${ENABLE_API_DOCS:-true}
-      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES}
-      JWT_ALGORITHM: ${JWT_ALGORITHM}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-15}
+      JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
       JWT_ISSUER: ${JWT_ISSUER:-ai-manufacturing-platform}
       JWT_AUDIENCE: ${JWT_AUDIENCE:-ai-manufacturing-api}
       AUTH_RATE_LIMIT_ENABLED: ${AUTH_RATE_LIMIT_ENABLED:-true}
@@ -43,7 +45,7 @@ services:
       RAG_RECONCILIATION_BATCH_SIZE: ${RAG_RECONCILIATION_BATCH_SIZE:-100}
       RAG_RECONCILIATION_SCHEDULING_ENABLED: ${RAG_RECONCILIATION_SCHEDULING_ENABLED:-true}
       RAG_RECONCILIATION_INTERVAL_SECONDS: ${RAG_RECONCILIATION_INTERVAL_SECONDS:-60}
-      AI_DEFAULT_REGISTERED_MODEL_PREFIX: ${AI_DEFAULT_REGISTERED_MODEL_PREFIX}
+      AI_DEFAULT_REGISTERED_MODEL_PREFIX: ${AI_DEFAULT_REGISTERED_MODEL_PREFIX:-ai_core}
       TRAINING_QUEUE_NAME: ${TRAINING_QUEUE_NAME:-ai-training}
       TRAINING_JOB_MAX_ATTEMPTS: ${TRAINING_JOB_MAX_ATTEMPTS:-3}
       TRAINING_JOB_RETRY_BASE_SECONDS: ${TRAINING_JOB_RETRY_BASE_SECONDS:-5}
@@ -96,9 +98,9 @@ services:
       RETRAINING_RECONCILIATION_BATCH_SIZE: ${RETRAINING_RECONCILIATION_BATCH_SIZE:-100}
       RETRAINING_DEFAULT_MINIMUM_DRIFT_STATUS: ${RETRAINING_DEFAULT_MINIMUM_DRIFT_STATUS:-critical}
       RETRAINING_ALLOW_TRUNCATED_DRIFT: ${RETRAINING_ALLOW_TRUNCATED_DRIFT:-true}
-      REFRESH_TOKEN_EXPIRE_DAYS: ${REFRESH_TOKEN_EXPIRE_DAYS}
-      REDIS_URL: ${REDIS_URL}
-      SECRET_KEY: ${SECRET_KEY}
+      REFRESH_TOKEN_EXPIRE_DAYS: ${REFRESH_TOKEN_EXPIRE_DAYS:-30}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      SECRET_KEY: ${SECRET_KEY:-local-secret-key-with-sufficient-entropy}
       STRUCTURED_LOGGING_ENABLED: ${STRUCTURED_LOGGING_ENABLED:-true}
       LOG_FORMAT: ${LOG_FORMAT:-json}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
@@ -149,8 +151,8 @@ services:
       tempo:
         condition: service_healthy
     environment:
-      DATABASE_URL: ${DATABASE_URL}
-      ENVIRONMENT: ${ENVIRONMENT}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://ai_manufacturing:ai_manufacturing_password@postgres:5432/ai_manufacturing}
+      ENVIRONMENT: ${ENVIRONMENT:-local}
       ENABLE_API_DOCS: ${ENABLE_API_DOCS:-true}
       MLFLOW_TRACKING_URI: file:/app/data/mlflow
       MODEL_ARTIFACT_ROOT: /app/data/model-artifacts
@@ -172,9 +174,9 @@ services:
       RAG_RECONCILIATION_BATCH_SIZE: ${RAG_RECONCILIATION_BATCH_SIZE:-100}
       RAG_RECONCILIATION_SCHEDULING_ENABLED: ${RAG_RECONCILIATION_SCHEDULING_ENABLED:-true}
       RAG_RECONCILIATION_INTERVAL_SECONDS: ${RAG_RECONCILIATION_INTERVAL_SECONDS:-60}
-      AI_DEFAULT_REGISTERED_MODEL_PREFIX: ${AI_DEFAULT_REGISTERED_MODEL_PREFIX}
-      REDIS_URL: ${REDIS_URL}
-      SECRET_KEY: ${SECRET_KEY}
+      AI_DEFAULT_REGISTERED_MODEL_PREFIX: ${AI_DEFAULT_REGISTERED_MODEL_PREFIX:-ai_core}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      SECRET_KEY: ${SECRET_KEY:-local-secret-key-with-sufficient-entropy}
       TRAINING_QUEUE_NAME: ${TRAINING_QUEUE_NAME:-ai-training}
       TRAINING_JOB_MAX_ATTEMPTS: ${TRAINING_JOB_MAX_ATTEMPTS:-3}
       TRAINING_JOB_RETRY_BASE_SECONDS: ${TRAINING_JOB_RETRY_BASE_SECONDS:-5}
@@ -270,9 +272,9 @@ services:
   postgres:
     image: pgvector/pgvector:0.8.5-pg16
     environment:
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_DB: ${POSTGRES_DB:-ai_manufacturing}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ai_manufacturing_password}
+      POSTGRES_USER: ${POSTGRES_USER:-ai_manufacturing}
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 10s
@@ -344,6 +346,7 @@ services:
       - --storage.path=/alertmanager
       - --data.retention=120h
       - --enable-feature=utf8-strict-mode
+      - --cluster.listen-address=
     healthcheck:
       test: ["CMD-SHELL", "wget -q --spider http://localhost:9093/-/healthy"]
       interval: 10s

@@ -6,6 +6,7 @@ server:
 
 common:
   path_prefix: /loki
+  instance_addr: 127.0.0.1
   replication_factor: 1
   ring:
     kvstore:
@@ -14,6 +15,9 @@ common:
     filesystem:
       chunks_directory: /loki/chunks
       rules_directory: /loki/rules
+
+memberlist:
+  bind_addr: ["0.0.0.0"]
 
 schema_config:
   configs:
