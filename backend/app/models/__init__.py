@@ -7,6 +7,7 @@ from app.models.ai_retraining import (
     ModelRetrainingPolicy,
     ModelRetrainingRequest,
 )
+from app.models.automl import AutoMLExecutionSlot, AutoMLStudy, AutoMLTrial
 from app.models.manufacturing import Company, Factory, Machine
 from app.models.mlops import (
     Experiment,
@@ -31,6 +32,9 @@ from app.models.sensor_data import (
 from app.models.user import RefreshToken, User, UserRole
 
 __all__ = [
+    "AutoMLExecutionSlot",
+    "AutoMLStudy",
+    "AutoMLTrial",
     "Company",
     "Experiment",
     "Factory",
