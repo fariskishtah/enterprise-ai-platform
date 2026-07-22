@@ -7,11 +7,35 @@ from dataclasses import dataclass
 from math import isfinite
 from time import perf_counter
 from types import MappingProxyType
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 import numpy.typing as npt
 from sklearn.base import BaseEstimator  # type: ignore[import-untyped]
+
+if TYPE_CHECKING:
+
+    class _BaseCalibratedSVC:
+        cv: int
+
+        def __init__(
+            self,
+            estimator: BaseEstimator | None = None,
+            *,
+            method: str = "sigmoid",
+            cv: int | None = None,
+            ensemble: bool = True,
+        ) -> None: ...
+        def fit(
+            self,
+            X: FeatureArray,
+            y: TargetArray,
+            sample_weight: TargetArray | None = None,
+            **fit_params: object,
+        ) -> BaseEstimator: ...
+
+else:
+    from sklearn.calibration import CalibratedClassifierCV as _BaseCalibratedSVC
 from sklearn.ensemble import (  # type: ignore[import-untyped]
     ExtraTreesClassifier,
     ExtraTreesRegressor,
@@ -419,6 +443,27 @@ def _seed(value: int | None) -> int:
     return 17 if value is None else value
 
 
+class SafeCalibratedSVC(_BaseCalibratedSVC):
+    """Dynamic calibration CV to prevent sklearn failures on small datasets."""
+
+    def fit(
+        self,
+        X: FeatureArray,
+        y: TargetArray,
+        sample_weight: TargetArray | None = None,
+        **fit_params: object,
+    ) -> BaseEstimator:
+        _, counts = np.unique(y, return_counts=True)
+        min_count = int(np.min(counts))
+        if min_count < 2:
+            raise ModelPluginError(
+                f"SVM probability calibration requires at least 2 samples per class. "
+                f"Found minimum class count of {min_count}."
+            )
+        self.cv = min(5, min_count)
+        return super().fit(X, y, sample_weight=sample_weight, **fit_params)
+
+
 def create_default_plugin_registry() -> ModelPluginRegistry:
     """Build the dependency-free core sklearn catalog."""
     registry = ModelPluginRegistry()
@@ -527,12 +572,16 @@ def create_default_plugin_registry() -> ModelPluginRegistry:
         "Kernel support-vector classifier with bounded probability output.",
         AlgorithmType.SVM,
         TaskType.CLASSIFICATION,
-        lambda p, s: SVC(
-            C=p["C"],
-            kernel=p["kernel"],
-            gamma=p["gamma"],
-            probability=True,
-            random_state=_seed(s),
+        lambda p, s: SafeCalibratedSVC(
+            estimator=SVC(
+                C=p["C"],
+                kernel=p["kernel"],
+                gamma=p["gamma"],
+                max_iter=10_000,
+                random_state=_seed(s),
+            ),
+            ensemble=False,
+            cv=5,
         ),
         (
             _number("C", 1.0, 0.0001, 10000.0),
@@ -541,7 +590,7 @@ def create_default_plugin_registry() -> ModelPluginRegistry:
         ),
         "standard",
         probability_support=True,
-        decision_function_support=True,
+        decision_function_support=False,
         coefficient_support=False,
     )
     add(

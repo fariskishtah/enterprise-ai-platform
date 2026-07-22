@@ -1,6 +1,6 @@
 """Synchronous tracked-training and registered-prediction routes."""
 
-from typing import Annotated
+from typing import Annotated, Any
 
 import numpy as np
 from fastapi import APIRouter, Body, Depends, Header, HTTPException, Path, status
@@ -65,6 +65,7 @@ from app.models.user import User, UserRole
 from app.schemas.ai import (
     AITrainingResponse,
     ClassificationPredictionResponse,
+    ClassProbabilityItem,
     GenericPredictionResponse,
     GenericRegisteredModelPredictionRequest,
     RandomForestClassificationTrainingRequest,
@@ -494,11 +495,35 @@ async def predict_registered_model(
         predictions = [int(value) for value in result.predictions]
     else:
         predictions = [float(value) for value in result.predictions]
+
+    # Compute class probabilities for supported classification plugins.
+    probability_available = False
+    probability_unavailable_reason: str | None = None
+    probabilities: list[list[ClassProbabilityItem]] | None = None
+
+    if payload.task_type.value == "classification":
+        if plugin.probability_support:
+            prob_arr, prob_reason = _compute_probabilities(
+                result.predictions, features, result
+            )
+            if prob_arr is not None:
+                probability_available = True
+                probabilities = prob_arr
+            else:
+                probability_unavailable_reason = prob_reason
+        else:
+            probability_unavailable_reason = (
+                "This algorithm does not expose class probabilities."
+            )
+
     return GenericPredictionResponse(
         model_name=result.model_version.registered_model_name,
         model_version=result.model_version.version,
         trainer_key=_trainer_key_response(result.model_version.key),
         predictions=predictions,
+        probability_available=probability_available,
+        probability_unavailable_reason=probability_unavailable_reason,
+        probabilities=probabilities,
     )
 
 
@@ -760,3 +785,63 @@ def _bad_gateway() -> HTTPException:
         status_code=status.HTTP_502_BAD_GATEWAY,
         detail="An external model service operation failed.",
     )
+
+
+def _compute_probabilities(
+    _predictions: object,
+    features: "Any",
+    result: object,
+) -> "tuple[list[list[ClassProbabilityItem]] | None, str | None]":
+    """Safely extract class probabilities from a fitted pipeline.
+
+    Returns (probabilities, None) on success, or (None, reason) on any failure.
+    Failures here must not affect the prediction response.
+    """
+    try:
+        pipeline = getattr(result, "loaded_model", None)
+        if pipeline is None or not hasattr(pipeline, "steps"):
+            return (
+                None,
+                "Class probabilities are not available for this prediction path.",
+            )
+
+        if not hasattr(pipeline, "predict_proba"):
+            return None, "The loaded model does not expose class probabilities."
+
+        raw = np.asarray(pipeline.predict_proba(features), dtype=np.float64)
+        if raw.ndim != 2 or raw.shape[0] != features.shape[0]:
+            return None, "Probability array shape is unexpected."
+
+        # Validate all values are finite and bounded.
+        if not np.all(np.isfinite(raw)):
+            return None, "Probability array contains non-finite values."
+        if np.any(raw < 0) or np.any(raw > 1 + 1e-6):
+            return None, "Probability values are out of [0, 1] bounds."
+
+        # Validate sums per row within tolerance.
+        row_sums = raw.sum(axis=1)
+        if np.any(np.abs(row_sums - 1.0) > 0.01):
+            return None, "Probability rows do not sum to approximately 1.0."
+
+        # Build class labels from the final estimator's classes_ attribute.
+        estimator = pipeline.steps[-1][1]
+        classes = getattr(estimator, "classes_", None)
+        if classes is None:
+            classes = list(range(raw.shape[1]))
+
+        class_labels = [str(c.item() if hasattr(c, "item") else c) for c in classes]
+
+        probabilities: list[list[ClassProbabilityItem]] = []
+        for row in raw:
+            probabilities.append(
+                [
+                    ClassProbabilityItem(
+                        class_label=class_labels[j],
+                        probability=float(np.clip(row[j], 0.0, 1.0)),
+                    )
+                    for j in range(len(class_labels))
+                ]
+            )
+        return probabilities, None
+    except Exception as exc:  # noqa: BLE001
+        return None, f"Probability computation failed: {type(exc).__name__}"
