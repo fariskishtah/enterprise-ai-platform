@@ -61,7 +61,8 @@ audit. It does not delete or reset unrelated data or Docker volumes. If an
 earlier demo job has failed, the script reports that state instead of silently
 creating another model. Resetting the demo is intentionally not automated.
 
-Known limitations: the frontend is a lightweight landing surface rather than a
-full data-management UI, so detailed inspection uses the local Swagger API. The
-seed utility directly grants its registered local user the engineer role because
-the secure public API intentionally has no role-elevation endpoint.
+Known limitations: the seed demonstrates the bounded manufacturing-to-prediction
+path and does not create every dataset, AutoML, knowledge, or chat resource
+available in the authenticated frontend. The seed utility directly grants its
+registered local user the engineer role because the secure public API
+intentionally has no role-elevation endpoint.

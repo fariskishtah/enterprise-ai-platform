@@ -95,7 +95,8 @@ Alternatively, bootstrap only the backend:
 cd backend
 python3.12 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements/dev.txt
+python -m pip install --require-hashes -r requirements/dev.lock
+python -m pip install --no-deps --no-build-isolation -e .
 cd ..
 ```
 

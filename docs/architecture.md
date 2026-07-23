@@ -1,31 +1,35 @@
 # Architecture
 
-This document describes the AI Manufacturing Platform for the v1.0 release.
+This document describes controlled-pilot version 0.9.0 of the AI Manufacturing
+Platform.
 
-## Current v1.0 Overview
+## Current 0.9 overview
 
 The platform is a Docker Compose monorepo for authenticated manufacturing data
-and governed local machine-learning workflows. It combines a lightweight Vite
-React frontend, an Nginx production entry point, a FastAPI backend, PostgreSQL,
-Redis-backed Dramatiq workers, MLflow model tracking and registration, bounded
-prediction monitoring and controlled retraining, and an optional local
-observability stack.
+and governed local machine-learning/document-knowledge workflows. It combines a
+routed Vite React application, Nginx, FastAPI, PostgreSQL with pgvector,
+Redis-backed Dramatiq workers, MLflow tracking/registration, prediction
+monitoring, controlled retraining, owner-scoped dataset/RAG/chat services, and
+an optional local observability stack.
 
-The supported AI scope is intentionally narrow: Random Forest regression and
-integer-label classification, immutable registered model versions, explicit
-promotion, exact-version prediction, privacy-preserving monitoring summaries,
-and policy-controlled candidate retraining. It does not provide automatic model
-promotion, prediction probabilities, RAG, computer vision, MQTT, or Kafka.
+The pilot supports an allowlisted sklearn catalog for regression and
+classification, bounded AutoML, immutable registered versions, explicit
+promotion, exact-version prediction, privacy-preserving monitoring, candidate
+retraining, immutable document datasets, asynchronous RAG indexing, and grounded
+extractive chat with citations. It does not provide automatic production
+promotion, enterprise identity/tenancy, HA, semantic/LLM generation, advanced
+document ingestion, computer vision, MQTT, or Kafka.
 
 ## Overall Architecture
 
-The backend implements authentication, user management, RBAC, companies,
+The backend implements authentication, current-user identity, RBAC, companies,
 factories, machines, sensors, sensor readings, CSV ingestion, feature dataset
 exports, MLOps metadata, AI training jobs, model governance, prediction,
-monitoring, drift analysis, outcomes, and controlled retraining. PostgreSQL is
-the system of record for application and workflow state. Redis provides rate
-limiting and background queues. MLflow and local artifact volumes hold tracked
-runs, registered versions, and fitted model files.
+monitoring, drift analysis, outcomes, controlled retraining, immutable datasets,
+knowledge bases, vector retrieval, and grounded conversations. PostgreSQL is the
+system of record and pgvector query engine. Redis provides rate limiting,
+queues, scheduler leases, and worker heartbeat. MLflow and local artifact
+volumes hold tracked runs, registered versions, and fitted model files.
 
 ## System Diagram
 
@@ -34,10 +38,11 @@ flowchart LR
     Browser[Browser] --> Proxy[Nginx Reverse Proxy]
     Proxy --> Frontend[Vite React Frontend]
     Proxy --> Backend[FastAPI Backend]
-    Backend --> Postgres[(PostgreSQL)]
+    Backend --> Postgres[(PostgreSQL and pgvector)]
     Backend --> Redis[(Redis)]
     Redis --> Worker[Dramatiq Training Worker]
     Worker --> Postgres
+    Worker --> DatasetObjects[Immutable Dataset Volume]
     Worker --> MLflow[MLflow File Store and Registry]
     MLflow --> Artifacts[Model Artifact Volumes]
     Backend --> MLflow
@@ -96,6 +101,10 @@ logic, and infrastructure adapters:
   tracking, and local model persistence boundaries.
 - `app/ml/monitoring`, `promotion`, and `retraining`: safe prediction events,
   drift, explicit alias governance, policies, audits, and candidate workflows.
+- `app/datasets`: immutable version ingestion, local object-storage boundary,
+  training snapshots, queueing, and reconciliation.
+- `app/rag`: deterministic embedding/generation providers, authorized retrieval,
+  asynchronous indexing/chat state machines, and reconciliation.
 - `app/observability`: structured logging, metrics, tracing, and context
   propagation.
 - `app/utils`: JWT, password hashing, timestamps, and security helpers.
@@ -122,10 +131,12 @@ from persisted background execution and external adapter failure handling.
 ## Frontend Architecture
 
 The frontend is a TypeScript React app built with Vite. React Router owns
-routing, TailwindCSS owns styling, and the Dashboard at `/` provides the current
-landing experience. In development it includes a local demo card linking to the
-API documentation. Complete manufacturing and AI workflows remain API-first and
-are available through authenticated endpoints and non-production Swagger UI.
+routing, TailwindCSS owns styling, and typed API modules isolate backend
+contracts. Authenticated routes cover hierarchy, sensor data, datasets, training,
+AutoML, evaluation, models, prediction, monitoring, alerts, retraining,
+knowledge bases, chat, partial audit records, and local settings. Backend role
+checks remain authoritative. The preserved `/users` route truthfully reports
+that administration is unavailable and is omitted from normal navigation.
 
 The production image compiles static assets and serves them through Nginx. The
 reverse proxy routes API traffic to FastAPI while keeping backend, PostgreSQL,
@@ -233,6 +244,11 @@ areas include:
 - prediction events, reference profiles, monitoring evaluations and alerts;
 - prediction outcomes and controlled retraining policies, requests, audits, and
   candidate comparisons.
+- AutoML studies, trials, and durable execution slots.
+- datasets, immutable dataset versions, document records/chunks, and usage
+  references.
+- RAG knowledge bases/attachments, index builds, indexed chunks, pgvector
+  embeddings, conversations, messages, and citations.
 
 Manufacturing entities use UUID primary keys, `created_at`, `updated_at`, and
 nullable `deleted_at` values for soft deletion. AI workflow tables preserve
@@ -252,6 +268,13 @@ erDiagram
     PREDICTION_EVENTS ||--o| PREDICTION_OUTCOMES : receives
     MONITORING_EVALUATIONS ||--o{ MONITORING_ALERTS : raises
     RETRAINING_POLICIES ||--o{ RETRAINING_REQUESTS : governs
+    USERS ||--o{ DATASETS : owns
+    DATASETS ||--o{ DATASET_VERSIONS : versions
+    DATASET_VERSIONS ||--o{ DOCUMENT_RECORDS : contains
+    RAG_KNOWLEDGE_BASES ||--o{ RAG_INDEX_BUILDS : builds
+    RAG_INDEX_BUILDS ||--o{ RAG_CHUNK_EMBEDDINGS : indexes
+    RAG_CONVERSATIONS ||--o{ RAG_MESSAGES : contains
+    RAG_MESSAGES ||--o{ RAG_MESSAGE_CITATIONS : cites
 
     USERS {
         uuid id PK
@@ -335,6 +358,41 @@ metadata and fitted artifacts reside on named volumes shared by the backend and
 worker. These volumes survive container replacement but are not backups and do
 not provide cross-host availability.
 
+## Dataset Registry, RAG, and Grounded Chat
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant API
+    participant DB as PostgreSQL + pgvector
+    participant Queue as Redis/Dramatiq
+    participant Worker
+    participant Objects as Dataset Volume
+
+    Client->>API: create dataset and immutable version
+    API->>Objects: stream bounded object with opaque key and SHA-256
+    API->>DB: persist pending version
+    API->>Queue: enqueue version UUID
+    Worker->>DB: claim version
+    Worker->>Objects: validate/extract bounded content
+    Worker->>DB: persist schema, chunks, and ready state
+    Client->>API: attach ready document version and request index
+    API->>Queue: enqueue index-build UUID
+    Worker->>DB: persist indexed chunks and vector(256) embeddings
+    Client->>API: submit idempotent chat message
+    API->>Queue: enqueue assistant-message UUID
+    Worker->>DB: authorized pgvector cosine retrieval
+    Worker->>DB: persist grounded outcome and citations
+```
+
+Every dataset version is immutable after terminal processing. Knowledge bases
+attach authorized ready document versions. PostgreSQL applies owner,
+knowledge-base, active-build, attachment, and ready-state filters before exact
+pgvector cosine ranking. The deterministic hash embedding and extractive answer
+providers are network-free pilot adapters; they are not described as semantic
+transformer or general LLM services. Index and chat actors support bounded
+cancellation/reconciliation behavior.
+
 ## Prediction, Monitoring, and Controlled Retraining
 
 ```mermaid
@@ -370,10 +428,11 @@ comparison is advisory; promotion remains a separate governed operation.
 Docker Compose defines the core runtime:
 
 - `backend`: FastAPI served by Uvicorn.
-- `training-worker`: single-process, single-thread Dramatiq worker.
+- `training-worker`: single-process, single-thread Dramatiq worker for training,
+  AutoML, dataset processing, RAG indexing/chat, monitoring, and reconciliation.
 - `frontend`: Vite development server locally; static Nginx image in production.
 - `nginx`: production reverse proxy and only public application port.
-- `postgres`: PostgreSQL 16 application and workflow state.
+- `postgres`: PostgreSQL 16 application/workflow state and pgvector retrieval.
 - `redis`: Redis queue, rate-limit, and recovery boundary.
 
 The optional `observability` profile adds PostgreSQL and Redis exporters,
@@ -495,6 +554,6 @@ step; ordinary backend and worker startup never applies migrations.
 This is not a high-availability architecture. PostgreSQL, Redis, MLflow,
 artifacts, and telemetry remain on host-local volumes. HTTPS certificate
 automation, managed secrets, off-host state, automatic failover, external paging,
-container publishing, and production-scale capacity evidence are outside the v1.0
-release. The backup, deployment, rollback, observability, and incident runbooks in
-`docs/` define the supported operational procedures and safeguards.
+container publishing, and production-scale capacity evidence are outside the
+0.9 controlled pilot. The backup, deployment, rollback, observability, and
+incident runbooks in `docs/` define the supported procedures and safeguards.

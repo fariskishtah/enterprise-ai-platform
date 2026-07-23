@@ -1,206 +1,128 @@
-# Database Documentation
+# Database architecture
 
-This document describes the database schema in version `0.3.0`.
+Version `0.9.0` uses PostgreSQL 16 with pgvector in supported Docker
+deployments. SQLAlchemy models are authoritative for runtime persistence;
+Alembic owns the ordered schema history.
 
-## Migration Strategy
+## Migration chain
 
-Schema changes are managed with Alembic. Migrations live in `backend/alembic/versions`.
+```text
+0001_create_users_and_refresh_tokens
+0002_create_manufacturing_domain
+0003_create_sensors
+0004_create_sensor_data_platform
+0005_create_mlops_foundation
+0006_add_ai_jobs_and_promotion
+0007_add_ai_prediction_monitoring
+0008_add_controlled_retraining
+0009_add_monitoring_orchestration
+0010_add_automl_management
+0011_adjust_automl_trial_uniqueness
+0012_add_dataset_registry
+0013_integrate_dataset_training
+0014_add_secure_rag_chat
+```
 
-Current migration chain:
-
-- `0001_create_users_and_refresh_tokens`
-- `0002_create_manufacturing_domain`
-
-Run migrations:
+Every revision has one predecessor; `0014_add_secure_rag_chat` is the sole head.
+Historical revisions are not rewritten. Apply migrations before starting the
+new application revision:
 
 ```bash
 cd backend
 alembic upgrade head
+alembic current
+alembic check
 ```
 
-## Users Table
+The production deploy path runs migrations once before API/worker startup.
+Routine application rollback does not run Alembic downgrade. Downgrade support
+is exercised for development/release validation, but operators must assess data
+loss and compatibility before using it. Prefer a compatible application rollback
+or verified backup restore.
 
-Table: `users`
+## Domain table groups
 
-Purpose: stores authenticated platform users.
+### Identity
 
-Columns:
+- `users`: normalized email, Argon2 password hash, role, active state.
+- `refresh_tokens`: user, JWT ID/hash, expiry, rotation/revocation state.
 
-- `id`: UUID primary key.
-- `email`: normalized email address.
-- `hashed_password`: Argon2 password hash.
-- `role`: `admin`, `engineer`, or `operator`.
-- `is_active`: active account flag.
-- `created_at`: creation timestamp.
-- `updated_at`: last update timestamp.
+There are no tenant-membership, invitation, MFA, or identity-provider tables.
 
-Indexes and constraints:
+### Manufacturing and sensor data
 
-- Primary key on `id`.
-- Unique index `ix_users_email` on `email`.
-- Check constraint `ck_users_role_valid`.
+- `companies`, `factories`, `machines`, `sensors`
+- `upload_jobs`, `sensor_readings`
 
-## Refresh Tokens Table
+Foreign keys enforce hierarchy identity. Readings and upload jobs retain source,
+status, timestamps, and aggregate validation counts.
 
-Table: `refresh_tokens`
+### MLOps, training, and model governance
 
-Purpose: stores refresh-token metadata for rotation and revocation.
+- `experiments`, `training_runs`, `model_artifacts`
+- `training_jobs`, `model_promotion_audits`
+- `automl_studies`, `automl_trials`, `automl_execution_slots`
 
-Columns:
+Persisted training specifications remain authoritative across queue delivery and
+retry. Registry artifacts live in MLflow/local storage; database records retain
+safe identity, lineage, status, metrics, and governance state.
 
-- `id`: UUID primary key.
-- `user_id`: foreign key to `users.id`.
-- `jti`: JWT ID claim from the refresh token.
-- `token_hash`: SHA-256 digest of the refresh token.
-- `expires_at`: refresh-token expiration timestamp.
-- `revoked_at`: nullable revocation timestamp.
-- `created_at`: creation timestamp.
+### Prediction monitoring and retraining
 
-Indexes and constraints:
+- `prediction_events`, `model_reference_profiles`
+- `model_monitoring_evaluations`, `monitoring_alerts`,
+  `monitoring_job_locks`, `prediction_outcomes`
+- `model_retraining_policies`, `model_retraining_requests`,
+  `model_retraining_audits`
 
-- Primary key on `id`.
-- Foreign key from `user_id` to `users.id` with cascade delete.
-- Unique index `ix_refresh_tokens_jti`.
-- Unique index `ix_refresh_tokens_token_hash`.
-- Index `ix_refresh_tokens_user_id`.
+Prediction events store bounded summaries and hashes, not raw matrices.
+Evaluations and retraining audits retain immutable decision evidence.
 
-## Companies Table
+### Dataset registry
 
-Table: `companies`
+- `datasets`, `dataset_versions`
+- `document_records`, `document_chunks`
+- `dataset_usage_references`
 
-Purpose: stores manufacturing company records.
+Datasets are owner-scoped. Versions are immutable after terminal processing.
+Object bytes live in the application-managed dataset volume; tables retain
+opaque object metadata, digests, schema, lineage, lifecycle, and safe errors.
+Usage references protect dependent training and RAG resources.
 
-Columns:
+### RAG and chat
 
-- `id`: UUID primary key.
-- `name`: display name.
-- `normalized_name`: normalized name used for uniqueness.
-- `description`: optional long-form description.
-- `created_at`: creation timestamp.
-- `updated_at`: last update timestamp.
-- `deleted_at`: nullable soft-delete timestamp.
+- `rag_knowledge_bases`, `rag_knowledge_base_dataset_versions`
+- `rag_index_builds`, `rag_indexed_chunks`, `rag_chunk_embeddings`
+- `rag_conversations`, `rag_messages`, `rag_message_citations`
 
-Indexes and constraints:
+Migration `0014` creates PostgreSQL extension `vector` and stores fixed-width
+`vector(256)` embeddings. SQLite uses a JSON type variant only for isolated
+unit/migration tests; it is not the production vector-query implementation.
+Production retrieval applies ownership, knowledge-base, active-build, attached
+version, and ready-state constraints before pgvector cosine ranking.
 
-- Primary key on `id`.
-- Unique index `ix_companies_normalized_name`.
-- Index `ix_companies_name`.
-- Index `ix_companies_deleted_at`.
+## Consistency rules
 
-## Factories Table
+- UUIDs remain stable across API, queue, and persistence boundaries.
+- Workers claim resources through conditional state transitions.
+- State-version and uniqueness constraints bound repeated delivery and
+  idempotent submission.
+- Ready dataset versions, terminal model evidence, evaluations, audits, and
+  citations are immutable by product contract.
+- PostgreSQL is authoritative. Redis queues, leases, rate-limit buckets, and
+  heartbeat keys are recoverable coordination state.
+- MLflow, model artifacts, dataset objects, and PostgreSQL must be treated as
+  one application recovery set.
 
-Table: `factories`
+## Validation
 
-Purpose: stores factories that belong to companies.
+Release tests upgrade a clean database to head, inspect required tables,
+downgrade to the pre-dataset/RAG boundary, and re-upgrade:
 
-Columns:
-
-- `id`: UUID primary key.
-- `company_id`: foreign key to `companies.id`.
-- `name`: factory name.
-- `location`: optional location.
-- `description`: optional long-form description.
-- `created_at`: creation timestamp.
-- `updated_at`: last update timestamp.
-- `deleted_at`: nullable soft-delete timestamp.
-
-Indexes and constraints:
-
-- Primary key on `id`.
-- Foreign key from `company_id` to `companies.id` with `RESTRICT`.
-- Index `ix_factories_company_id`.
-- Index `ix_factories_name`.
-- Index `ix_factories_deleted_at`.
-- Composite index `ix_factories_company_deleted`.
-
-## Machines Table
-
-Table: `machines`
-
-Purpose: stores machines that belong to factories.
-
-Columns:
-
-- `id`: UUID primary key.
-- `factory_id`: foreign key to `factories.id`.
-- `name`: machine name.
-- `serial_number`: optional serial number.
-- `manufacturer`: optional manufacturer.
-- `model`: optional model.
-- `created_at`: creation timestamp.
-- `updated_at`: last update timestamp.
-- `deleted_at`: nullable soft-delete timestamp.
-
-Indexes and constraints:
-
-- Primary key on `id`.
-- Foreign key from `factory_id` to `factories.id` with `RESTRICT`.
-- Index `ix_machines_factory_id`.
-- Index `ix_machines_name`.
-- Index `ix_machines_serial_number`.
-- Index `ix_machines_deleted_at`.
-- Composite index `ix_machines_factory_deleted`.
-
-## Relationships
-
-- One user owns many refresh-token records.
-- One company owns many factories.
-- One factory owns many machines.
-- Company soft delete cascades logically to child factories and machines.
-- Factory soft delete cascades logically to child machines.
-
-```mermaid
-erDiagram
-    USERS ||--o{ REFRESH_TOKENS : owns
-    COMPANIES ||--o{ FACTORIES : owns
-    FACTORIES ||--o{ MACHINES : owns
-
-    USERS {
-        uuid id PK
-        string email UK
-        string hashed_password
-        string role
-        boolean is_active
-        datetime created_at
-        datetime updated_at
-    }
-    REFRESH_TOKENS {
-        uuid id PK
-        uuid user_id FK
-        uuid jti UK
-        string token_hash UK
-        datetime expires_at
-        datetime revoked_at
-        datetime created_at
-    }
-    COMPANIES {
-        uuid id PK
-        string name
-        string normalized_name UK
-        text description
-        datetime created_at
-        datetime updated_at
-        datetime deleted_at
-    }
-    FACTORIES {
-        uuid id PK
-        uuid company_id FK
-        string name
-        string location
-        text description
-        datetime created_at
-        datetime updated_at
-        datetime deleted_at
-    }
-    MACHINES {
-        uuid id PK
-        uuid factory_id FK
-        string name
-        string serial_number
-        string manufacturer
-        string model
-        datetime created_at
-        datetime updated_at
-        datetime deleted_at
-    }
+```bash
+cd backend
+pytest -q tests/test_release_readiness_gate.py
 ```
+
+SQLite coverage does not prove PostgreSQL extension behavior. The staging
+runtime and production verification script confirm pgvector on PostgreSQL.

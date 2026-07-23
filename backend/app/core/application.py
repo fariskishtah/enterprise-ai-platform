@@ -25,10 +25,10 @@ OPENAPI_TAGS = [
     {
         "name": "ai",
         "description": (
-            "Authenticated synchronous and Redis-backed background Random Forest "
-            "training, MLflow registration, controlled alias promotion, audit "
-            "history, version lookup, registered prediction, and privacy-preserving "
-            "prediction monitoring."
+            "Authenticated synchronous compatibility training and Redis-backed "
+            "background execution for allowlisted sklearn algorithms, MLflow "
+            "registration, controlled alias promotion, audit history, version lookup, "
+            "registered prediction, and privacy-preserving prediction monitoring."
         ),
     },
     {

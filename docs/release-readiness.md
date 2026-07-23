@@ -3,6 +3,12 @@
 This runbook complements the detailed production deployment, observability, backup,
 and HTTPS guides. It does not replace environment-specific change control.
 
+The current candidate is version 0.9.0 and is limited to the
+[controlled-pilot scope](release/supported-scope.md). Run
+`./scripts/validate-release.sh --full` from a Python 3.12 environment and retain its
+security, SBOM, performance, migration, and build evidence before creating a candidate
+tag. A fast developer gate is available as `./scripts/validate-release.sh --fast`.
+
 ## Environment boundaries
 
 - **Local:** use `docker compose up`; HTTP and API documentation may be enabled.
@@ -81,6 +87,11 @@ downgrades are lossless: inspect the release migrations first. If a migration is
 irreversible or has transformed data, restore a verified pre-release backup into a new
 database and switch only after validation. See the [release checklist](release-checklist.md)
 and the production deployment guide for the controlled sequence.
+
+CI and the full release gate validate a single Alembic head, upgrade a clean database to
+that head, and compare ORM metadata with migration state. Historical migrations are
+immutable release records; corrections use a new forward migration unless a migration
+has never shipped and the release owner explicitly approves replacement.
 
 ## Security and incident checks
 

@@ -18,6 +18,8 @@ from pydantic import (
 )
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.version import get_application_version
+
 EnvironmentName = Literal["local", "development", "staging", "production", "test"]
 LogFormat = Literal["json", "text"]
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
@@ -40,7 +42,7 @@ class Settings(BaseSettings):
     )
 
     project_name: str = "AI Manufacturing Platform"
-    app_version: str = "0.8.0"
+    app_version: str = Field(default_factory=get_application_version)
     database_url: str = Field(min_length=1)
     redis_url: str = Field(min_length=1)
     secret_key: SecretStr = Field(min_length=32)

@@ -379,17 +379,20 @@ Documented statuses are:
 | `422` | Transport or AI platform input validation failed. |
 | `502` | Sanitized external MLflow or artifact-service failure. |
 
-## Current limitations
+## Compatibility endpoint limitations
 
 Training request limits are shared by synchronous and background endpoints:
 10,000 training rows, 5,000 evaluation rows, 256 feature columns, 1,000,000
 combined feature cells, 32 tags, 250-character tag keys, 5,000-character tag
 values, 255-character run names, and 5,000-character model descriptions. These
-are intentional MVP platform limits rather than the complete capacities of
-scikit-learn or MLflow.
+are intentional platform limits rather than the complete capacities of scikit-learn or
+MLflow. This document describes the original synchronous AI compatibility endpoints.
+The main product workflow uses background jobs, the allowlisted trainer catalog, AutoML,
+monitoring, alerts, and controlled retraining described in the linked lifecycle guides.
 
 - Training and prediction run synchronously in the API process.
-- Random Forest is the only algorithm.
+- These compatibility training endpoints expose Random Forest; background training and
+  AutoML expose the implemented allowlisted trainer catalog.
 - Internal features are exact two-dimensional float64 arrays.
 - Regression targets and predictions are exact one-dimensional float64 arrays.
 - Classification targets and predictions are exact one-dimensional int64 labels.
@@ -400,6 +403,7 @@ scikit-learn or MLflow.
 - Prediction event summaries, operational/data-quality monitoring, and
   exact-version drift are documented in
   [AI Prediction Monitoring and Drift](ai-prediction-monitoring-and-drift.md).
-- Automated drift alerts are not implemented.
-- Automated retraining is not implemented.
-- Production cloud deployment is not implemented.
+- Alert evaluation and controlled retraining requests are implemented in the background
+  lifecycle; there is no autonomous, unbounded retraining loop.
+- The repository includes a single-host Docker Compose production topology and Google
+  Cloud deployment runbook, not a managed HA control plane.

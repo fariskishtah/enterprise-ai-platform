@@ -6,7 +6,7 @@ bounded and deterministic: PostgreSQL is the system of record, uploaded objects
 remain on local managed storage, Redis/Dramatiq runs durable processing work, and
 the initial embedding and answer providers make no external network calls.
 
-## v1 architecture
+## 0.9 controlled-pilot architecture
 
 ```text
 Admin or engineer
@@ -141,16 +141,19 @@ overlap, and persists the cited rank and source metadata. Retrieved text is data
 not executable instruction: the provider has no tools, shell access, browsing,
 or arbitrary endpoint support.
 
-Authorization is enforced before ranking. The repository query constrains the
-knowledge base, active build, owner, attached dataset version, and ready resource
-states in PostgreSQL. Only that bounded authorized candidate set leaves the
-repository for exact cosine ranking. This ordering must be preserved if a future
-vector index replaces the current JSON-vector scan.
+Authorization is enforced before ranking. PostgreSQL constrains the knowledge
+base, active build, owner, attached dataset version, and ready resource states,
+then pgvector performs cosine-distance ordering over the bounded authorized
+candidate set. Embeddings are fixed-width `vector(256)`. SQLite uses a JSON type
+variant only for isolated unit tests and does not represent production vector
+queries.
 
-Chat answer generation is synchronous in v1, although message states are
-persisted as queued, retrieving, generating, and succeeded/failed. Conversations
-and messages remain owner-scoped, support idempotent submission, retain bounded
-recent history, and return persisted citations rather than hidden reasoning.
+Chat submission is asynchronous. The API persists idempotent user/assistant
+message state and returns `202`; the worker moves the assistant reply through
+queued, retrieving, generating, and succeeded/failed states. Conversations and
+messages remain owner-scoped, retain bounded recent history, and return
+persisted citations rather than hidden reasoning. Reconciliation transitions
+stale active messages to a safe terminal state.
 
 ## Observability and operations
 
@@ -231,13 +234,14 @@ after traffic and latency distributions are representative.
 - Storage is a local filesystem adapter on a named Compose volume. There is no
   S3/MinIO adapter, multi-node replication, or application-managed
   encryption-at-rest/backup policy.
-- Retrieval performs an exact scan over at most 2,000 authorized JSON-stored
-  vectors for PostgreSQL/SQLite compatibility. There is no pgvector/ANN index.
+- PostgreSQL uses pgvector exact cosine ranking over at most 2,000 authorized
+  candidates. An approximate-nearest-neighbor index and multi-node vector
+  service are not included.
 - Hash embeddings are lexical, and the extractive provider is not a general LLM.
   No external provider adapters, tools, browsing, agents, or arbitrary URLs are
   enabled.
-- Chat generation runs synchronously in the API process; it does not have a
-  separately scalable generation actor or cooperative mid-generation cancel.
+- Chat generation runs in the existing Dramatiq worker. There is no separately
+  scalable external generation service or cooperative mid-generation cancel.
 - Dataset and RAG work share the default worker queue and conservative local
   worker topology unless operators configure separate queues/processes.
 - Operators cannot use dataset, RAG, or chatbot APIs. Fine-grained organization

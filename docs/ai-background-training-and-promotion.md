@@ -320,7 +320,8 @@ See
   leave an external partial run/version for later reconciliation.
 - The local MLflow file store is for local Compose operation, not a cloud
   deployment design.
-- Prediction logging, bounded operational/data-quality monitoring, and
-  exact-version distribution drift are implemented. Automated alerts and
-  retraining are not implemented.
+- Prediction logging, bounded operational/data-quality monitoring, exact-version
+  distribution drift, alert evaluation, and controlled retraining requests are
+  implemented. Retraining remains policy-bounded and approval/role governed; there is no
+  unbounded autonomous retraining loop.
 - No cloud account is required.
