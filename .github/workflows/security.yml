@@ -21,6 +21,9 @@ jobs:
     name: Source, Secrets, Dependencies, and Licenses
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
     steps:
       - name: Checkout complete history for secret scanning
         uses: actions/checkout@v6
@@ -98,6 +101,9 @@ jobs:
 
       - name: Show blocking Trivy filesystem findings
         uses: aquasecurity/trivy-action@v0.36.0
+        env:
+          # trivy-action v0.36.0 has no skip-version-check action input.
+          TRIVY_SKIP_VERSION_CHECK: "true"
         with:
           scan-type: fs
           scan-ref: .
@@ -107,28 +113,39 @@ jobs:
           exit-code: 1
           scanners: vuln,misconfig
           cache-dir: /tmp/trivy-cache
-          skip-dirs: .cache/trivy,artifacts
-          timeout: 10m
+          skip-dirs: .cache,trivy-cache,artifacts,frontend/node_modules,frontend/dist
 
-      - name: Scan repository dependencies and configuration
+      - name: Generate Trivy filesystem SARIF
+        if: always()
         uses: aquasecurity/trivy-action@v0.36.0
+        env:
+          TRIVY_SKIP_VERSION_CHECK: "true"
         with:
           scan-type: fs
           scan-ref: .
-          cache-dir: /tmp/trivy-cache
-          skip-dirs: .cache/trivy,artifacts
+          format: sarif
+          output: trivy-results.sarif
           scanners: vuln,misconfig
           severity: HIGH,CRITICAL
-          exit-code: "1"
-          format: sarif
-          output: artifacts/release/trivy-filesystem.sarif
+          ignore-unfixed: false
+          exit-code: 0
+          cache-dir: /tmp/trivy-cache
+          skip-dirs: .cache,trivy-cache,artifacts,frontend/node_modules,frontend/dist
+
+      - name: Upload Trivy filesystem SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-results.sarif
 
       - name: Upload source-security evidence
         if: always()
         uses: actions/upload-artifact@v6
         with:
           name: source-security-evidence
-          path: artifacts/release
+          path: |
+            artifacts/release
+            trivy-results.sarif
           if-no-files-found: warn
           retention-days: 30
 
