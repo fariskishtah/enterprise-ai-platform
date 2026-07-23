@@ -2,10 +2,12 @@
 
 ## Release status
 
-The repository is **staging-ready**. Customer delivery and public exposure remain
-conditional on deployment-specific security review, customer-owned secret/TLS setup,
-real staging acceptance, license review, and the limitations below. This is a technical
-status, not a compliance or legal certification.
+Version **0.9.0** is a controlled-pilot candidate. It is not a generally available
+production release. Customer delivery and public exposure remain conditional on the
+release-validation evidence, deployment-specific security review, customer-owned
+secret/TLS setup, real staging acceptance, license review, and the limitations below.
+This is a technical status, not a compliance or legal certification. The canonical
+scope is maintained in [Supported release scope](release/supported-scope.md).
 
 > **Commercial handoff blocker:** this repository has no `LICENSE` file or other
 > repository-level ownership grant. The owner and qualified legal counsel must supply
@@ -15,15 +17,18 @@ status, not a compliance or legal certification.
 ## Supported product scope
 
 The platform supports account authentication and three roles; company/factory/machine/
-sensor hierarchy; manual and CSV sensor ingestion; bounded asynchronous Random Forest
-training; model versions and governed aliases; prediction and privacy-conscious event
-history; monitoring evaluations, drift, alerts, observed outcomes, controlled retraining;
-and partial domain audit records. Settings are limited to persistent browser appearance
-and read-only account information.
+sensor hierarchy; manual and CSV sensor ingestion; immutable dataset versions; bounded
+background training and AutoML orchestration over the allowlisted trainer catalog; model
+versions and governed aliases; prediction and privacy-conscious event history; monitoring
+evaluations, drift, alerts, observed outcomes, controlled retraining; document datasets;
+asynchronous knowledge-base indexing; deterministic grounded chat with citations; and
+partial domain audit records. Settings are limited to persistent browser appearance and
+read-only account information.
 
 It does not provide customer billing, tenant provisioning, MFA, password reset, universal
 audit capture, row-level CSV rejection reasons, a general-purpose model marketplace,
-arbitrary algorithms, automatic infrastructure deployment, or compliance certification.
+arbitrary user-supplied model code, premium semantic/LLM RAG, automatic infrastructure
+deployment, or compliance certification.
 
 ## Architecture and trust boundaries
 
@@ -34,9 +39,10 @@ flowchart LR
   Proxy --> API[FastAPI API]
   API --> PostgreSQL[(PostgreSQL)]
   API --> Redis[(Redis limits and queues)]
-  Redis --> Worker[Dramatiq training worker]
+  Redis --> Worker[Dramatiq training and RAG worker]
   Worker --> PostgreSQL
   Worker --> Artifacts[MLflow metadata and model artifacts]
+  Worker --> Datasets[Immutable dataset and document storage]
   API --> Observability[Metrics logs and traces]
   Worker --> Observability
 ```
@@ -104,19 +110,19 @@ tests. Local filesystem artifacts are not a multi-host production artifact strat
 ## Dependency and license due diligence
 
 No repository `LICENSE` file is present. Ownership and redistribution terms therefore
-require human legal resolution before transfer. The lockfiles and `pyproject.toml` are the
-authoritative dependency inventories; CI runs `npm audit`, `pip check`, and `pip-audit`.
+require human legal resolution before transfer. See the
+[legal-readiness checklist](release/legal-readiness-checklist.md). The hashed backend
+locks, frontend lock, and generated SBOM are the authoritative dependency evidence for
+an exact candidate; CI runs dependency, source, secret, image, SBOM, and license checks.
 Core runtime families include React, Vite, FastAPI, SQLAlchemy, PostgreSQL drivers,
 Redis/Dramatiq, scikit-learn, Polars, Pandera, Optuna, MLflow, OpenTelemetry, Nginx,
 PostgreSQL, Redis, Prometheus, Grafana, Loki, Tempo, and Alloy.
 
-This document does not grant or interpret licenses. A buyer must generate a complete
-software-bill-of-materials/license report for the exact shipped images and review all
-direct and transitive terms, particularly database/observability images and ML tooling.
-The development-only Black 24 formatter has two explicitly tracked 2026 advisories;
-upgrading requires a separately reviewed repository-wide formatting migration because
-the fixed major currently fails equivalence checking on an existing monitoring module.
-It is not installed in the production image.
+This document does not grant or interpret licenses. A buyer must review the generated
+software bill of materials and license inventory for the exact shipped images, including
+database/observability images and ML tooling. Any accepted temporary vulnerability is
+owned in the [security exception register](security/security-exception-register.md) with
+a review condition; CI configuration is not the exception registry.
 The FK login PNG, FK name/monogram, icons, fonts, sample data names, and any trained-model
 inputs have no provenance evidence in the repository and require owner confirmation.
 
@@ -132,7 +138,7 @@ inputs have no provenance evidence in the repository and require owner confirmat
 | CSV fixtures                          | Inline CSV strings in `backend/tests/test_sensor_data_etl.py` and related tests                            | Repository test fixtures; contributor ownership is not documented                                             | No                                                    | Yes                                 |
 | Model-training fixtures               | `backend/tests/ai_api_support.py`, `backend/tests/test_end_to_end_workflow.py`, and `scripts/seed_demo.py` | Small synthetic numeric matrices committed in the repository; contributor ownership is not documented         | No                                                    | Yes                                 |
 | Third-party frontend libraries        | `frontend/package-lock.json`                                                                               | npm registry packages listed in the lockfile                                                                  | Package metadata only; no repository inventory report | Yes                                 |
-| Third-party backend libraries         | `backend/pyproject.toml` and `backend/requirements/base.txt`                                               | Python packages from the configured package index                                                             | Package metadata only; no repository inventory report | Yes                                 |
+| Third-party backend libraries         | `backend/pyproject.toml` and `backend/requirements/*.lock`                                                 | Python packages from the configured package index                                                             | Hash-locked package metadata and generated inventory  | Yes                                 |
 | Runtime service images                | Compose image declarations                                                                                 | PostgreSQL, Redis, Nginx, Prometheus/Grafana/Loki/Tempo/Alloy and exporter images                             | Upstream image metadata only                          | Yes                                 |
 
 Before sale, obtain signed IP ownership confirmation, contributor assignment

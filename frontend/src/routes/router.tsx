@@ -1,55 +1,231 @@
+import { lazy } from "react";
 import { createBrowserRouter } from "react-router-dom";
 
 import { ProtectedRoute, PublicOnlyRoute, RoleRoute } from "../auth/RouteGuards";
 import { AppShell } from "../components/AppShell";
-import { Dashboard } from "../pages/Dashboard";
-import { LoginPage } from "../pages/LoginPage";
-import { AuditLogsPage } from "../pages/AuditLogsPage";
 import { PlaceholderPage } from "../pages/PlaceholderPage";
-import { SettingsPage } from "../pages/SettingsPage";
 import { NotFoundPage, RouteErrorPage } from "../pages/RouteErrorPages";
-import { FactoriesPage } from "../pages/hierarchy/FactoriesPage";
-import { FactoryDetailPage } from "../pages/hierarchy/FactoryDetailPage";
-import { MachineDetailPage } from "../pages/hierarchy/MachineDetailPage";
-import { SensorDetailPage } from "../pages/hierarchy/SensorDetailPage";
-import { SensorDataPage } from "../pages/dataOperations/SensorDataPage";
-import { SensorReadingsPage } from "../pages/dataOperations/SensorReadingsPage";
-import { UploadJobDetailPage } from "../pages/dataOperations/UploadJobDetailPage";
-import { UploadJobsPage } from "../pages/dataOperations/UploadJobsPage";
-import { ModelDetailPage } from "../pages/aiLifecycle/ModelDetailPage";
-import { ModelsPage } from "../pages/aiLifecycle/ModelsPage";
-import { ModelVersionPage } from "../pages/aiLifecycle/ModelVersionPage";
-import { TrainingJobDetailPage } from "../pages/aiLifecycle/TrainingJobDetailPage";
-import { TrainingJobsPage } from "../pages/aiLifecycle/TrainingJobsPage";
-import { EvaluationsPage } from "../pages/aiLifecycle/EvaluationsPage";
-import { TrainingEvaluationPage } from "../pages/aiLifecycle/TrainingEvaluationPage";
-import { AlertDetailPage } from "../pages/intelligence/AlertDetailPage";
-import { AlertsPage } from "../pages/intelligence/AlertsPage";
-import { EvaluationDetailPage } from "../pages/intelligence/EvaluationDetailPage";
-import { ModelMonitoringPage } from "../pages/intelligence/ModelMonitoringPage";
-import { MonitoringPage } from "../pages/intelligence/MonitoringPage";
-import { PredictionEventDetailPage } from "../pages/intelligence/PredictionEventDetailPage";
-import { PredictionHistoryPage } from "../pages/intelligence/PredictionHistoryPage";
-import { PredictionsPage } from "../pages/intelligence/PredictionsPage";
-import { RetrainingPage } from "../pages/intelligence/RetrainingPage";
-import { RetrainingRequestPage } from "../pages/intelligence/RetrainingRequestPage";
-import { AutoMLStudiesPage } from "../pages/automl/AutoMLStudiesPage";
-import { AutoMLCreatePage } from "../pages/automl/AutoMLCreatePage";
-import { AutoMLStudyDetailPage } from "../pages/automl/AutoMLStudyDetailPage";
-import { AutoMLTrialDetailPage } from "../pages/automl/AutoMLTrialDetailPage";
-import { DatasetCreatePage } from "../pages/datasets/DatasetCreatePage";
-import { DatasetDetailPage } from "../pages/datasets/DatasetDetailPage";
-import { DatasetDocumentPage } from "../pages/datasets/DatasetDocumentPage";
-import { DatasetsPage } from "../pages/datasets/DatasetsPage";
-import { DatasetVersionPage } from "../pages/datasets/DatasetVersionPage";
-import { KnowledgeBaseCreatePage } from "../pages/knowledge/KnowledgeBaseCreatePage";
-import { KnowledgeBaseDetailPage } from "../pages/knowledge/KnowledgeBaseDetailPage";
-import { KnowledgeBasesPage } from "../pages/knowledge/KnowledgeBasesPage";
-import { ChatPage } from "../pages/chat/ChatPage";
-import { ConversationPage } from "../pages/chat/ConversationPage";
+
+const Dashboard = lazy(() =>
+  import("../pages/Dashboard").then(({ Dashboard }) => ({ default: Dashboard })),
+);
+const LoginPage = lazy(() =>
+  import("../pages/LoginPage").then(({ LoginPage }) => ({ default: LoginPage })),
+);
+const AuditLogsPage = lazy(() =>
+  import("../pages/AuditLogsPage").then(({ AuditLogsPage }) => ({
+    default: AuditLogsPage,
+  })),
+);
+const SettingsPage = lazy(() =>
+  import("../pages/SettingsPage").then(({ SettingsPage }) => ({
+    default: SettingsPage,
+  })),
+);
+const FactoriesPage = lazy(() =>
+  import("../pages/hierarchy/FactoriesPage").then(({ FactoriesPage }) => ({
+    default: FactoriesPage,
+  })),
+);
+const FactoryDetailPage = lazy(() =>
+  import("../pages/hierarchy/FactoryDetailPage").then(({ FactoryDetailPage }) => ({
+    default: FactoryDetailPage,
+  })),
+);
+const MachineDetailPage = lazy(() =>
+  import("../pages/hierarchy/MachineDetailPage").then(({ MachineDetailPage }) => ({
+    default: MachineDetailPage,
+  })),
+);
+const SensorDetailPage = lazy(() =>
+  import("../pages/hierarchy/SensorDetailPage").then(({ SensorDetailPage }) => ({
+    default: SensorDetailPage,
+  })),
+);
+const SensorDataPage = lazy(() =>
+  import("../pages/dataOperations/SensorDataPage").then(({ SensorDataPage }) => ({
+    default: SensorDataPage,
+  })),
+);
+const SensorReadingsPage = lazy(() =>
+  import("../pages/dataOperations/SensorReadingsPage").then(
+    ({ SensorReadingsPage }) => ({ default: SensorReadingsPage }),
+  ),
+);
+const UploadJobDetailPage = lazy(() =>
+  import("../pages/dataOperations/UploadJobDetailPage").then(
+    ({ UploadJobDetailPage }) => ({ default: UploadJobDetailPage }),
+  ),
+);
+const UploadJobsPage = lazy(() =>
+  import("../pages/dataOperations/UploadJobsPage").then(({ UploadJobsPage }) => ({
+    default: UploadJobsPage,
+  })),
+);
+const ModelDetailPage = lazy(() =>
+  import("../pages/aiLifecycle/ModelDetailPage").then(({ ModelDetailPage }) => ({
+    default: ModelDetailPage,
+  })),
+);
+const ModelsPage = lazy(() =>
+  import("../pages/aiLifecycle/ModelsPage").then(({ ModelsPage }) => ({
+    default: ModelsPage,
+  })),
+);
+const ModelVersionPage = lazy(() =>
+  import("../pages/aiLifecycle/ModelVersionPage").then(({ ModelVersionPage }) => ({
+    default: ModelVersionPage,
+  })),
+);
+const TrainingJobDetailPage = lazy(() =>
+  import("../pages/aiLifecycle/TrainingJobDetailPage").then(
+    ({ TrainingJobDetailPage }) => ({ default: TrainingJobDetailPage }),
+  ),
+);
+const TrainingJobsPage = lazy(() =>
+  import("../pages/aiLifecycle/TrainingJobsPage").then(({ TrainingJobsPage }) => ({
+    default: TrainingJobsPage,
+  })),
+);
+const EvaluationsPage = lazy(() =>
+  import("../pages/aiLifecycle/EvaluationsPage").then(({ EvaluationsPage }) => ({
+    default: EvaluationsPage,
+  })),
+);
+const TrainingEvaluationPage = lazy(() =>
+  import("../pages/aiLifecycle/TrainingEvaluationPage").then(
+    ({ TrainingEvaluationPage }) => ({ default: TrainingEvaluationPage }),
+  ),
+);
+const AlertDetailPage = lazy(() =>
+  import("../pages/intelligence/AlertDetailPage").then(({ AlertDetailPage }) => ({
+    default: AlertDetailPage,
+  })),
+);
+const AlertsPage = lazy(() =>
+  import("../pages/intelligence/AlertsPage").then(({ AlertsPage }) => ({
+    default: AlertsPage,
+  })),
+);
+const EvaluationDetailPage = lazy(() =>
+  import("../pages/intelligence/EvaluationDetailPage").then(
+    ({ EvaluationDetailPage }) => ({ default: EvaluationDetailPage }),
+  ),
+);
+const ModelMonitoringPage = lazy(() =>
+  import("../pages/intelligence/ModelMonitoringPage").then(
+    ({ ModelMonitoringPage }) => ({ default: ModelMonitoringPage }),
+  ),
+);
+const MonitoringPage = lazy(() =>
+  import("../pages/intelligence/MonitoringPage").then(({ MonitoringPage }) => ({
+    default: MonitoringPage,
+  })),
+);
+const PredictionEventDetailPage = lazy(() =>
+  import("../pages/intelligence/PredictionEventDetailPage").then(
+    ({ PredictionEventDetailPage }) => ({
+      default: PredictionEventDetailPage,
+    }),
+  ),
+);
+const PredictionHistoryPage = lazy(() =>
+  import("../pages/intelligence/PredictionHistoryPage").then(
+    ({ PredictionHistoryPage }) => ({ default: PredictionHistoryPage }),
+  ),
+);
+const PredictionsPage = lazy(() =>
+  import("../pages/intelligence/PredictionsPage").then(({ PredictionsPage }) => ({
+    default: PredictionsPage,
+  })),
+);
+const RetrainingPage = lazy(() =>
+  import("../pages/intelligence/RetrainingPage").then(({ RetrainingPage }) => ({
+    default: RetrainingPage,
+  })),
+);
+const RetrainingRequestPage = lazy(() =>
+  import("../pages/intelligence/RetrainingRequestPage").then(
+    ({ RetrainingRequestPage }) => ({ default: RetrainingRequestPage }),
+  ),
+);
+const AutoMLStudiesPage = lazy(() =>
+  import("../pages/automl/AutoMLStudiesPage").then(({ AutoMLStudiesPage }) => ({
+    default: AutoMLStudiesPage,
+  })),
+);
+const AutoMLCreatePage = lazy(() =>
+  import("../pages/automl/AutoMLCreatePage").then(({ AutoMLCreatePage }) => ({
+    default: AutoMLCreatePage,
+  })),
+);
+const AutoMLStudyDetailPage = lazy(() =>
+  import("../pages/automl/AutoMLStudyDetailPage").then(({ AutoMLStudyDetailPage }) => ({
+    default: AutoMLStudyDetailPage,
+  })),
+);
+const AutoMLTrialDetailPage = lazy(() =>
+  import("../pages/automl/AutoMLTrialDetailPage").then(({ AutoMLTrialDetailPage }) => ({
+    default: AutoMLTrialDetailPage,
+  })),
+);
+const DatasetCreatePage = lazy(() =>
+  import("../pages/datasets/DatasetCreatePage").then(({ DatasetCreatePage }) => ({
+    default: DatasetCreatePage,
+  })),
+);
+const DatasetDetailPage = lazy(() =>
+  import("../pages/datasets/DatasetDetailPage").then(({ DatasetDetailPage }) => ({
+    default: DatasetDetailPage,
+  })),
+);
+const DatasetDocumentPage = lazy(() =>
+  import("../pages/datasets/DatasetDocumentPage").then(({ DatasetDocumentPage }) => ({
+    default: DatasetDocumentPage,
+  })),
+);
+const DatasetsPage = lazy(() =>
+  import("../pages/datasets/DatasetsPage").then(({ DatasetsPage }) => ({
+    default: DatasetsPage,
+  })),
+);
+const DatasetVersionPage = lazy(() =>
+  import("../pages/datasets/DatasetVersionPage").then(({ DatasetVersionPage }) => ({
+    default: DatasetVersionPage,
+  })),
+);
+const KnowledgeBaseCreatePage = lazy(() =>
+  import("../pages/knowledge/KnowledgeBaseCreatePage").then(
+    ({ KnowledgeBaseCreatePage }) => ({ default: KnowledgeBaseCreatePage }),
+  ),
+);
+const KnowledgeBaseDetailPage = lazy(() =>
+  import("../pages/knowledge/KnowledgeBaseDetailPage").then(
+    ({ KnowledgeBaseDetailPage }) => ({ default: KnowledgeBaseDetailPage }),
+  ),
+);
+const KnowledgeBasesPage = lazy(() =>
+  import("../pages/knowledge/KnowledgeBasesPage").then(({ KnowledgeBasesPage }) => ({
+    default: KnowledgeBasesPage,
+  })),
+);
+const ChatPage = lazy(() =>
+  import("../pages/chat/ChatPage").then(({ ChatPage }) => ({
+    default: ChatPage,
+  })),
+);
+const ConversationPage = lazy(() =>
+  import("../pages/chat/ConversationPage").then(({ ConversationPage }) => ({
+    default: ConversationPage,
+  })),
+);
 
 const placeholderRoutes = [
-  ["users", "Users & Roles", "User access and role administration."],
+  [
+    "users",
+    "User administration unavailable",
+    "User invitations, role changes, and account lifecycle management are not included in the controlled pilot.",
+  ],
 ] as const;
 
 export const router = createBrowserRouter([

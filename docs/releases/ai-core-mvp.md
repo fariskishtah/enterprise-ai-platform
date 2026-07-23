@@ -1,5 +1,8 @@
 # AI Core MVP — Tracked Training and Registered Prediction
 
+> **Historical capability note:** this file describes the original 0.8 compatibility
+> surface and is not the current controlled-pilot scope.
+
 This checkpoint records the first complete AI Core vertical slice in application
 version `0.8.0`. It is a capability release note, not a Git tag or a replacement
 for the repository's semantic-version changelog.

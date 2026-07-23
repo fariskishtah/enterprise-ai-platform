@@ -74,6 +74,7 @@ def test_full_migration_chain_and_release_readiness_gate(
 
     # 3. Re-upgrade back to head
     command.upgrade(config, "head")
+    command.check(config)
 
     with sqlite3.connect(db_path) as connection:
         reupgraded_tables = {

@@ -609,7 +609,24 @@ test.describe("real staging backend", () => {
 
       if (detail.status !== "ready") {
         const buildButton = page.getByRole("button", { name: "Build index" });
-        if (await buildButton.isVisible()) await buildButton.click();
+        await expect(buildButton).toBeVisible();
+        await expect(buildButton).toBeEnabled();
+        await buildButton.click();
+        await expect
+          .poll(
+            async () =>
+              (
+                await apiGet<KnowledgeBaseDetail>(
+                  page,
+                  `/ai/rag/knowledge-bases/${knowledgeBaseId}`,
+                )
+              ).status,
+            {
+              message: "the index-build request should leave draft state",
+              timeout: 15_000,
+            },
+          )
+          .not.toBe("draft");
       }
       await expect
         .poll(

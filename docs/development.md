@@ -1,5 +1,9 @@
 # Development Guide
 
+The supported backend interpreter is Python 3.12. The repository deliberately rejects
+Python 3.13 and later until compatibility is validated. With `pyenv`, the root
+`.python-version` selects the supported interpreter.
+
 ## Project Structure
 
 ```text
@@ -23,7 +27,10 @@ Backend:
 
 ```bash
 cd backend
+python3.12 -m venv .venv
 source .venv/bin/activate
+python -m pip install --require-hashes -r requirements/dev.lock
+python -m pip install --no-deps --no-build-isolation -e .
 uvicorn app.main:app --reload
 ```
 
@@ -69,7 +76,8 @@ Backend tests:
 
 ```bash
 cd backend
-pytest
+python --version  # must report Python 3.12.x
+pytest -q
 ```
 
 The backend test suite uses async HTTP clients and an isolated SQLite database for API and service tests.
@@ -127,6 +135,12 @@ GitHub Actions runs:
 - Frontend TypeScript/Vite build.
 - Frontend Prettier check.
 - Frontend npm audit.
+- Secret, dependency, SAST, container, SBOM, and license checks.
+
+Backend dependencies are resolved from `pyproject.toml` and committed as hashed
+`requirements/base.lock` and `requirements/dev.lock` files. Regenerate both intentionally
+with the Python 3.12 lock environment documented in the root README; do not hand-edit
+lock entries.
 
 ## Development Workflow
 
@@ -137,4 +151,5 @@ GitHub Actions runs:
 5. Add Alembic migrations.
 6. Add repository, service, API, RBAC, and validation tests.
 7. Update documentation.
-8. Run `./scripts/check.sh`.
+8. Run `./scripts/validate-release.sh --fast`.
+9. Before a release candidate, run `./scripts/validate-release.sh --full`.

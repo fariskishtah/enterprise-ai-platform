@@ -2,15 +2,17 @@ FROM python:3.12-slim AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_ROOT_USER_ACTION=ignore \
     HOME=/tmp/app-home
 
 WORKDIR /app
 
-COPY backend/pyproject.toml ./pyproject.toml
-COPY backend/requirements ./requirements
+COPY backend/requirements/base.lock ./requirements/base.lock
+COPY VERSION ./VERSION
+RUN pip install --no-cache-dir --require-hashes -r requirements/base.lock
+
 COPY backend/app ./app
-RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir -r requirements/base.txt
 
 COPY backend/alembic ./alembic
 COPY backend/alembic.ini ./alembic.ini

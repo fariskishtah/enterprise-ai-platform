@@ -14,8 +14,8 @@ export type NavigationIcon =
   | "retraining"
   | "sensor-data"
   | "settings"
-  | "training-jobs"
-  | "users";
+  | "users"
+  | "training-jobs";
 
 export interface NavigationItem {
   readonly description: string;
@@ -116,13 +116,6 @@ export const navigationItems: readonly NavigationItem[] = [
     label: "Audit Logs",
     path: "/audit-log",
     roles: ["admin", "engineer"],
-  },
-  {
-    description: "User access and role administration.",
-    icon: "users",
-    label: "Users & Roles",
-    path: "/users",
-    roles: ["admin"],
   },
   {
     description: "Platform and workspace preferences.",

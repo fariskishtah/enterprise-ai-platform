@@ -195,7 +195,8 @@ def test_frontend_keeps_local_development_and_adds_production_stage() -> None:
 
     assert base["services"]["frontend"]["build"]["target"] == "development"
     assert "FROM nginxinc/nginx-unprivileged:1.28.0-alpine AS production" in dockerfile
-    assert "RUN npm run build" in dockerfile
+    assert "RUN apk upgrade --no-cache" in dockerfile
+    assert "RUN npm run build:release" in dockerfile
     assert "Content-Security-Policy" in nginx
     assert "frame-ancestors 'none'" in nginx
     assert "object-src 'none'" in nginx
@@ -225,7 +226,7 @@ def test_ci_and_runbook_cover_validation_firewall_and_billing() -> None:
     runbook = _text(_RUNBOOK).lower()
 
     assert "docker-compose.prod.yml" in ci
-    assert "nginxinc/nginx-unprivileged:1.28.0-alpine" in ci
+    assert "docker/reverse-proxy/Dockerfile" in ci
     assert "nginx -t" in ci
     for port in ("22", "80", "443"):
         assert f"tcp {port}" in runbook

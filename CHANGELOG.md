@@ -6,7 +6,39 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
-## [1.0.0] - 2026-07-20
+## [0.9.0] - 2026-07-23
+
+### Added
+
+- Owner-scoped dataset registry with immutable tabular and document versions,
+  bounded ingestion, asynchronous processing, lineage, archival, and integration
+  with training and AutoML.
+- Allowlisted sklearn model plugins and bounded persisted AutoML studies/trials.
+- Owner-scoped knowledge bases, asynchronous RAG indexing, PostgreSQL pgvector
+  storage and cosine ranking, grounded chat outcomes, and persisted citations.
+- Controlled-pilot release governance, canonical version policy, reproducible
+  dependency locking, supply-chain validation, and release evidence.
+
+### Changed
+
+- Release posture corrected from an unverified 1.0 claim to controlled pilot
+  version 0.9.0.
+- Frontend navigation no longer advertises unavailable user administration.
+- Public architecture, API, database, deployment, demo, and RAG documentation
+  reconciled with implemented routes, migrations, worker behavior, and limits.
+
+### Security
+
+- Added secret scanning, SAST, dependency/container vulnerability scanning,
+  SBOM and licence inventory generation, and a reviewed exception register.
+- Standardized supported backend execution on Python 3.12.
+
+## [1.0.0] - Unreleased historical draft
+
+This section was previously dated as a completed release but was not backed by a
+canonical version or complete release evidence. Its implemented items were
+incorporated into the 0.9.0 controlled-pilot scope; the section remains as
+historical development context and is not a published release.
 
 ### Added
 

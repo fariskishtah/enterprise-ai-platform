@@ -39,3 +39,6 @@ test-results/
 
 # Local performance-test results
 /performance/results/
+
+# Generated release validation evidence (retained by CI as workflow artifacts)
+/artifacts/

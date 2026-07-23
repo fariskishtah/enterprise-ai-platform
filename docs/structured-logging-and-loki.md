@@ -63,8 +63,8 @@ timestamp level logger message service environment
 request_id correlation_id trace_id
 ```
 
-`trace_id` is currently `null`, reserved for a future tracing phase. Records add
-only relevant allowlisted fields:
+`trace_id` is populated when an active OpenTelemetry span has a valid trace context and
+is otherwise `null`. Records add only relevant allowlisted fields:
 
 ```text
 method normalized_route status_code duration_ms

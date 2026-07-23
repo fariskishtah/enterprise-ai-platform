@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 
 import { ApiError } from "../api/client";
 import { useAuth } from "../auth/useAuth";
-import fkLoginBackground from "../assets/fk-login-background.png";
+import fkLoginBackground from "../assets/fk-login-background.webp";
 
 interface LoginLocationState {
   readonly from?: string;

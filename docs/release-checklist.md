@@ -1,6 +1,6 @@
 # Release checklist
 
-Use this checklist for `v1.0.0`. Record links to CI runs and release evidence in
+Use this checklist for controlled-pilot `v0.9.0`. Record links to CI runs and release evidence in
 the release review; do not put credentials, tokens, or environment files in that
 record.
 
@@ -18,20 +18,19 @@ record.
   and `alembic check` reports no missing model migration.
 - [ ] Frontend lint, format check, and production build pass.
 - [ ] Backend dependency check/audit, Ruff, Black, mypy, and Pytest pass.
-- [ ] Repository secret scanning passes with no unresolved findings. CI does not
-  currently provide a dedicated secret-scanning job, so record the approved
-  local or repository-host scan used for this release.
+- [ ] Repository secret scanning, SAST, dependency/container scanning, SBOM, and
+  licence inventory jobs pass or have time-bounded approved exceptions.
 - [ ] README, changelog, architecture, deployment, demo, security, backup, and
   operational runbooks have been reviewed for accuracy.
-- [ ] Remaining release limitations are accepted: no selected license,
-  single-host deployment, no automatic HTTPS/HA/external paging, and no canonical
-  consolidated version source.
+- [ ] Remaining release limitations are accepted: no selected licence,
+  single-host deployment, no automatic HA/external paging, and no managed
+  off-host state.
 
 ## Publish
 
-- [ ] Create an annotated `v1.0.0` tag on the reviewed commit.
+- [ ] Create an annotated `v0.9.0` tag on the reviewed commit.
 - [ ] Push the tag only after approval and re-confirm its commit SHA.
-- [ ] Create a GitHub release from that tag using the `CHANGELOG.md` v1.0.0
+- [ ] Create a GitHub release from that tag using the `CHANGELOG.md` 0.9.0
   section; do not claim unsupported capabilities or publish containers/packages.
 
 ## After publishing
