@@ -96,11 +96,27 @@ jobs:
         working-directory: frontend
         run: node scripts/write-license-inventory.mjs ../artifacts/release/frontend-licenses.json
 
+      - name: Show blocking Trivy filesystem findings
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: false
+          exit-code: 1
+          scanners: vuln,misconfig
+          cache-dir: /tmp/trivy-cache
+          skip-dirs: .cache/trivy,artifacts
+          timeout: 10m
+
       - name: Scan repository dependencies and configuration
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
           scan-ref: .
+          cache-dir: /tmp/trivy-cache
+          skip-dirs: .cache/trivy,artifacts
           scanners: vuln,misconfig
           severity: HIGH,CRITICAL
           exit-code: "1"
