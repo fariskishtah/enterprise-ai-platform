@@ -97,7 +97,7 @@ jobs:
         run: node scripts/write-license-inventory.mjs ../artifacts/release/frontend-licenses.json
 
       - name: Scan repository dependencies and configuration
-        uses: aquasecurity/trivy-action@0.36.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
           scan-ref: .
@@ -150,7 +150,7 @@ jobs:
           --output "spdx-json=/out/${{ matrix.image }}-sbom.spdx.json"
 
       - name: Record complete candidate image scan
-        uses: aquasecurity/trivy-action@0.36.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ai-platform-${{ matrix.image }}:security
           scanners: vuln,secret,misconfig
@@ -161,7 +161,7 @@ jobs:
           output: artifacts/release/${{ matrix.image }}-trivy.sarif
 
       - name: Fail on actionable severe image findings
-        uses: aquasecurity/trivy-action@0.36.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ai-platform-${{ matrix.image }}:security
           scanners: vuln,secret,misconfig
