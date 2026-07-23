@@ -45,6 +45,8 @@ class TrackedTrainingService:
         remain after registry failures. Cross-system rollback is intentionally
         outside this synchronous milestone.
         """
+        # TrainingEngine executes a validated in-process plan; it is not a DB cursor.
+        # nosemgrep: python.django.security.injection.sql.sql-injection-using-db-cursor-execute.sql-injection-db-cursor-execute  # noqa: E501
         execution = self._training_engine.execute(request.plan)
         tracking = self._experiment_tracker.log_successful_run(
             ExperimentRunRequest(
