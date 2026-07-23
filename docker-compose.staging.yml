@@ -49,7 +49,9 @@ services:
       OTEL_ENVIRONMENT: staging
 
   reverse-proxy:
-    image: nginxinc/nginx-unprivileged:1.28.0-alpine
+    build:
+      context: .
+      dockerfile: docker/reverse-proxy/Dockerfile
     ports:
       - "${PUBLIC_HTTP_PORT:-18080}:8080"
 

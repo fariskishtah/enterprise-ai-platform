@@ -209,7 +209,9 @@ services:
 
   reverse-proxy:
     <<: *production-defaults
-    image: nginxinc/nginx-unprivileged:1.28.0-alpine
+    build:
+      context: .
+      dockerfile: docker/reverse-proxy/Dockerfile
     depends_on:
       backend:
         condition: service_healthy
