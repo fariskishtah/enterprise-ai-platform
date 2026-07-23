@@ -33,24 +33,27 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: |
-            backend/pyproject.toml
-            backend/requirements/dev.txt
+          cache-dependency-path: backend/requirements/dev.lock
 
       - name: Install dependencies
-        run: python -m pip install -r requirements/dev.txt pip-audit==2.10.0
+        run: |
+          python -m pip install --require-hashes -r requirements/dev.lock
+          python -m pip install --no-deps --no-build-isolation -e .
 
       - name: Check installed dependencies
         run: python -m pip check
 
       - name: Audit Python dependencies
-        # Black is development-only. Versions containing the 2026 fixes require a
-        # repository-wide format migration and currently fail equivalence checking on
-        # an existing module, so these two formatter advisories are explicitly tracked.
+        # SEC-2026-001 expires 2026-08-31. Black is development-only and its fixed
+        # release currently fails source-equivalence formatting. See the exception
+        # register; production dependencies are audited below without exceptions.
         run: >-
-          python -m pip_audit . --progress-spinner off
+          python -m pip_audit --local --progress-spinner off
           --ignore-vuln PYSEC-2026-2120
           --ignore-vuln PYSEC-2026-2121
+
+      - name: Audit production dependency lock without exceptions
+        run: python -m pip_audit -r requirements/base.lock --progress-spinner off
 
       - name: Ruff
         run: ruff check .
@@ -92,7 +95,7 @@ jobs:
         run: npm run format
 
       - name: Build and type-check
-        run: npm run build
+        run: npm run build:release
 
       - name: Audit dependencies
         run: npm audit
@@ -238,10 +241,10 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: backend/pyproject.toml
+          cache-dependency-path: backend/requirements/base.lock
 
-      - name: Install YAML parser
-        run: python -m pip install "PyYAML>=6.0.2,<7.0.0"
+      - name: Install hash-locked configuration dependencies
+        run: python -m pip install --require-hashes -r backend/requirements/base.lock
 
       - name: Parse YAML and Grafana dashboard JSON
         run: |
@@ -411,6 +414,8 @@ jobs:
             dockerfile: docker/backend/Dockerfile
           - name: frontend
             dockerfile: docker/frontend/Dockerfile
+          - name: reverse-proxy
+            dockerfile: docker/reverse-proxy/Dockerfile
     env:
       DOCKER_BUILD_RECORD_UPLOAD: "false"
     steps:

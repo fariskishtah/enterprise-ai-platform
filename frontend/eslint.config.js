@@ -18,6 +18,12 @@ export default tseslint.config(
     },
   },
   {
+    files: ["scripts/*.mjs"],
+    languageOptions: {
+      globals: globals.node,
+    },
+  },
+  {
     files: ["**/*.{ts,tsx}"],
     languageOptions: {
       ecmaVersion: 2022,
@@ -35,6 +41,14 @@ export default tseslint.config(
           allowConstantExport: true,
         },
       ],
+    },
+  },
+  {
+    files: ["src/routes/router.tsx"],
+    rules: {
+      // The router deliberately binds React.lazy components alongside the exported
+      // route object. It is configuration, not a Fast Refresh component module.
+      "react-refresh/only-export-components": "off",
     },
   },
 );

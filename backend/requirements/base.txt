@@ -1,2 +1,2 @@
-.
-asyncpg>=0.30.0,<1.0.0
+# Compatibility entry point. The generated file is hash-locked.
+-r base.lock

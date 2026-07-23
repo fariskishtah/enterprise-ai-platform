@@ -13,7 +13,7 @@ export function PlaceholderPage({
     <section aria-labelledby="page-heading">
       <div className="max-w-3xl">
         <p className="text-sm font-semibold uppercase tracking-wider text-purple-700">
-          Platform workspace
+          Controlled pilot
         </p>
         <h2
           className="mt-2 text-3xl font-semibold tracking-tight text-neutral-950"
@@ -25,7 +25,8 @@ export function PlaceholderPage({
       </div>
       <div className="mt-8 rounded-lg border border-dashed border-neutral-300 bg-white p-6">
         <p className="text-sm font-medium text-neutral-600">
-          This workspace is coming in a later phase.
+          This capability is intentionally unavailable in this release. Contact the
+          deployment owner for approved account provisioning.
         </p>
       </div>
     </section>

@@ -1,0 +1,181 @@
+name: Release Security
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source-and-dependencies:
+    name: Source, Secrets, Dependencies, and Licenses
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout complete history for secret scanning
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Create evidence directory
+        run: mkdir -p artifacts/release
+
+      - name: Scan Git history for secrets
+        run: >-
+          docker run --rm
+          --volume "$PWD:/repo"
+          ghcr.io/gitleaks/gitleaks:v8.30.1
+          detect --source=/repo --redact=100 --no-banner
+          --report-format=sarif
+          --report-path=/repo/artifacts/release/gitleaks.sarif
+
+      - name: Run Semgrep source security rules
+        run: >-
+          docker run --rm
+          --volume "$PWD:/src"
+          semgrep/semgrep:1.164.0
+          semgrep scan
+          --config=p/python
+          --config=p/typescript
+          --error
+          --metrics=off
+          --sarif-output=/src/artifacts/release/semgrep.sarif
+          backend/app frontend/src scripts
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements/dev.lock
+
+      - name: Install hash-locked backend dependencies
+        working-directory: backend
+        run: |
+          python -m pip install --require-hashes -r requirements/dev.lock
+          python -m pip install --no-deps --no-build-isolation -e .
+
+      - name: Run Bandit SAST
+        working-directory: backend
+        run: bandit -c pyproject.toml -r app -ll -f json -o ../artifacts/release/bandit.json
+
+      - name: Audit production Python dependencies
+        working-directory: backend
+        run: python -m pip_audit -r requirements/base.lock --progress-spinner off --format json --output ../artifacts/release/pip-audit.json
+
+      - name: Inventory Python dependency licenses
+        working-directory: backend
+        run: pip-licenses --format=json --output-file=../artifacts/release/backend-licenses.json
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Audit frontend dependencies
+        working-directory: frontend
+        run: npm audit --audit-level=high --json > ../artifacts/release/npm-audit.json
+
+      - name: Inventory frontend dependency licenses
+        working-directory: frontend
+        run: node scripts/write-license-inventory.mjs ../artifacts/release/frontend-licenses.json
+
+      - name: Scan repository dependencies and configuration
+        uses: aquasecurity/trivy-action@0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,misconfig
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          format: sarif
+          output: artifacts/release/trivy-filesystem.sarif
+
+      - name: Upload source-security evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: source-security-evidence
+          path: artifacts/release
+          if-no-files-found: warn
+          retention-days: 30
+
+  image-security:
+    name: Image Security (${{ matrix.image }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: backend
+            dockerfile: docker/backend/Dockerfile
+          - image: frontend
+            dockerfile: docker/frontend/Dockerfile
+          - image: reverse-proxy
+            dockerfile: docker/reverse-proxy/Dockerfile
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Create evidence directory
+        run: mkdir -p artifacts/release
+
+      - name: Build candidate image
+        run: docker build --file "${{ matrix.dockerfile }}" --tag "ai-platform-${{ matrix.image }}:security" .
+
+      - name: Generate SPDX SBOM
+        run: >-
+          docker run --rm
+          --volume /var/run/docker.sock:/var/run/docker.sock
+          --volume "$PWD/artifacts/release:/out"
+          anchore/syft:v1.44.0
+          "ai-platform-${{ matrix.image }}:security"
+          --output "spdx-json=/out/${{ matrix.image }}-sbom.spdx.json"
+
+      - name: Record complete candidate image scan
+        uses: aquasecurity/trivy-action@0.36.0
+        with:
+          image-ref: ai-platform-${{ matrix.image }}:security
+          scanners: vuln,secret,misconfig
+          severity: HIGH,CRITICAL
+          ignore-unfixed: false
+          exit-code: "0"
+          format: sarif
+          output: artifacts/release/${{ matrix.image }}-trivy.sarif
+
+      - name: Fail on actionable severe image findings
+        uses: aquasecurity/trivy-action@0.36.0
+        with:
+          image-ref: ai-platform-${{ matrix.image }}:security
+          scanners: vuln,secret,misconfig
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          format: json
+          output: artifacts/release/${{ matrix.image }}-trivy-actionable.json
+
+      - name: Upload image-security evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: ${{ matrix.image }}-image-security-evidence
+          path: artifacts/release
+          if-no-files-found: warn
+          retention-days: 30

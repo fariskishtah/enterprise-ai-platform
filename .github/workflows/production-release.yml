@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version_tag:
-        description: "Immutable version tag (e.g. v1.4.0) to release to production"
+        description: "Immutable version tag matching VERSION (e.g. v0.9.0)"
         required: true
       confirm_release:
         description: "Type 'RELEASE' to confirm production deployment"
@@ -39,11 +39,18 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: backend/pyproject.toml
+          cache-dependency-path: backend/requirements/dev.lock
 
       - name: Install backend dev dependencies
         working-directory: backend
-        run: python -m pip install -r requirements/dev.txt
+        run: |
+          python -m pip install --require-hashes -r requirements/dev.lock
+          python -m pip install --no-deps --no-build-isolation -e .
+
+      - name: Validate requested version
+        run: |
+          python scripts/check-release-version.py
+          test "${{ github.event.inputs.version_tag }}" = "v$(cat VERSION)"
 
       - name: Verify Alembic migration upgrade/downgrade chain
         working-directory: backend

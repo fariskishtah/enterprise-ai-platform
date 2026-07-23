@@ -1,0 +1,5 @@
+# Historical synthetic fixture used to prove structured-log redaction.
+39bbcf0b10493a6be1e5b707b0e16b711b68452e:backend/tests/test_structured_logging.py:generic-api-key:68
+
+# Historical .env.example replacement instruction; not an operational credential.
+0cc2a8fd3828981a411005eeb1a526a0dcf39e53:.env.example:generic-api-key:3

@@ -2,6 +2,10 @@ import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
 export default defineConfig({
+  build: {
+    chunkSizeWarningLimit: 500,
+    manifest: true,
+  },
   plugins: [react()],
   server: {
     host: "0.0.0.0",

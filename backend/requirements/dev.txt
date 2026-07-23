@@ -1,1 +1,2 @@
--e .[dev]
+# Compatibility entry point. The generated file is hash-locked.
+-r dev.lock
