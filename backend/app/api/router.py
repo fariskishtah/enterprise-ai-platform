@@ -14,8 +14,10 @@ from app.api.routes.auth import router as auth_router
 from app.api.routes.automl import router as automl_router
 from app.api.routes.companies import router as companies_router
 from app.api.routes.datasets import router as datasets_router
+from app.api.routes.demo_factory import router as demo_factory_router
 from app.api.routes.factories import router as factories_router
 from app.api.routes.feature_engineering import router as feature_engineering_router
+from app.api.routes.guided_data import router as guided_data_router
 from app.api.routes.health import router as health_router
 from app.api.routes.machines import router as machines_router
 from app.api.routes.mlops import (
@@ -29,6 +31,7 @@ from app.api.routes.operations import router as operations_router
 from app.api.routes.pilot import router as pilot_router
 from app.api.routes.product import router as product_router
 from app.api.routes.rag import router as rag_router
+from app.api.routes.reporting import router as reporting_router
 from app.api.routes.sensor_data import (
     sensor_readings_nested_router,
     sensor_readings_router,
@@ -49,9 +52,11 @@ api_router.include_router(auth_router)
 api_router.include_router(audit_router)
 api_router.include_router(companies_router)
 api_router.include_router(datasets_router)
+api_router.include_router(demo_factory_router)
 api_router.include_router(feature_engineering_router)
 api_router.include_router(factories_router)
 api_router.include_router(health_router)
+api_router.include_router(guided_data_router)
 api_router.include_router(machines_router)
 api_router.include_router(experiments_router)
 api_router.include_router(experiment_training_runs_router)
@@ -60,6 +65,7 @@ api_router.include_router(training_run_artifacts_router)
 api_router.include_router(model_artifacts_router)
 api_router.include_router(operations_router)
 api_router.include_router(rag_router)
+api_router.include_router(reporting_router)
 api_router.include_router(pilot_router)
 api_router.include_router(product_router)
 api_router.include_router(sensors_router)
