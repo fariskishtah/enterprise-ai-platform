@@ -35,6 +35,7 @@ class UserService:
         email: str,
         password: str,
         role: UserRole = UserRole.OPERATOR,
+        full_name: str | None = None,
         company_id: UUID | None = None,
         company_name: str | None = None,
     ) -> User:
@@ -48,6 +49,7 @@ class UserService:
         try:
             user = await self._repository.create_user(
                 email=normalized_email,
+                full_name=full_name.strip() if full_name else None,
                 hashed_password=self._password_hasher.hash(password),
                 role=role,
                 company_id=company_id,
@@ -84,11 +86,13 @@ class UserService:
         email: str,
         password: str,
         role: UserRole,
+        full_name: str | None = None,
     ) -> User:
         if actor.role is not UserRole.ADMIN:
             raise AccountLifecycleError("Administrator role is required.")
         return await self.create_user(
             email=email,
+            full_name=full_name,
             password=password,
             role=role,
             company_id=actor.company_id,

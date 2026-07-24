@@ -67,6 +67,7 @@ from app.models.sensor_data import (
     UploadJob,
     UploadJobStatus,
 )
+from app.models.support import SupportRequest, SupportRequestStatus
 from app.models.user import AuditEvent, PasswordResetToken, RefreshToken, User, UserRole
 
 __all__ = [
@@ -126,6 +127,8 @@ __all__ = [
     "SensorReading",
     "ShiftHandover",
     "ShiftStatus",
+    "SupportRequest",
+    "SupportRequestStatus",
     "TrainingRun",
     "TrainingRunStatus",
     "TrainingJob",

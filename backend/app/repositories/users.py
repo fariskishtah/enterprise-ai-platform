@@ -41,6 +41,7 @@ class UserRepository:
         email: str,
         hashed_password: str,
         role: UserRole,
+        full_name: str | None = None,
         company_id: UUID | None = None,
         company_name: str | None = None,
     ) -> User:
@@ -58,6 +59,7 @@ class UserRepository:
             resolved_company_id = company.id
         user = User(
             email=email,
+            full_name=full_name,
             hashed_password=hashed_password,
             role=role,
             company_id=resolved_company_id,

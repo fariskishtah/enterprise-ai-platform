@@ -75,6 +75,7 @@ async def create_user(
         user = await service.create_company_user(
             actor=current_user,
             email=str(payload.email),
+            full_name=payload.full_name,
             password=payload.password,
             role=payload.role,
         )
