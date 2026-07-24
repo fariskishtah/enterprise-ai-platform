@@ -78,12 +78,12 @@ def _training_csv() -> bytes:
 
 
 @pytest.mark.anyio
-async def test_document_upload_boundaries_and_document_idor_return_safe_errors(
+async def test_document_upload_boundaries_and_company_peer_reads_are_safe(
     settings: Settings,
     session_factory: async_sessionmaker[AsyncSession],
     tmp_path: Path,
 ) -> None:
-    """Reject hostile upload metadata and hide document IDs from other owners."""
+    """Reject hostile upload metadata and expose only safe company document metadata."""
     bounded_settings = settings.model_copy(update={"dataset_upload_max_bytes": 64})
     queue = _DatasetQueue()
     async with ai_api_client(bounded_settings, session_factory, tmp_path=tmp_path) as (
@@ -178,14 +178,14 @@ async def test_document_upload_boundaries_and_document_idor_return_safe_errors(
     assert oversized.status_code == 422
     assert oversized.json() == {"detail": "The upload could not be stored safely."}
     assert queue.version_ids == [version_id]
-    assert hidden_list.status_code == 404
-    assert hidden_document.status_code == 404
+    assert hidden_list.status_code == 200
+    assert hidden_document.status_code == 200
     assert "storage_key" not in documents.text
     assert "extracted_text" not in documents.text
 
 
 @pytest.mark.anyio
-async def test_cross_owner_chat_resources_are_hidden_while_admin_access_is_preserved(
+async def test_cross_owner_chat_resources_are_hidden_including_from_admins(
     settings: Settings,
     session_factory: async_sessionmaker[AsyncSession],
     tmp_path: Path,
@@ -289,17 +289,17 @@ async def test_cross_owner_chat_resources_are_hidden_while_admin_access_is_prese
     assert other_knowledge_bases.json()["items"] == []
     assert other_conversations.status_code == 200
     assert other_conversations.json()["items"] == []
-    assert admin_knowledge_base.status_code == 200
-    assert admin_conversation.status_code == 200
+    assert admin_knowledge_base.status_code == 404
+    assert admin_conversation.status_code == 404
 
 
 @pytest.mark.anyio
-async def test_cross_owner_dataset_version_cannot_start_training_or_automl(
+async def test_company_peer_can_use_company_dataset_for_training_and_automl(
     settings: Settings,
     session_factory: async_sessionmaker[AsyncSession],
     tmp_path: Path,
 ) -> None:
-    """Hide exact registered versions at both downstream execution boundaries."""
+    """Company-scoped dataset versions are available to authorized peer engineers."""
     dataset_queue = _DatasetQueue()
     training_queue = _TrainingQueue()
     automl_queue = _AutoMLQueue()
@@ -366,12 +366,10 @@ async def test_cross_owner_dataset_version_cannot_start_training_or_automl(
             json=_automl_payload(version_id),
         )
 
-    assert training.status_code == 404
-    assert training.json() == {"detail": "Dataset version not found."}
-    assert automl.status_code == 404
-    assert automl.json() == {"detail": "Dataset version not found."}
-    assert training_queue.job_ids == []
-    assert automl_queue.study_ids == []
+    assert training.status_code == 202
+    assert automl.status_code == 202
+    assert len(training_queue.job_ids) == 1
+    assert len(automl_queue.study_ids) == 1
 
 
 @pytest.mark.anyio

@@ -56,11 +56,12 @@ class RAGKnowledgeBase(Base):
             "state_version >= 0", name="ck_rag_knowledge_bases_state_version"
         ),
         UniqueConstraint(
-            "owner_user_id",
+            "company_id",
             "normalized_name",
-            name="uq_rag_knowledge_bases_owner_name",
+            name="uq_rag_knowledge_bases_company_name",
         ),
         Index("ix_rag_knowledge_bases_owner_created", "owner_user_id", "created_at"),
+        Index("ix_rag_knowledge_bases_company_created", "company_id", "created_at"),
         Index("ix_rag_knowledge_bases_status_created", "status", "created_at"),
     )
 
@@ -70,6 +71,11 @@ class RAGKnowledgeBase(Base):
     owner_user_id: Mapped[UUID] = mapped_column(
         Uuid(as_uuid=True),
         ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    company_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("companies.id", ondelete="RESTRICT"),
         nullable=False,
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -369,6 +375,7 @@ class RAGConversation(Base):
             "state_version >= 0", name="ck_rag_conversations_state_version"
         ),
         Index("ix_rag_conversations_owner_updated", "owner_user_id", "updated_at"),
+        Index("ix_rag_conversations_company_updated", "company_id", "updated_at"),
         Index("ix_rag_conversations_kb", "knowledge_base_id"),
     )
 
@@ -377,6 +384,11 @@ class RAGConversation(Base):
     )
     owner_user_id: Mapped[UUID] = mapped_column(
         Uuid(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    company_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("companies.id", ondelete="RESTRICT"),
+        nullable=False,
     )
     knowledge_base_id: Mapped[UUID] = mapped_column(
         Uuid(as_uuid=True),

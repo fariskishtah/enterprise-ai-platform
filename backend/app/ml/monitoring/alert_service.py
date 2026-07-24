@@ -106,7 +106,7 @@ class MonitoringAlertService:
                 alerts.append(alert)
                 if was_created:
                     created.append(alert)
-            cleared = frozenset(MonitoringAlertType) - detected
+            cleared = frozenset(_ALERT_COPY) - detected
             resolved = await self._repository.resolve_types(
                 registered_model_name=evaluation.registered_model_name,
                 model_version=evaluation.model_version,
@@ -203,11 +203,20 @@ class MonitoringAlertService:
                 "Monitoring alert storage is unavailable."
             ) from exc
 
-    async def acknowledge(self, alert_id: UUID, actor_id: UUID) -> MonitoringAlert:
+    async def acknowledge(
+        self,
+        alert_id: UUID,
+        actor_id: UUID,
+        *,
+        operator_note: str | None = None,
+    ) -> MonitoringAlert:
         now = self._clock()
         try:
             alert = await self._repository.acknowledge(
-                alert_id=alert_id, actor_id=actor_id, acknowledged_at=now
+                alert_id=alert_id,
+                actor_id=actor_id,
+                acknowledged_at=now,
+                operator_note=operator_note,
             )
             if alert is None:
                 existing = await self._repository.get(alert_id)
@@ -224,10 +233,19 @@ class MonitoringAlertService:
                 "Monitoring alert storage is unavailable."
             ) from exc
 
-    async def resolve(self, alert_id: UUID) -> MonitoringAlert:
+    async def resolve(
+        self,
+        alert_id: UUID,
+        *,
+        engineer_note: str | None = None,
+    ) -> MonitoringAlert:
         now = self._clock()
         try:
-            alert = await self._repository.resolve(alert_id=alert_id, resolved_at=now)
+            alert = await self._repository.resolve(
+                alert_id=alert_id,
+                resolved_at=now,
+                engineer_note=engineer_note,
+            )
             if alert is None:
                 existing = await self._repository.get(alert_id)
                 if existing is None:

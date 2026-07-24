@@ -34,7 +34,9 @@ from app.models.ai_retraining import (
     ModelRetrainingPolicy,
     ModelRetrainingRequest,
 )
+from app.models.user import AuditEvent
 from app.repositories.ai_governance import _job_record
+from app.repositories.tenant import company_for_user
 
 _ACTIVE_STATUSES = (
     RetrainingRequestStatus.PENDING,
@@ -61,6 +63,33 @@ class RetrainingRepository:
 
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
+
+    async def append_terminal_audit(
+        self,
+        *,
+        request: RetrainingRequest,
+        job: TrainingJobRecord,
+        status: RetrainingRequestStatus,
+    ) -> None:
+        """Stage a safe unified event beside a terminal reconciliation."""
+        succeeded = status is RetrainingRequestStatus.COMPLETED
+        self._session.add(
+            AuditEvent(
+                company_id=job.company_id,
+                actor_user_id=request.requested_by_user_id,
+                actor_role=None,
+                action=("retraining.completed" if succeeded else "retraining.failed"),
+                resource_type="retraining_request",
+                resource_id=str(request.id),
+                result="success" if succeeded else "failure",
+                safe_metadata={
+                    "status": status.value,
+                    "training_job_id": str(job.id),
+                    "error_code": job.error_code,
+                },
+                retention_class="operations",
+            )
+        )
 
     async def get_policy(self, registered_model_name: str) -> RetrainingPolicy | None:
         entity = (
@@ -110,6 +139,9 @@ class RetrainingRepository:
         if entity is None:
             entity = ModelRetrainingPolicy(
                 id=policy.id,
+                company_id=await company_for_user(
+                    self._session, policy.created_by_user_id
+                ),
                 registered_model_name=policy.registered_model_name,
                 created_by_user_id=policy.created_by_user_id,
                 created_at=policy.created_at,
@@ -224,6 +256,9 @@ class RetrainingRepository:
     async def create_request(self, request: RetrainingRequest) -> RetrainingRequest:
         entity = ModelRetrainingRequest(
             id=request.id,
+            company_id=await company_for_user(
+                self._session, request.requested_by_user_id
+            ),
             registered_model_name=request.registered_model_name,
             source_model_version=request.source_model_version,
             source_training_job_id=request.source_training_job_id,
@@ -392,6 +427,7 @@ class RetrainingRepository:
     ) -> RetrainingAuditRecord:
         trigger = decision.trigger
         entity = ModelRetrainingAudit(
+            company_id=await company_for_user(self._session, evaluated_by_user_id),
             registered_model_name=decision.registered_model_name,
             source_model_version=decision.source_model_version,
             requested_alias=decision.requested_alias,

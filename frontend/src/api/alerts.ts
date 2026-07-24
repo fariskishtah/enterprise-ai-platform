@@ -20,6 +20,11 @@ export interface MonitoringAlert {
   readonly resolved_at: string | null;
   readonly created_at: string;
   readonly updated_at: string;
+  readonly factory_id: string | null;
+  readonly machine_id: string | null;
+  readonly operator_note: string | null;
+  readonly engineer_note: string | null;
+  readonly cooldown_until: string | null;
 }
 export interface AlertPage {
   readonly items: readonly MonitoringAlert[];
@@ -51,11 +56,19 @@ export function listAlerts(options: {
 }
 export const getAlert = (id: string, signal?: AbortSignal): Promise<MonitoringAlert> =>
   apiRequest(`/ai/monitoring/alerts/${encodeURIComponent(id)}`, { signal });
-export const acknowledgeAlert = (id: string): Promise<MonitoringAlert> =>
+export const acknowledgeAlert = (
+  id: string,
+  operatorNote?: string,
+): Promise<MonitoringAlert> =>
   apiRequest(`/ai/monitoring/alerts/${encodeURIComponent(id)}/acknowledge`, {
     method: "POST",
+    body: JSON.stringify({ operator_note: operatorNote || null }),
   });
-export const resolveAlert = (id: string): Promise<MonitoringAlert> =>
+export const resolveAlert = (
+  id: string,
+  engineerNote?: string,
+): Promise<MonitoringAlert> =>
   apiRequest(`/ai/monitoring/alerts/${encodeURIComponent(id)}/resolve`, {
     method: "POST",
+    body: JSON.stringify({ engineer_note: engineerNote || null }),
   });

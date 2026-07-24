@@ -43,11 +43,20 @@ export function ProtectedRoute(): ReactElement {
 
 export function PublicOnlyRoute(): ReactElement {
   const auth = useAuth();
+  const location = useLocation();
+  const requestedDestination = (location.state as { readonly from?: unknown } | null)
+    ?.from;
+  const destination =
+    typeof requestedDestination === "string" &&
+    requestedDestination.startsWith("/") &&
+    !requestedDestination.startsWith("//")
+      ? requestedDestination
+      : "/";
 
   if (auth.status === "loading") {
     return <AuthLoadingScreen />;
   }
-  return auth.isAuthenticated ? <Navigate replace to="/" /> : <Outlet />;
+  return auth.isAuthenticated ? <Navigate replace to={destination} /> : <Outlet />;
 }
 
 export function RoleRoute({

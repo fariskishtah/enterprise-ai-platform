@@ -209,3 +209,31 @@ export async function apiRequest<T>(
   }
   return payload as T;
 }
+
+export async function apiDownload(path: string): Promise<Blob> {
+  const tokens = readStoredTokens();
+  if (tokens === null) {
+    sessionExpiredHandler?.();
+    throw new ApiError("Authentication is required.", 401);
+  }
+  const accessToken =
+    tokens.accessTokenExpiresAt <= Date.now() + ACCESS_EXPIRY_MARGIN_MS
+      ? await refreshAccessToken()
+      : tokens.accessToken;
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+  } catch {
+    throw new ApiError("Unable to reach the server. Please try again.", 0);
+  }
+  if (!response.ok) {
+    const payload = await parseBody(response);
+    throw new ApiError(
+      errorMessage(payload, `Request failed with status ${response.status}.`),
+      response.status,
+    );
+  }
+  return response.blob();
+}

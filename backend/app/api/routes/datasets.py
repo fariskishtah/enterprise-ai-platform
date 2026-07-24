@@ -37,6 +37,7 @@ from app.dependencies.database import get_db_session
 from app.dependencies.datasets import get_dataset_queue, get_dataset_storage
 from app.dependencies.operational import require_training_worker_available
 from app.dependencies.rate_limit import enforce_mutation_rate_limit
+from app.dependencies.services import get_audit_service
 from app.models.datasets import Dataset, DatasetVersion, DocumentRecord
 from app.models.user import User, UserRole
 from app.repositories.datasets import DatasetRepository
@@ -51,6 +52,7 @@ from app.schemas.datasets import (
     DocumentListResponse,
     DocumentResponse,
 )
+from app.services.audit import AuditService
 
 router = APIRouter(prefix="/ai/datasets", tags=["AI Datasets"])
 
@@ -77,7 +79,7 @@ def _service(
 
 
 def _scope(user: User) -> UUID | None:
-    return None if user.role is UserRole.ADMIN else user.id
+    return user.company_id
 
 
 def _not_found(exc: DatasetNotFoundError) -> HTTPException:
@@ -205,16 +207,27 @@ async def create_dataset(
     session: Annotated[AsyncSession, Depends(get_db_session)],
     settings: Annotated[Settings, Depends(get_settings)],
     queue: Annotated[DatasetProcessingQueue, Depends(get_dataset_queue)],
+    audit: Annotated[AuditService, Depends(get_audit_service)],
 ) -> DatasetSummaryResponse:
     try:
         value = await _service(session, settings, queue).create_dataset(
             owner_user_id=current_user.id,
+            company_id=current_user.company_id,
             name=payload.name,
             description=payload.description,
             kind=payload.kind,
         )
     except DatasetConflictError as exc:
         raise _conflict(exc) from exc
+    await audit.record(
+        company_id=current_user.company_id,
+        actor=current_user,
+        action="dataset.created",
+        resource_type="dataset",
+        resource_id=value.id,
+        result="success",
+        metadata={"kind": value.kind.value},
+    )
     return _dataset_response(value)
 
 
@@ -255,6 +268,7 @@ async def create_dataset_version(
     session: Annotated[AsyncSession, Depends(get_db_session)],
     settings: Annotated[Settings, Depends(get_settings)],
     queue: Annotated[DatasetProcessingQueue, Depends(get_dataset_queue)],
+    audit: Annotated[AuditService, Depends(get_audit_service)],
     target_column: Annotated[str | None, Form(min_length=1, max_length=128)] = None,
     split_column: Annotated[str | None, Form(min_length=1, max_length=128)] = None,
     evaluation_fraction: Annotated[float, Form(ge=0.1, le=0.4)] = 0.2,
@@ -283,6 +297,15 @@ async def create_dataset_version(
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
     finally:
         await file.close()
+    await audit.record(
+        company_id=current_user.company_id,
+        actor=current_user,
+        action="dataset.version_registered",
+        resource_type="dataset_version",
+        resource_id=value.id,
+        result="success",
+        metadata={"dataset_id": str(dataset_id), "media_type": value.media_type},
+    )
     return _version_response(value)
 
 
@@ -445,6 +468,7 @@ async def archive_dataset(
     session: Annotated[AsyncSession, Depends(get_db_session)],
     settings: Annotated[Settings, Depends(get_settings)],
     queue: Annotated[DatasetProcessingQueue, Depends(get_dataset_queue)],
+    audit: Annotated[AuditService, Depends(get_audit_service)],
 ) -> DatasetArchiveResponse:
     try:
         value = await _service(session, settings, queue).archive_dataset(
@@ -455,6 +479,14 @@ async def archive_dataset(
     except DatasetConflictError as exc:
         raise _conflict(exc) from exc
     assert value.archived_at is not None
+    await audit.record(
+        company_id=current_user.company_id,
+        actor=current_user,
+        action="dataset.archived",
+        resource_type="dataset",
+        resource_id=value.id,
+        result="success",
+    )
     return DatasetArchiveResponse(
         id=value.id,
         status=value.status,

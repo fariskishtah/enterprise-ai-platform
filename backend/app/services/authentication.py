@@ -34,6 +34,7 @@ class IssuedTokenPair:
     refresh_token: str
     token_type: str
     expires_in: int
+    user: User
 
 
 class AuthenticationService:
@@ -56,7 +57,14 @@ class AuthenticationService:
         """Register a new operator user."""
         return await self._user_service.create_user(email=email, password=password)
 
-    async def login(self, *, email: str, password: str) -> IssuedTokenPair:
+    async def login(
+        self,
+        *,
+        email: str,
+        password: str,
+        user_agent: str | None = None,
+        source_ip: str | None = None,
+    ) -> IssuedTokenPair:
         """Authenticate a user and issue a token pair."""
         user = await self._repository.get_by_email(normalize_email(email))
         if user is None:
@@ -66,7 +74,9 @@ class AuthenticationService:
         if not user.is_active:
             raise InactiveUserError("User is inactive.")
 
-        return await self._issue_token_pair(user)
+        return await self._issue_token_pair(
+            user, user_agent=user_agent, source_ip=source_ip
+        )
 
     async def refresh(self, *, refresh_token: str) -> IssuedTokenPair:
         """Rotate a refresh token and issue a new token pair."""
@@ -93,9 +103,13 @@ class AuthenticationService:
             refresh_token=persisted_token,
             revoked_at=now,
         )
-        return await self._issue_token_pair(user)
+        return await self._issue_token_pair(
+            user,
+            user_agent=persisted_token.user_agent_summary,
+            source_ip=persisted_token.source_ip,
+        )
 
-    async def logout(self, *, refresh_token: str) -> None:
+    async def logout(self, *, refresh_token: str) -> User:
         """Revoke a refresh token."""
         claims = self._decode_refresh_token(refresh_token)
         persisted_token = await self._repository.get_refresh_token(
@@ -104,6 +118,9 @@ class AuthenticationService:
         )
         if persisted_token is None:
             raise InvalidRefreshTokenError("Refresh token is invalid.")
+        user = await self._repository.get_by_id(persisted_token.user_id)
+        if user is None:
+            raise InvalidRefreshTokenError("Refresh token is invalid.")
 
         if persisted_token.revoked_at is None:
             await self._repository.revoke_refresh_token(
@@ -111,6 +128,7 @@ class AuthenticationService:
                 revoked_at=utc_now(),
             )
         await self._repository.commit()
+        return user
 
     async def revoke_all_user_refresh_tokens(self, *, user_id: UUID) -> None:
         """Revoke all active refresh tokens for a user."""
@@ -120,7 +138,13 @@ class AuthenticationService:
         )
         await self._repository.commit()
 
-    async def _issue_token_pair(self, user: User) -> IssuedTokenPair:
+    async def _issue_token_pair(
+        self,
+        user: User,
+        *,
+        user_agent: str | None = None,
+        source_ip: str | None = None,
+    ) -> IssuedTokenPair:
         access_token = create_jwt_token(
             subject=user.id,
             token_type=TokenType.ACCESS,
@@ -148,6 +172,8 @@ class AuthenticationService:
             jti=refresh_token.jti,
             token_hash=hash_token(refresh_token.token),
             expires_at=utc_now() + refresh_expiration,
+            user_agent_summary=user_agent[:255] if user_agent else None,
+            source_ip=source_ip[:64] if source_ip else None,
         )
         await self._repository.commit()
 
@@ -156,6 +182,7 @@ class AuthenticationService:
             refresh_token=refresh_token.token,
             token_type="bearer",
             expires_in=access_token.expires_in,
+            user=user,
         )
 
     def _decode_refresh_token(self, refresh_token: str) -> TokenClaims:

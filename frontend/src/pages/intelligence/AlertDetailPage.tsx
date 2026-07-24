@@ -28,6 +28,8 @@ export function AlertDetailPage(): ReactElement {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [revision, setRevision] = useState(0);
+  const [operatorNote, setOperatorNote] = useState("");
+  const [engineerNote, setEngineerNote] = useState("");
   useEffect(() => {
     if (role === "operator") return;
     const c = new AbortController();
@@ -103,15 +105,39 @@ export function AlertDetailPage(): ReactElement {
             { label: "Last detected", value: formatDate(item.last_detected_at) },
             { label: "Acknowledged", value: formatDate(item.acknowledged_at) },
             { label: "Resolved", value: formatDate(item.resolved_at) },
+            { label: "Operator note", value: item.operator_note || "Not provided" },
+            { label: "Engineer note", value: item.engineer_note || "Not provided" },
           ]}
         />
       </div>
       <div className={`${panelClassName} mt-6 flex flex-wrap gap-3`}>
         {item.status === "open" ? (
+          <label className="w-full text-sm font-semibold text-foreground">
+            Operator note
+            <textarea
+              className="mt-2 min-h-20 w-full rounded-lg border border-border bg-input px-3 py-2 font-normal text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              maxLength={1000}
+              onChange={(event) => setOperatorNote(event.target.value)}
+              value={operatorNote}
+            />
+          </label>
+        ) : null}
+        {role === "admin" && item.status !== "resolved" ? (
+          <label className="w-full text-sm font-semibold text-foreground">
+            Engineer resolution note
+            <textarea
+              className="mt-2 min-h-20 w-full rounded-lg border border-border bg-input px-3 py-2 font-normal text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              maxLength={1000}
+              onChange={(event) => setEngineerNote(event.target.value)}
+              value={engineerNote}
+            />
+          </label>
+        ) : null}
+        {item.status === "open" ? (
           <button
             disabled={busy}
             className={secondaryButtonClassName}
-            onClick={() => mutate(() => acknowledgeAlert(id))}
+            onClick={() => mutate(() => acknowledgeAlert(id, operatorNote))}
             type="button"
           >
             Acknowledge
@@ -121,7 +147,7 @@ export function AlertDetailPage(): ReactElement {
           <button
             disabled={busy}
             className={primaryButtonClassName}
-            onClick={() => mutate(() => resolveAlert(id))}
+            onClick={() => mutate(() => resolveAlert(id, engineerNote))}
             type="button"
           >
             Resolve alert

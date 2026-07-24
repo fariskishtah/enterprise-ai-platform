@@ -9,9 +9,12 @@ import {
 } from "../../api/aiLifecycle";
 import {
   executePrediction,
+  executeStructuredPrediction,
+  getFeatureSchema,
   listPredictionEvents,
   type PredictionEvent,
   type PredictionResponse,
+  type ModelFeatureSchema,
 } from "../../api/predictions";
 import { useAuth } from "../../auth/useAuth";
 import { ApiError, isRequestCancelled } from "../../api/client";
@@ -74,6 +77,11 @@ export function PredictionsPage(): ReactElement {
   const [executionLoading, setExecutionLoading] = useState(false);
   const [featureMatrixInvalid, setFeatureMatrixInvalid] = useState(false);
   const [loadWarning, setLoadWarning] = useState<string | null>(null);
+  const [featureSchema, setFeatureSchema] = useState<ModelFeatureSchema | null>(null);
+  const [schemaUnavailable, setSchemaUnavailable] = useState(false);
+  const [structuredValues, setStructuredValues] = useState<Record<string, string>>({});
+  const [advancedInput, setAdvancedInput] = useState(false);
+  const canUseAdvancedInput = role === "admin" || role === "engineer";
 
   useEffect(() => {
     if (!canReadHistory) return;
@@ -126,6 +134,31 @@ export function PredictionsPage(): ReactElement {
     };
   }, [canReadHistory]);
 
+  useEffect(() => {
+    if (!model.trim() || !version.trim()) {
+      return;
+    }
+    const controller = new AbortController();
+    getFeatureSchema(model.trim(), version.trim(), controller.signal)
+      .then((value) => {
+        setFeatureSchema(value);
+        setTask(value.task_type);
+        setAlgorithm(value.algorithm);
+        setStructuredValues(
+          Object.fromEntries(value.features.map((feature) => [feature.name, ""])),
+        );
+        setSchemaUnavailable(false);
+        setAdvancedInput(false);
+      })
+      .catch((caught: unknown) => {
+        if (!isRequestCancelled(caught, controller.signal)) {
+          setFeatureSchema(null);
+          setSchemaUnavailable(true);
+        }
+      });
+    return () => controller.abort();
+  }, [model, version]);
+
   return (
     <section>
       <PageHeader
@@ -158,6 +191,37 @@ export function PredictionsPage(): ReactElement {
             setExecutionResult(null);
             setExecutionLoading(true);
             try {
+              if (featureSchema !== null && !advancedInput) {
+                const values = Object.fromEntries(
+                  featureSchema.features.map((feature) => {
+                    const raw = structuredValues[feature.name] ?? "";
+                    if (!raw.trim())
+                      throw new Error(`Enter a value for ${feature.name}.`);
+                    const numeric = Number(raw);
+                    if (!Number.isFinite(numeric))
+                      throw new Error(`${feature.name} must be a finite number.`);
+                    return [feature.name, numeric];
+                  }),
+                );
+                void executeStructuredPrediction(model.trim(), version.trim(), values)
+                  .then((response) => {
+                    setExecutionError(null);
+                    setExecutionResult({
+                      model_name: response.model_name,
+                      model_version: response.model_version,
+                      predictions: [response.prediction],
+                      trainer_key: {
+                        algorithm: featureSchema.algorithm,
+                        task_type: featureSchema.task_type,
+                      },
+                    });
+                  })
+                  .catch((caught: unknown) => {
+                    setExecutionError(executionErrorMessage(caught));
+                  })
+                  .finally(() => setExecutionLoading(false));
+                return;
+              }
               const features = parseMatrix(matrix);
               void executePrediction(
                 task,
@@ -199,6 +263,8 @@ export function PredictionsPage(): ReactElement {
                 value={model}
                 onChange={(e) => {
                   setModel(e.target.value);
+                  setFeatureSchema(null);
+                  setSchemaUnavailable(false);
                   setExecutionError(null);
                 }}
               />
@@ -211,6 +277,8 @@ export function PredictionsPage(): ReactElement {
                 value={version}
                 onChange={(e) => {
                   setVersion(e.target.value);
+                  setFeatureSchema(null);
+                  setSchemaUnavailable(false);
                   setExecutionError(null);
                 }}
               />
@@ -250,20 +318,78 @@ export function PredictionsPage(): ReactElement {
               </select>
             </label>
           </div>
-          <label className="mt-4 block text-sm font-medium text-secondary-foreground">
-            Feature matrix
-            <textarea
-              aria-describedby="feature-matrix-help"
-              aria-invalid={featureMatrixInvalid}
-              className={`${inputClassName} min-h-32 font-mono ${featureMatrixInvalid ? "border-danger-600 focus:border-danger-600 focus:ring-danger-600" : ""}`}
-              value={matrix}
-              onChange={(e) => {
-                setMatrix(e.target.value);
-                setExecutionError(null);
-                setFeatureMatrixInvalid(false);
-              }}
-            />
-          </label>
+          {featureSchema !== null && !advancedInput ? (
+            <fieldset className="mt-5">
+              <legend className="text-sm font-semibold text-foreground">
+                Model inputs
+              </legend>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Fields and ranges come from the exact registered model version.
+              </p>
+              <div className="mt-3 grid gap-4 sm:grid-cols-2">
+                {featureSchema.features.map((feature) => (
+                  <label
+                    className="text-sm font-medium text-secondary-foreground"
+                    key={feature.name}
+                  >
+                    {feature.name}
+                    {feature.unit ? ` (${feature.unit})` : ""}
+                    <input
+                      className={inputClassName}
+                      max={feature.maximum ?? undefined}
+                      min={feature.minimum ?? undefined}
+                      onChange={(event) => {
+                        setStructuredValues((current) => ({
+                          ...current,
+                          [feature.name]: event.target.value,
+                        }));
+                        setExecutionError(null);
+                      }}
+                      required={feature.required}
+                      step={feature.data_type === "integer" ? 1 : "any"}
+                      type="number"
+                      value={structuredValues[feature.name] ?? ""}
+                    />
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+          ) : (
+            <label className="mt-4 block text-sm font-medium text-secondary-foreground">
+              Feature matrix
+              <textarea
+                aria-describedby="feature-matrix-help"
+                aria-invalid={featureMatrixInvalid}
+                className={`${inputClassName} min-h-32 font-mono ${featureMatrixInvalid ? "border-danger-600 focus:border-danger-600 focus:ring-danger-600" : ""}`}
+                value={matrix}
+                onChange={(e) => {
+                  setMatrix(e.target.value);
+                  setExecutionError(null);
+                  setFeatureMatrixInvalid(false);
+                }}
+              />
+            </label>
+          )}
+          {featureSchema === null && schemaUnavailable ? (
+            <div className="mt-3">
+              <InlineNotice>
+                {canUseAdvancedInput
+                  ? "This model version has no governed feature schema. Advanced raw input remains available to engineers and administrators."
+                  : "This model version is not available for operator prediction because its governed feature schema is missing."}
+              </InlineNotice>
+            </div>
+          ) : null}
+          {featureSchema !== null && canUseAdvancedInput ? (
+            <button
+              className="mt-3 text-sm font-semibold text-link"
+              onClick={() => setAdvancedInput((value) => !value)}
+              type="button"
+            >
+              {advancedInput
+                ? "Use governed input form"
+                : "Advanced: use raw JSON matrix"}
+            </button>
+          ) : null}
           <p className="mt-2 text-xs text-muted-foreground" id="feature-matrix-help">
             JSON example: [[0.75, 1.4]]. Rows must be rectangular and contain finite
             numbers.
@@ -281,7 +407,7 @@ export function PredictionsPage(): ReactElement {
           ) : null}
           <button
             className={`${primaryButtonClassName} mt-5`}
-            disabled={executionLoading}
+            disabled={executionLoading || (schemaUnavailable && !canUseAdvancedInput)}
             type="submit"
           >
             {executionLoading ? "Running prediction…" : "Run prediction"}

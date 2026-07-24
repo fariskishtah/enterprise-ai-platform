@@ -9,6 +9,7 @@ from time import perf_counter
 from starlette.datastructures import Headers, MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from app.db.tenant_context import clear_tenant
 from app.observability.http import normalized_route
 from app.observability.logging import (
     bind_log_context,
@@ -44,6 +45,7 @@ class RequestContextLoggingMiddleware:
             return
 
         headers = Headers(scope=scope)
+        clear_tenant()
         request_id, correlation_id = resolve_request_identifiers(
             headers.get(self._request_id_header),
             headers.get(self._correlation_id_header),
@@ -89,3 +91,4 @@ class RequestContextLoggingMiddleware:
                         )
             finally:
                 reset_log_context(tokens)
+                clear_tenant()

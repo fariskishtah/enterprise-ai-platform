@@ -8,6 +8,7 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.config.settings import Settings, get_settings
+from app.db.tenant_context import bind_tenant
 from app.dependencies.services import get_user_service
 from app.models.user import User, UserRole
 from app.observability.logging import emit_safe
@@ -58,6 +59,7 @@ async def get_current_user(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="User account is inactive.",
         )
+    bind_tenant(user.company_id)
     return user
 
 

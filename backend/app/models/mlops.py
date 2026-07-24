@@ -48,6 +48,7 @@ class Experiment(Base):
     __table_args__ = (
         Index("ix_experiments_name", "name", unique=True),
         Index("ix_experiments_created_by", "created_by"),
+        Index("ix_experiments_company_created", "company_id", "created_at"),
         Index("ix_experiments_created_at", "created_at"),
     )
 
@@ -61,6 +62,11 @@ class Experiment(Base):
     created_by: Mapped[UUID] = mapped_column(
         Uuid(as_uuid=True),
         ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    company_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("companies.id", ondelete="RESTRICT"),
         nullable=False,
     )
     created_at: Mapped[datetime] = mapped_column(

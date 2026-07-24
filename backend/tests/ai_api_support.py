@@ -7,12 +7,14 @@ from pathlib import Path
 from app.config.settings import Settings
 from app.core.application import create_app
 from app.dependencies.database import get_db_session
+from app.models.manufacturing import Company
 from app.models.user import UserRole
 from app.repositories.users import UserRepository
 from app.services.users import UserService
 from app.utils.passwords import PasswordHasher
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 VALID_PASSWORD = "ValidPassword1!"
@@ -61,7 +63,13 @@ async def auth_headers(
             repository=UserRepository(session),
             password_hasher=PasswordHasher(),
         )
-        await service.create_user(email=email, password=VALID_PASSWORD, role=role)
+        company_id = await session.scalar(select(Company.id).limit(1))
+        await service.create_user(
+            email=email,
+            password=VALID_PASSWORD,
+            role=role,
+            company_id=company_id,
+        )
 
     response = await client.post(
         "/auth/login",

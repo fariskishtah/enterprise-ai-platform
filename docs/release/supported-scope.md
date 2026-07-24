@@ -59,10 +59,15 @@ enterprise production readiness.
 
 ## Implemented limitations
 
-- Public registration creates operators. There is no administration interface
-  for invitations, role changes, deactivation, or account recovery.
-- Audit visibility is partial: promotion and retraining domain records are
-  queryable; other security/operational events remain in structured logs.
+- Public registration creates operators. Company administrators can manage
+  roles, activation, reset initiation, and session revocation only within their
+  existing company; invitation email delivery and platform administration are
+  not provided.
+- Password reset tokens are hashed, expiring, and single-use, but production
+  reset email delivery is deployment work outside this release.
+- Company-scoped audit history covers critical identity and supported domain
+  actions with bounded filters and CSV/JSON export; it is not a SIEM, legal-hold,
+  or compliance-retention service.
 - RAG uses deterministic lexical hash embeddings and bounded extractive answers.
   It is not a semantic transformer or general-purpose LLM assistant.
 - Dataset/RAG inputs are bounded CSV and one plain UTF-8 text object per version.
@@ -72,13 +77,14 @@ enterprise production readiness.
 
 ## Explicitly Out of Scope for This Release
 
-- Full user administration or account lifecycle automation.
-- Password reset/change, MFA, SSO, SAML, OIDC, SCIM, device/session management,
-  and enterprise identity-provider integration.
-- Multi-tenant organization provisioning, tenant billing, metering,
-  entitlements, subscriptions, or customer self-service administration.
-- A complete immutable audit-event API, SIEM export, legal hold, or compliance
-  certification.
+- Invitation delivery, platform-level user support, automated organization
+  provisioning, and cross-company administration.
+- Production password-reset email delivery, MFA, SSO, SAML, OIDC, SCIM, device
+  attestation, and enterprise identity-provider integration.
+- Tenant billing, metering, entitlements, subscriptions, or customer
+  self-service administration.
+- SIEM streaming, legal hold, compliance retention guarantees, or compliance
+  certification for audit records.
 - High availability, horizontal orchestration, automatic failover, zero-downtime
   schema migration, or multi-region disaster recovery.
 - Application-managed off-host object storage, encrypted backup custody, or

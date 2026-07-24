@@ -20,6 +20,7 @@ from app.models.sensor_data import (
     UploadJob,
     UploadJobStatus,
 )
+from app.repositories.tenant import company_for_user
 from app.schemas.common import SortOrder
 from app.schemas.sensor_data import SensorReadingSortField, UploadJobSortField
 
@@ -74,6 +75,7 @@ class SensorDataRepository:
             filename=filename,
             source=source,
             created_by=created_by,
+            company_id=await company_for_user(self._session, created_by),
         )
         self._session.add(upload_job)
         await self._session.flush()

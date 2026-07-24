@@ -142,6 +142,7 @@ class RAGService:
         self,
         *,
         owner_user_id: UUID,
+        company_id: UUID | None = None,
         name: str,
         description: str | None,
         chunk_size: int,
@@ -155,6 +156,7 @@ class RAGService:
         try:
             entity = await self._repository.create_knowledge_base(
                 owner_user_id=owner_user_id,
+                company_id=company_id or owner_user_id,
                 name=" ".join(name.split()),
                 normalized_name=normalized_name,
                 description=description,
@@ -919,6 +921,7 @@ class RAGService:
         self,
         *,
         owner_user_id: UUID,
+        company_id: UUID | None = None,
         is_admin: bool,
         knowledge_base_id: UUID,
         title: str | None,
@@ -934,6 +937,7 @@ class RAGService:
             raise RAGConflictError("The knowledge base is not ready for chat.")
         entity = await self._repository.create_conversation(
             owner_user_id=owner_user_id,
+            company_id=company_id or owner_user_id,
             knowledge_base_id=knowledge_base_id,
             title=title or "New grounded conversation",
             status=RAGConversationStatus.ACTIVE,

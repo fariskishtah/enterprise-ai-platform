@@ -2,11 +2,13 @@
 
 import asyncio
 import os
+from uuid import uuid4
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.config.settings import Settings
+from app.models.manufacturing import Company
 from app.models.user import User, UserRole
 from app.utils.passwords import PasswordHasher, validate_password_strength
 from app.utils.security import normalize_email
@@ -31,6 +33,24 @@ async def seed() -> None:
     hasher = PasswordHasher()
     try:
         async with engine.begin() as connection:
+            company_name = "Northstar Demo Manufacturing"
+            company_id = (
+                await connection.execute(
+                    select(Company.id).where(
+                        Company.normalized_name == company_name.lower()
+                    )
+                )
+            ).scalar_one_or_none()
+            if company_id is None:
+                company_id = uuid4()
+                await connection.execute(
+                    Company.__table__.insert().values(
+                        id=company_id,
+                        name=company_name,
+                        normalized_name=company_name.lower(),
+                        description="Disposable deterministic pilot validation tenant.",
+                    )
+                )
             for email, role in accounts:
                 normalized = normalize_email(email)
                 existing_id = (
@@ -42,6 +62,7 @@ async def seed() -> None:
                     "hashed_password": hasher.hash(password),
                     "is_active": True,
                     "role": role,
+                    "company_id": company_id,
                 }
                 if existing_id is None:
                     await connection.execute(

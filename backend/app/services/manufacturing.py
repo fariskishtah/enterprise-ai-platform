@@ -72,6 +72,7 @@ class ManufacturingService:
         search: str | None,
         sort_by: CompanySortField,
         sort_order: SortOrder,
+        company_id: UUID | None = None,
     ) -> Page[Company]:
         """Return paginated companies."""
         return await self._repository.list_companies(
@@ -80,11 +81,16 @@ class ManufacturingService:
             search=search,
             sort_by=sort_by,
             sort_order=sort_order,
+            company_id=company_id,
         )
 
-    async def get_company(self, company_id: UUID) -> Company:
+    async def get_company(
+        self, company_id: UUID, *, tenant_company_id: UUID | None = None
+    ) -> Company:
         """Return a company by ID."""
-        company = await self._repository.get_company_by_id(company_id)
+        company = await self._repository.get_company_by_id(
+            company_id, tenant_company_id=tenant_company_id
+        )
         if company is None:
             raise ResourceNotFoundError("Company not found.")
         return company
@@ -180,6 +186,16 @@ class ManufacturingService:
             raise ResourceNotFoundError("Factory not found.")
         return factory
 
+    async def get_factory_for_company(
+        self, factory_id: UUID, company_id: UUID
+    ) -> Factory:
+        factory = await self._repository.get_factory_by_id(
+            factory_id, company_id=company_id
+        )
+        if factory is None:
+            raise ResourceNotFoundError("Factory not found.")
+        return factory
+
     async def create_factory(
         self,
         *,
@@ -251,6 +267,16 @@ class ManufacturingService:
     async def get_machine(self, machine_id: UUID) -> Machine:
         """Return a machine by ID."""
         machine = await self._repository.get_machine_by_id(machine_id)
+        if machine is None:
+            raise ResourceNotFoundError("Machine not found.")
+        return machine
+
+    async def get_machine_for_company(
+        self, machine_id: UUID, company_id: UUID
+    ) -> Machine:
+        machine = await self._repository.get_machine_by_id(
+            machine_id, company_id=company_id
+        )
         if machine is None:
             raise ResourceNotFoundError("Machine not found.")
         return machine

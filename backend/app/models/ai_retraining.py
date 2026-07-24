@@ -50,14 +50,21 @@ class ModelRetrainingPolicy(Base):
             name="ck_retraining_policy_positive_limits",
         ),
         UniqueConstraint(
+            "company_id",
             "registered_model_name",
             name="uq_retraining_policy_model_name",
         ),
         Index("ix_retraining_policy_enabled", "enabled"),
+        Index("ix_retraining_policy_company", "company_id"),
     )
 
     id: Mapped[UUID] = mapped_column(
         Uuid(as_uuid=True), primary_key=True, default=uuid4
+    )
+    company_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("companies.id", ondelete="RESTRICT"),
+        nullable=False,
     )
     registered_model_name: Mapped[str] = mapped_column(String(128), nullable=False)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
@@ -134,6 +141,7 @@ class ModelRetrainingRequest(Base):
         ),
         Index("ix_retraining_request_requested_at", "requested_at"),
         Index("ix_retraining_request_policy", "policy_id"),
+        Index("ix_retraining_request_company", "company_id", "requested_at"),
         Index(
             "ix_retraining_request_monitoring_evaluation",
             "monitoring_evaluation_id",
@@ -142,6 +150,11 @@ class ModelRetrainingRequest(Base):
 
     id: Mapped[UUID] = mapped_column(
         Uuid(as_uuid=True), primary_key=True, default=uuid4
+    )
+    company_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("companies.id", ondelete="RESTRICT"),
+        nullable=False,
     )
     registered_model_name: Mapped[str] = mapped_column(String(128), nullable=False)
     source_model_version: Mapped[str] = mapped_column(String(128), nullable=False)
@@ -273,6 +286,7 @@ class ModelRetrainingAudit(Base):
         Index("ix_retraining_audit_model", "registered_model_name"),
         Index("ix_retraining_audit_evaluated_at", "evaluated_at"),
         Index("ix_retraining_audit_evaluator", "evaluated_by_user_id"),
+        Index("ix_retraining_audit_company", "company_id", "evaluated_at"),
         Index(
             "ix_retraining_audit_monitoring_evaluation",
             "monitoring_evaluation_id",
@@ -281,6 +295,11 @@ class ModelRetrainingAudit(Base):
 
     id: Mapped[UUID] = mapped_column(
         Uuid(as_uuid=True), primary_key=True, default=uuid4
+    )
+    company_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("companies.id", ondelete="RESTRICT"),
+        nullable=False,
     )
     registered_model_name: Mapped[str] = mapped_column(String(128), nullable=False)
     source_model_version: Mapped[str | None] = mapped_column(String(128))

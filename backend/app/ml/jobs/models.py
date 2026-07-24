@@ -278,6 +278,7 @@ class TrainingJobRecord:
     """Repository-owned snapshot of a persistent training job."""
 
     id: UUID
+    company_id: UUID
     requested_by_user_id: UUID
     dataset_version_id: UUID | None
     key: TrainerKey

@@ -62,6 +62,7 @@ class TrainingJob(Base):
             name="uq_training_jobs_scoped_idempotency",
         ),
         Index("ix_training_jobs_requested_by_user_id", "requested_by_user_id"),
+        Index("ix_training_jobs_company_created", "company_id", "created_at"),
         Index("ix_training_jobs_dataset_version_id", "dataset_version_id"),
         Index("ix_training_jobs_status", "status"),
         Index("ix_training_jobs_created_at", "created_at"),
@@ -82,6 +83,11 @@ class TrainingJob(Base):
     requested_by_user_id: Mapped[UUID] = mapped_column(
         Uuid(as_uuid=True),
         ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    company_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("companies.id", ondelete="RESTRICT"),
         nullable=False,
     )
     dataset_version_id: Mapped[UUID | None] = mapped_column(
@@ -187,6 +193,7 @@ class ModelPromotionAudit(Base):
         ),
         Index("ix_model_promotion_audits_model_name", "registered_model_name"),
         Index("ix_model_promotion_audits_requested_by", "requested_by_user_id"),
+        Index("ix_model_promotion_audits_company", "company_id", "created_at"),
         Index("ix_model_promotion_audits_created_at", "created_at"),
     )
 
@@ -194,6 +201,11 @@ class ModelPromotionAudit(Base):
         Uuid(as_uuid=True),
         primary_key=True,
         default=uuid4,
+    )
+    company_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("companies.id", ondelete="RESTRICT"),
+        nullable=False,
     )
     registered_model_name: Mapped[str] = mapped_column(
         String(length=128),

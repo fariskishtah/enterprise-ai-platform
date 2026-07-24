@@ -13,6 +13,8 @@ from app.ml.automl.models import AutoMLStudyStatus, AutoMLTrialStatus
 from app.ml.domain import TaskType
 from app.models.automl import AutoMLExecutionSlot, AutoMLStudy, AutoMLTrial
 from app.models.datasets import DatasetUsageReference
+from app.models.user import AuditEvent
+from app.repositories.tenant import company_for_user
 from app.utils.security import as_utc
 
 
@@ -35,6 +37,11 @@ class AutoMLRepository:
         self._session = session
 
     async def create_study(self, **values: object) -> AutoMLStudy:
+        if "company_id" not in values:
+            requester = values.get("requested_by_user_id")
+            if not isinstance(requester, UUID):
+                raise ValueError("A tenant-scoped requester is required.")
+            values["company_id"] = await company_for_user(self._session, requester)
         entity = AutoMLStudy(**values)
         self._session.add(entity)
         await self._session.flush()
@@ -49,6 +56,26 @@ class AutoMLRepository:
             await self._session.flush()
         await self._session.refresh(entity)
         return entity
+
+    async def append_terminal_audit(self, study: AutoMLStudy) -> None:
+        """Stage one safe unified event for a terminal study transition."""
+        succeeded = study.status is AutoMLStudyStatus.SUCCEEDED
+        self._session.add(
+            AuditEvent(
+                company_id=study.company_id,
+                actor_user_id=study.requested_by_user_id,
+                actor_role=None,
+                action=("automl.succeeded" if succeeded else "automl.failed"),
+                resource_type="automl_study",
+                resource_id=str(study.id),
+                result="success" if succeeded else "failure",
+                safe_metadata={
+                    "task_type": study.task_type.value,
+                    "error_code": study.error_code,
+                },
+                retention_class="operations",
+            )
+        )
 
     async def get_study_by_id(self, study_id: UUID) -> AutoMLStudy | None:
         return await self._session.get(AutoMLStudy, study_id)

@@ -52,12 +52,15 @@ source and synchronizes package metadata to `0.9.0`.
 
 ## Incomplete or limited capabilities
 
-- User administration is not implemented beyond self-registration as operator
-  and the authenticated current-user endpoint.
-- Password recovery/change, MFA, SSO/SAML/OIDC, session/device management,
-  SCIM, tenant provisioning, and billing/entitlements are absent.
-- Audit APIs cover selected promotion and retraining records, not every
-  authentication, data, and administrative event.
+- Company administrators can create, update, deactivate, and initiate password
+  resets for users in their own company. There is no invitation email delivery,
+  platform-level tenant administration, or customer self-service provisioning.
+- Password change, reset-token completion, refresh-session listing, and session
+  revocation are implemented. MFA, SSO/SAML/OIDC, device attestation, SCIM,
+  tenant provisioning, and billing/entitlements are absent.
+- The company-scoped audit API records critical identity, manufacturing, data,
+  model, prediction, alert, and retraining actions with bounded CSV/JSON export.
+  It is not a compliance archive, SIEM pipeline, or legal-hold system.
 - Dataset storage, MLflow, model artifacts, and telemetry use local named
   volumes; there is no HA topology or application-managed off-host storage.
 - RAG accepts bounded CSV or plain UTF-8 text. It has no PDF/DOCX/OCR/connectors.

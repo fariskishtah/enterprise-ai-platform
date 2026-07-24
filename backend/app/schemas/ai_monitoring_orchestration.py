@@ -75,6 +75,23 @@ class MonitoringAlertResponse(BaseModel):
     resolved_at: datetime | None
     created_at: datetime
     updated_at: datetime
+    factory_id: UUID | None
+    machine_id: UUID | None
+    operator_note: str | None
+    engineer_note: str | None
+    cooldown_until: datetime | None
+
+
+class AlertAcknowledgeBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    operator_note: str | None = Field(default=None, max_length=1000)
+
+
+class AlertResolveBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    engineer_note: str | None = Field(default=None, max_length=1000)
 
 
 class MonitoringAlertPageResponse(BaseModel):

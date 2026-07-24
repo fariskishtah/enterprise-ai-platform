@@ -127,6 +127,12 @@ export function MachineDetailPage(): ReactElement {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <Link
+            className={primaryButtonClassName}
+            to={`/factories/${factory.id}/machines/${machine.id}/risk`}
+          >
+            View machine risk
+          </Link>
           {canWrite ? (
             <button
               className={secondaryButtonClassName}

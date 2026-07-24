@@ -36,7 +36,7 @@ def _company_conflict(exc: DuplicateCompanyNameError) -> HTTPException:
     summary="List companies",
 )
 async def list_companies(
-    _current_user: Annotated[
+    current_user: Annotated[
         User,
         Depends(require_roles(UserRole.ADMIN, UserRole.ENGINEER, UserRole.OPERATOR)),
     ],
@@ -54,6 +54,7 @@ async def list_companies(
         search=search,
         sort_by=sort_by,
         sort_order=sort_order,
+        company_id=current_user.company_id,
     )
     return PaginatedResponse(
         items=[CompanyResponse.model_validate(item) for item in page.items],
@@ -71,7 +72,7 @@ async def list_companies(
 )
 async def create_company(
     payload: CompanyCreate,
-    _current_user: Annotated[
+    current_user: Annotated[
         User,
         Depends(require_roles(UserRole.ADMIN, UserRole.ENGINEER)),
     ],
@@ -79,9 +80,13 @@ async def create_company(
 ) -> CompanyResponse:
     """Create a company."""
     try:
-        company = await service.create_company(
-            name=payload.name,
-            description=payload.description,
+        company = await service.update_company(
+            current_user.company_id,
+            CompanyUpdateFields(
+                provided=frozenset({"name", "description"}),
+                name=payload.name,
+                description=payload.description,
+            ),
         )
     except DuplicateCompanyNameError as exc:
         raise _company_conflict(exc) from exc
@@ -96,7 +101,7 @@ async def create_company(
 )
 async def get_company(
     company_id: UUID,
-    _current_user: Annotated[
+    current_user: Annotated[
         User,
         Depends(require_roles(UserRole.ADMIN, UserRole.ENGINEER, UserRole.OPERATOR)),
     ],
@@ -104,7 +109,9 @@ async def get_company(
 ) -> CompanyResponse:
     """Return a company by ID."""
     try:
-        company = await service.get_company(company_id)
+        company = await service.get_company(
+            company_id, tenant_company_id=current_user.company_id
+        )
     except ResourceNotFoundError as exc:
         raise _company_not_found(exc) from exc
     return CompanyResponse.model_validate(company)
@@ -119,7 +126,7 @@ async def get_company(
 async def update_company(
     company_id: UUID,
     payload: CompanyUpdate,
-    _current_user: Annotated[
+    current_user: Annotated[
         User,
         Depends(require_roles(UserRole.ADMIN, UserRole.ENGINEER)),
     ],
@@ -127,6 +134,8 @@ async def update_company(
 ) -> CompanyResponse:
     """Update a company."""
     try:
+        if company_id != current_user.company_id:
+            raise ResourceNotFoundError("Company not found.")
         company = await service.update_company(
             company_id,
             CompanyUpdateFields(
@@ -152,9 +161,9 @@ async def delete_company(
     _current_user: Annotated[User, Depends(require_roles(UserRole.ADMIN))],
     service: Annotated[ManufacturingService, Depends(get_manufacturing_service)],
 ) -> Response:
-    """Soft delete a company."""
-    try:
-        await service.delete_company(company_id)
-    except ResourceNotFoundError as exc:
-        raise _company_not_found(exc) from exc
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
+    """Tenant roots cannot be deleted through the pilot API."""
+    del company_id, service
+    raise HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail="The active tenant company cannot be deleted.",
+    )

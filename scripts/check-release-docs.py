@@ -61,8 +61,8 @@ def main() -> int:
         fail("supported scope does not identify the canonical version")
 
     navigation = (ROOT / "frontend/src/navigation.ts").read_text(encoding="utf-8")
-    if 'path: "/users"' in navigation:
-        fail("unsupported user administration is still exposed in navigation")
+    if 'path: "/users"' not in navigation:
+        fail("supported tenant user administration is missing from navigation")
 
     for lock_path in (
         ROOT / "backend/requirements/base.lock",

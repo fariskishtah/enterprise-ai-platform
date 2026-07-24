@@ -114,16 +114,21 @@ class DatasetService:
         self,
         *,
         owner_user_id: UUID,
+        company_id: UUID | None = None,
         name: str,
         description: str | None,
         kind: DatasetKind,
     ) -> Dataset:
         normalized_name = " ".join(name.split()).casefold()
-        if await self._repository.get_dataset_by_name(owner_user_id, normalized_name):
+        resolved_company_id = company_id or owner_user_id
+        if await self._repository.get_dataset_by_name(
+            resolved_company_id, normalized_name
+        ):
             raise DatasetConflictError("A dataset with this name already exists.")
         try:
             dataset = await self._repository.create_dataset(
                 owner_user_id=owner_user_id,
+                company_id=resolved_company_id,
                 name=" ".join(name.split()),
                 normalized_name=normalized_name,
                 description=description.strip() if description is not None else None,

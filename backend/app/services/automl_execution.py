@@ -282,6 +282,7 @@ class AutoMLCoordinator:
         if finished is None:
             await self._repository.rollback()
             return AutoMLExecutionState.SKIPPED
+        await self._repository.append_terminal_audit(finished)
         await self._repository.commit()
         record_automl_event(event="study_terminal", final_status="succeeded")
         return AutoMLExecutionState.TERMINAL
@@ -327,6 +328,7 @@ class AutoMLCoordinator:
                 },
             )
             if changed is not None:
+                await self._repository.append_terminal_audit(changed)
                 await self._repository.commit()
                 record_automl_event(event="study_terminal", final_status=final.value)
                 return AutoMLExecutionState.TERMINAL
@@ -372,6 +374,7 @@ class AutoMLCoordinator:
             },
         )
         if changed is not None:
+            await self._repository.append_terminal_audit(changed)
             await self._repository.commit()
             record_automl_event(event="study_terminal", final_status="failed")
         else:

@@ -20,6 +20,7 @@ from app.ml.monitoring.evaluation_models import (
 from app.models.ai_governance import TrainingJob
 from app.models.ai_retraining import ModelRetrainingAudit, ModelRetrainingRequest
 from app.models.monitoring_orchestration import ModelMonitoringEvaluationEntity
+from app.repositories.tenant import company_for_registered_model
 from app.utils.security import as_utc
 
 
@@ -37,6 +38,9 @@ class MonitoringEvaluationRepository:
     ) -> ModelMonitoringEvaluation:
         entity = ModelMonitoringEvaluationEntity(
             id=evaluation.id,
+            company_id=await company_for_registered_model(
+                self._session, evaluation.registered_model_name
+            ),
             registered_model_name=evaluation.registered_model_name,
             model_version=evaluation.model_version,
             model_alias=evaluation.model_alias,

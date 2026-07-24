@@ -63,6 +63,8 @@ class Settings(BaseSettings):
     )
     access_token_expire_minutes: PositiveInt = 15
     refresh_token_expire_days: PositiveInt = 30
+    password_reset_expire_minutes: PositiveInt = Field(default=30, le=1440)
+    expose_local_password_reset_token: bool = False
     auth_rate_limit_enabled: bool = True
     auth_rate_limit_requests: PositiveInt = Field(default=10, le=1000)
     auth_rate_limit_window_seconds: PositiveInt = Field(default=60, le=3600)

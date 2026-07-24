@@ -26,6 +26,7 @@ from app.ml.promotion.models import (
 )
 from app.models.ai_governance import ModelPromotionAudit, TrainingJob
 from app.models.datasets import DatasetUsageReference
+from app.repositories.tenant import company_for_user
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,6 +66,7 @@ class TrainingJobRepository:
         """Create one authoritative queued job."""
         entity = TrainingJob(
             id=job_id,
+            company_id=await company_for_user(self._session, requested_by_user_id),
             requested_by_user_id=requested_by_user_id,
             dataset_version_id=specification.dataset_version_id,
             algorithm=key.algorithm,
@@ -478,6 +480,7 @@ class ModelPromotionAuditRepository:
     ) -> ModelPromotionAuditRecord:
         """Create a durable pending audit before the external alias mutation."""
         entity = ModelPromotionAudit(
+            company_id=await company_for_user(self._session, requested_by_user_id),
             registered_model_name=registered_model_name,
             model_version=model_version,
             algorithm=key.algorithm,
@@ -585,6 +588,7 @@ class ModelPromotionAuditRepository:
 def _job_record(entity: TrainingJob) -> TrainingJobRecord:
     return TrainingJobRecord(
         id=entity.id,
+        company_id=entity.company_id,
         requested_by_user_id=entity.requested_by_user_id,
         dataset_version_id=entity.dataset_version_id,
         key=TrainerKey(entity.algorithm, entity.task_type),

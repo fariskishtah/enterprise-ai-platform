@@ -4,6 +4,7 @@ import type { TokenPair } from "../api/sessionStorage";
 export type UserRole = "admin" | "engineer" | "operator";
 
 export interface CurrentUser {
+  readonly company_id: string;
   readonly created_at: string;
   readonly email: string;
   readonly id: string;

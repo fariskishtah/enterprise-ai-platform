@@ -3,11 +3,13 @@
 from uuid import uuid4
 
 import pytest
+from app.models.manufacturing import Company
 from app.models.user import UserRole
 from app.repositories.users import UserRepository
 from app.services.users import UserService
 from app.utils.passwords import PasswordHasher
 from httpx import AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 VALID_PASSWORD = "ValidPassword1!"
@@ -26,7 +28,10 @@ async def create_role_user(
             repository=repository,
             password_hasher=PasswordHasher(),
         )
-        await service.create_user(email=email, password=VALID_PASSWORD, role=role)
+        company_id = await session.scalar(select(Company.id).limit(1))
+        await service.create_user(
+            email=email, password=VALID_PASSWORD, role=role, company_id=company_id
+        )
 
 
 async def auth_headers(
@@ -108,11 +113,11 @@ async def create_machine(
 
 
 @pytest.mark.anyio
-async def test_admin_can_crud_and_soft_delete_company(
+async def test_admin_can_read_update_but_not_delete_tenant_company(
     api_client: AsyncClient,
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """Admin users have full access to company CRUD."""
+    """The one supported tenant root is readable and editable but not deletable."""
     headers = await auth_headers(
         api_client,
         session_factory,
@@ -141,9 +146,9 @@ async def test_admin_can_crud_and_soft_delete_company(
     assert get_response.status_code == 200
     assert update_response.status_code == 200
     assert update_response.json()["name"] == "Acme Robotics"
-    assert delete_response.status_code == 204
-    assert deleted_get_response.status_code == 404
-    assert list_response.json()["total"] == 0
+    assert delete_response.status_code == 409
+    assert deleted_get_response.status_code == 200
+    assert list_response.json()["total"] == 1
 
 
 @pytest.mark.anyio
@@ -212,11 +217,11 @@ async def test_operator_has_read_only_access(
 
 
 @pytest.mark.anyio
-async def test_company_name_must_be_unique(
+async def test_company_create_updates_the_existing_tenant_without_duplication(
     api_client: AsyncClient,
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """Company names are unique after normalization."""
+    """The compatibility create route cannot introduce another tenant root."""
     headers = await auth_headers(
         api_client,
         session_factory,
@@ -231,8 +236,13 @@ async def test_company_name_must_be_unique(
         json={"name": "  ACME   MANUFACTURING  "},
     )
 
-    assert response.status_code == 409
-    assert response.json()["detail"] == "Company name is already in use."
+    assert response.status_code == 201
+    assert (
+        response.json()["id"]
+        == (await api_client.get("/companies", headers=headers)).json()["items"][0][
+            "id"
+        ]
+    )
 
 
 @pytest.mark.anyio
@@ -288,7 +298,7 @@ async def test_pagination_search_sort_and_filtering(
         role=UserRole.ADMIN,
         email="admin@example.com",
     )
-    company_beta = await create_company(api_client, headers, name="Beta Manufacturing")
+    await create_company(api_client, headers, name="Beta Manufacturing")
     company_alpha = await create_company(
         api_client,
         headers,
@@ -331,15 +341,14 @@ async def test_pagination_search_sort_and_filtering(
 
     assert companies_response.status_code == 200
     companies = companies_response.json()
-    assert companies["total"] == 3
+    assert companies["total"] == 1
     assert [item["name"] for item in companies["items"]] == [
-        "Alpha Manufacturing",
-        "Beta Manufacturing",
+        "Gamma Manufacturing",
     ]
     assert search_response.json()["items"][0]["id"] == company_gamma["id"]
     assert factory_filter_response.json()["items"][0]["id"] == factory["id"]
     assert machine_filter_response.json()["items"][0]["name"] == "Laser Cutter"
-    assert company_beta["name"] == "Beta Manufacturing"
+    assert company_alpha["id"] == company_gamma["id"]
 
 
 @pytest.mark.anyio

@@ -3,7 +3,6 @@ import { createBrowserRouter } from "react-router-dom";
 
 import { ProtectedRoute, PublicOnlyRoute, RoleRoute } from "../auth/RouteGuards";
 import { AppShell } from "../components/AppShell";
-import { PlaceholderPage } from "../pages/PlaceholderPage";
 import { NotFoundPage, RouteErrorPage } from "../pages/RouteErrorPages";
 
 const Dashboard = lazy(() =>
@@ -20,6 +19,14 @@ const AuditLogsPage = lazy(() =>
 const SettingsPage = lazy(() =>
   import("../pages/SettingsPage").then(({ SettingsPage }) => ({
     default: SettingsPage,
+  })),
+);
+const UsersPage = lazy(() =>
+  import("../pages/UsersPage").then(({ UsersPage }) => ({ default: UsersPage })),
+);
+const MachineRiskPage = lazy(() =>
+  import("../pages/pilot/MachineRiskPage").then(({ MachineRiskPage }) => ({
+    default: MachineRiskPage,
   })),
 );
 const FactoriesPage = lazy(() =>
@@ -220,14 +227,6 @@ const ConversationPage = lazy(() =>
   })),
 );
 
-const placeholderRoutes = [
-  [
-    "users",
-    "User administration unavailable",
-    "User invitations, role changes, and account lifecycle management are not included in the controlled pilot.",
-  ],
-] as const;
-
 export const router = createBrowserRouter([
   {
     children: [{ element: <LoginPage />, path: "login" }],
@@ -245,6 +244,10 @@ export const router = createBrowserRouter([
           {
             element: <MachineDetailPage />,
             path: "factories/:factoryId/machines/:machineId",
+          },
+          {
+            element: <MachineRiskPage />,
+            path: "factories/:factoryId/machines/:machineId/risk",
           },
           {
             element: <SensorDetailPage />,
@@ -348,10 +351,11 @@ export const router = createBrowserRouter([
           },
           { element: <AuditLogsPage />, path: "audit-log" },
           { element: <SettingsPage />, path: "settings" },
-          ...placeholderRoutes.map(([path, title, description]) => ({
-            element: <PlaceholderPage description={description} title={title} />,
-            path,
-          })),
+          {
+            children: [{ element: <UsersPage />, index: true }],
+            element: <RoleRoute roles={["admin"]} />,
+            path: "users",
+          },
           { element: <NotFoundPage />, path: "*" },
         ],
         element: <AppShell />,

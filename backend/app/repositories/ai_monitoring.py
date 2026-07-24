@@ -41,6 +41,7 @@ from app.models.ai_monitoring import (
     ModelReferenceProfileEntity,
     PredictionEventEntity,
 )
+from app.repositories.tenant import company_for_training_job, company_for_user
 from app.utils.security import as_utc
 
 
@@ -65,6 +66,9 @@ class PredictionMonitoringRepository:
         """Persist one completed event containing only safe summaries."""
         entity = PredictionEventEntity(
             id=event.id,
+            company_id=await company_for_user(
+                self._session, event.requested_by_user_id
+            ),
             requested_by_user_id=event.requested_by_user_id,
             registered_model_name=event.registered_model_name,
             requested_model_reference=event.requested_model_reference,
@@ -295,6 +299,9 @@ class PredictionMonitoringRepository:
             return existing
         entity = ModelReferenceProfileEntity(
             id=profile.id,
+            company_id=await company_for_training_job(
+                self._session, profile.training_job_id
+            ),
             registered_model_name=profile.registered_model_name,
             model_version=profile.model_version,
             algorithm=profile.key.algorithm,
