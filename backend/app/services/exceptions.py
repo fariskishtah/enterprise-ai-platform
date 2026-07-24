@@ -17,6 +17,14 @@ class InactiveUserError(ValueError):
     """Raised when an inactive user attempts an authenticated operation."""
 
 
+class AccountLifecycleError(ValueError):
+    """Raised for a safe account lifecycle policy violation."""
+
+
+class InvalidPasswordResetTokenError(ValueError):
+    """Raised when a password reset credential is invalid, expired, or used."""
+
+
 class ResourceNotFoundError(ValueError):
     """Raised when a requested resource does not exist."""
 
