@@ -3,3 +3,7 @@
 
 # Historical .env.example replacement instruction; not an operational credential.
 0cc2a8fd3828981a411005eeb1a526a0dcf39e53:.env.example:generic-api-key:3
+
+# False positive: this exact generic-api-key finding is a Python call that passes
+# an integer upload-size bound alongside an internal storage object key.
+fcd042747f7acd664dfc96a47532dd214f75d4ca:backend/app/services/guided_data.py:generic-api-key:263
