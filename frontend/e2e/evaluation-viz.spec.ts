@@ -33,6 +33,13 @@ async function mockAuthenticatedUser(page: Page): Promise<void> {
       updated_at: "2026-01-01T00:00:00Z",
     }),
   );
+  await page.route("**/product/features", (route) =>
+    json(route, {
+      demo_tools_enabled: false,
+      operations_workflow_enabled: true,
+      simplified_experience_enabled: true,
+    }),
+  );
 }
 
 const mockJob = {

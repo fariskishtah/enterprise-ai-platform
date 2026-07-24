@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 API_BASE_URL = os.getenv("DEMO_API_BASE_URL", "http://backend:8000").rstrip("/")
 DEMO_EMAIL = os.getenv("DEMO_EMAIL", "demo@example.com")
 DEMO_PASSWORD = os.getenv("DEMO_PASSWORD", "LocalDemoPassword1!")
+DEMO_OPERATOR_EMAIL = os.getenv("DEMO_OPERATOR_EMAIL", "").strip().lower()
 MODEL_NAME = "demo_predictive_maintenance_regression"
 PREDICTION_CORRELATION_ID = "local-demo-prediction-v1"
 POLL_TIMEOUT_SECONDS = 90.0
@@ -35,6 +36,8 @@ VIBRATION_SENSOR_NAME = "Spindle Vibration DEMO-01"
 TRAINING_DATASET_NAME = "DEMO Predictive Maintenance History"
 DOCUMENT_DATASET_NAME = "DEMO Maintenance Procedures"
 KNOWLEDGE_BASE_NAME = "DEMO Maintenance Knowledge"
+OPERATIONAL_ACTION_TITLE = "Inspect DEMO-01 spindle before next production cycle"
+SHIFT_TEAM_LABEL = "DEMO completed day shift"
 
 READINGS = tuple(
     (
@@ -256,6 +259,28 @@ async def grant_demo_engineer_role() -> None:
                     .where(User.id == row.id)
                     .values(role=UserRole.ENGINEER)
                 )
+    finally:
+        await engine.dispose()
+
+
+async def find_demo_operator_id() -> str | None:
+    """Resolve the optional staging operator without exposing account data."""
+    if not DEMO_OPERATOR_EMAIL:
+        return None
+    settings = Settings()
+    engine = create_async_engine(settings.database_url)
+    try:
+        async with engine.connect() as connection:
+            operator_id = (
+                await connection.execute(
+                    select(User.id).where(
+                        User.email == DEMO_OPERATOR_EMAIL,
+                        User.role == UserRole.OPERATOR,
+                        User.is_active.is_(True),
+                    )
+                )
+            ).scalar_one_or_none()
+            return str(operator_id) if operator_id is not None else None
     finally:
         await engine.dispose()
 
@@ -793,6 +818,137 @@ def ensure_structured_risk_cases(
     return created, str(alert_id)
 
 
+def ensure_operational_demo(
+    client: ApiClient,
+    *,
+    domain: dict[str, dict[str, Any]],
+    alert_id: str,
+    operator_id: str | None,
+) -> dict[str, bool]:
+    """Create bounded action, note, and completed handover data once."""
+    features = require_response(
+        client.get("/product/features"),
+        {200},
+        "load product feature flags",
+    ).json()
+    if not features.get("operations_workflow_enabled"):
+        return {"action": False, "feedback": False, "note": False, "shift": False}
+
+    actions = list_items(client, "/operations/actions")
+    action = next(
+        (item for item in actions if item.get("title") == OPERATIONAL_ACTION_TITLE),
+        None,
+    )
+    action_created = action is None
+    if action is None:
+        payload: dict[str, Any] = {
+            "factory_id": domain["factory"]["id"],
+            "machine_id": domain["machine"]["id"],
+            "related_alert_id": alert_id,
+            "title": OPERATIONAL_ACTION_TITLE,
+            "reason": (
+                "The deterministic warning risk case requires spindle inspection."
+            ),
+            "recommended_action": (
+                "Inspect lubrication, bearing noise, and spindle balance before "
+                "the next production cycle."
+            ),
+            "priority": "high",
+            "due_at": "2026-07-25T08:00:00Z",
+        }
+        if operator_id is not None:
+            payload["assigned_user_id"] = operator_id
+        action = require_response(
+            client.post("/operations/actions", json=payload),
+            {201},
+            "create deterministic operational action",
+        ).json()
+
+    notes_response = require_response(
+        client.get(
+            "/operations/notes",
+            params={"action_id": str(action["id"]), "limit": 100},
+        ),
+        {200},
+        "list deterministic action notes",
+    )
+    note_body = "DEMO note: inspect spindle condition at the next safe stop."
+    notes = notes_response.json()
+    note_created = not any(item.get("body") == note_body for item in notes)
+    if note_created:
+        require_response(
+            client.post(
+                f"/operations/actions/{action['id']}/notes",
+                json={"body": note_body},
+            ),
+            {201},
+            "create deterministic action note",
+        )
+
+    feedback_summary = "DEMO feedback: warning confirmed for planned inspection."
+    feedback = list_items(
+        client,
+        "/operations/maintenance-feedback",
+        params={"action_id": str(action["id"])},
+    )
+    feedback_created = not any(
+        item.get("summary") == feedback_summary for item in feedback
+    )
+    if feedback_created:
+        require_response(
+            client.post(
+                "/operations/maintenance-feedback",
+                json={
+                    "action_id": action["id"],
+                    "alert_id": alert_id,
+                    "outcome": "true_issue",
+                    "maintenance_category": "spindle inspection",
+                    "summary": feedback_summary,
+                },
+            ),
+            {201},
+            "create deterministic maintenance feedback",
+        )
+
+    shifts = list_items(client, "/operations/shifts")
+    shift = next(
+        (item for item in shifts if item.get("team_label") == SHIFT_TEAM_LABEL),
+        None,
+    )
+    shift_created = shift is None
+    if shift is None:
+        shift = require_response(
+            client.post(
+                "/operations/shifts",
+                json={
+                    "factory_id": domain["factory"]["id"],
+                    "team_label": SHIFT_TEAM_LABEL,
+                },
+            ),
+            {201},
+            "start deterministic demo shift",
+        ).json()
+        require_response(
+            client.post(
+                f"/operations/shifts/{shift['id']}/end",
+                json={
+                    "handover_notes": (
+                        "Warning risk reviewed; spindle inspection remains assigned."
+                    ),
+                    "unresolved_summary": OPERATIONAL_ACTION_TITLE,
+                },
+            ),
+            {200},
+            "end deterministic demo shift",
+        )
+    return {
+        "action": action_created,
+        "feedback": feedback_created,
+        "note": note_created,
+        "shift": shift_created,
+    }
+
+
 def ensure_prediction_audit(client: ApiClient, version: str) -> bool:
     """Create one prediction only when its deterministic audit is absent."""
     events = list_items(
@@ -849,6 +1005,7 @@ def run() -> None:
         )
 
     asyncio.run(grant_demo_engineer_role())
+    operator_id = asyncio.run(find_demo_operator_id())
 
     with ApiClient(base_url=API_BASE_URL, timeout=60.0) as anonymous:
         login = require_response(
@@ -912,6 +1069,12 @@ def run() -> None:
             version=version,
             machine_id=str(domain["machine"]["id"]),
         )
+        operational_created = ensure_operational_demo(
+            client,
+            domain=domain,
+            alert_id=alert_id,
+            operator_id=operator_id,
+        )
 
     created_resources = (
         ", ".join(name for name, was_created in created.items() if was_created)
@@ -941,6 +1104,13 @@ def run() -> None:
     print(f"  Prediction audit: {'created' if prediction_created else 'reused'}")
     print(f"  Structured risk cases created: {risk_cases_created}")
     print(f"  Acknowledged pilot alert: {alert_id}")
+    print(
+        "  Operational demo records: "
+        + ", ".join(
+            f"{name}={'created' if was_created else 'reused'}"
+            for name, was_created in operational_created.items()
+        )
+    )
 
 
 if __name__ == "__main__":

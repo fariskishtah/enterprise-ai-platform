@@ -334,4 +334,18 @@ def _record(entity: MonitoringAlertEntity) -> MonitoringAlert:
         cooldown_until=(
             as_utc(entity.cooldown_until) if entity.cooldown_until else None
         ),
+        assigned_user_id=entity.assigned_user_id,
+        assigned_at=as_utc(entity.assigned_at) if entity.assigned_at else None,
+        assigned_by_user_id=entity.assigned_by_user_id,
+        in_progress_at=(
+            as_utc(entity.in_progress_at) if entity.in_progress_at else None
+        ),
+        escalated_at=as_utc(entity.escalated_at) if entity.escalated_at else None,
+        escalated_by_user_id=entity.escalated_by_user_id,
+        resolution_summary=entity.resolution_summary,
+        resolution_classification=entity.resolution_classification,
+        reopened_at=as_utc(entity.reopened_at) if entity.reopened_at else None,
+        reopened_by_user_id=entity.reopened_by_user_id,
+        reopen_reason=entity.reopen_reason,
+        lifecycle_version=entity.lifecycle_version,
     )

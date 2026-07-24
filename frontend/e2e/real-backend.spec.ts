@@ -16,6 +16,7 @@ const resourceNamespace = (
 )
   .replace(/[^A-Za-z0-9_.-]/g, "-")
   .slice(0, 40);
+const savedSessions = new Map<string, string>();
 
 interface ApiPage<T> {
   readonly items: readonly T[];
@@ -92,8 +93,25 @@ async function login(page: Page, email: string): Promise<void> {
       `Real-backend E2E credentials missing (email=${email}, password=${password ? "set" : "missing"})`,
     );
   }
+  const savedSession = savedSessions.get(email);
   await page.goto("/login");
   await page.evaluate(() => sessionStorage.clear());
+  if (savedSession) {
+    await page.evaluate(
+      (value) => sessionStorage.setItem("factorymind.auth.tokens", value),
+      savedSession,
+    );
+    const identityResponse = page.waitForResponse(
+      (response) =>
+        response.url().includes("/users/me") && response.request().method() === "GET",
+      { timeout: 15_000 },
+    );
+    await page.reload();
+    expect((await identityResponse).status()).toBe(200);
+    await expect(page).toHaveURL(/\/$/, { timeout: 20_000 });
+    await expect(page.getByRole("button", { name: /Sign out/ })).toBeVisible();
+    return;
+  }
   await page.getByLabel("Email address").fill(email);
   await page.getByLabel("Password").fill(password);
 
@@ -121,6 +139,10 @@ async function login(page: Page, email: string): Promise<void> {
   }
 
   await expect(page).toHaveURL(/\/$/, { timeout: 20_000 });
+  savedSessions.set(
+    email,
+    await page.evaluate(() => sessionStorage.getItem("factorymind.auth.tokens") ?? ""),
+  );
 }
 
 function collectUnexpectedBrowserErrors(page: Page): string[] {
@@ -373,11 +395,26 @@ test.describe("real staging backend", () => {
       ).toBeVisible();
 
       if (role === "operator") {
+        await expect(
+          page.getByRole("link", { name: "Required Actions" }),
+        ).toBeVisible();
         await expect(page.getByRole("link", { name: "Training Jobs" })).toHaveCount(0);
+        await expect(page.getByRole("link", { name: "Models" })).toHaveCount(0);
         await expect(page.getByRole("link", { name: "Audit Logs" })).toHaveCount(0);
       } else {
         await expect(page.getByRole("link", { name: "Training Jobs" })).toBeVisible();
         await expect(page.getByRole("link", { name: "Audit Logs" })).toBeVisible();
+        if (role === "admin") {
+          await page.getByLabel("Product experience").selectOption("simple");
+          await expect(
+            page.getByRole("link", { name: "Required Actions" }),
+          ).toBeVisible();
+          await expect(page.getByRole("link", { name: "Training Jobs" })).toHaveCount(
+            0,
+          );
+          await page.getByLabel("Product experience").selectOption("expert");
+          await expect(page.getByRole("link", { name: "Training Jobs" })).toBeVisible();
+        }
       }
       expect(errors).toEqual([]);
     });
@@ -443,15 +480,15 @@ test.describe("real staging backend", () => {
     expect(errors).toEqual([]);
   });
 
-  test("operator runs governed prediction and opens the machine-risk view", async ({
+  test("engineer runs governed prediction and operator opens the machine-risk view", async ({
     page,
   }) => {
     test.skip(
-      !accounts.operator || !password,
-      "Disposable operator credentials are required.",
+      !accounts.engineer || !accounts.operator || !password,
+      "Disposable engineer and operator credentials are required.",
     );
     const errors = collectUnexpectedBrowserErrors(page);
-    await login(page, accounts.operator ?? "");
+    await login(page, accounts.engineer ?? "");
     await page.goto("/predictions");
     await page
       .getByLabel("Discoverable model or direct name")
@@ -466,6 +503,12 @@ test.describe("real staging backend", () => {
     await expect(page.getByText("succeeded", { exact: true }).first()).toBeVisible({
       timeout: 20_000,
     });
+
+    await page
+      .getByRole("button", { name: `Sign out ${accounts.engineer ?? ""}` })
+      .click();
+    await expect(page).toHaveURL(/\/login$/, { timeout: 20_000 });
+    await login(page, accounts.operator ?? "");
 
     const factories = await apiGetAllPages<FactorySummary>(
       page,

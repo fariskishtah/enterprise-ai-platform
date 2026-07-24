@@ -348,7 +348,7 @@ async def resolve_monitoring_alert(
     current_user: Annotated[User, Depends(require_roles(UserRole.ADMIN))],
     service: Annotated[MonitoringAlertService, Depends(get_monitoring_alert_service)],
     audit: Annotated[AuditService, Depends(get_audit_service)],
-    body: AlertResolveBody | None = None,
+    body: AlertResolveBody,
 ) -> MonitoringAlertResponse:
     try:
         # Resolve through the request-scoped SELECT guard before issuing the
@@ -356,7 +356,7 @@ async def resolve_monitoring_alert(
         await service.get(alert_id)
         alert = await service.resolve(
             alert_id,
-            engineer_note=body.engineer_note if body else None,
+            engineer_note=body.engineer_note,
         )
         await audit.record(
             company_id=current_user.company_id,
@@ -506,6 +506,18 @@ def _alert(value: MonitoringAlert) -> MonitoringAlertResponse:
         operator_note=value.operator_note,
         engineer_note=value.engineer_note,
         cooldown_until=value.cooldown_until,
+        assigned_user_id=value.assigned_user_id,
+        assigned_at=value.assigned_at,
+        assigned_by_user_id=value.assigned_by_user_id,
+        in_progress_at=value.in_progress_at,
+        escalated_at=value.escalated_at,
+        escalated_by_user_id=value.escalated_by_user_id,
+        resolution_summary=value.resolution_summary,
+        resolution_classification=value.resolution_classification,
+        reopened_at=value.reopened_at,
+        reopened_by_user_id=value.reopened_by_user_id,
+        reopen_reason=value.reopen_reason,
+        lifecycle_version=value.lifecycle_version,
     )
 
 

@@ -33,6 +33,9 @@ generate_environment() {
     printf 'JWT_AUDIENCE=staging-validation-browser\n'
     printf 'JWT_ALGORITHM=HS256\n'
     printf 'ENVIRONMENT=staging\n'
+    printf 'SIMPLIFIED_EXPERIENCE_ENABLED=true\n'
+    printf 'OPERATIONS_WORKFLOW_ENABLED=true\n'
+    printf 'DEMO_TOOLS_ENABLED=true\n'
     printf 'CORS_ALLOWED_ORIGINS=["http://127.0.0.1:18080"]\n'
     printf 'TRUSTED_PROXY_IPS=*\n'
     printf 'PUBLIC_HTTP_PORT=18080\n'
@@ -91,6 +94,7 @@ case "$action" in
     compose exec -T \
       -e DEMO_API_BASE_URL=http://backend:8000 \
       -e DEMO_EMAIL="$E2E_ENGINEER_EMAIL" \
+      -e DEMO_OPERATOR_EMAIL="$E2E_OPERATOR_EMAIL" \
       -e DEMO_PASSWORD="$E2E_PASSWORD" \
       backend python - <"$REPO_ROOT/scripts/seed_demo.py"
     echo "Disposable role accounts and deterministic workflow data are ready."

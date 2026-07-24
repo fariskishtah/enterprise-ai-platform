@@ -1,12 +1,20 @@
 import { lazy } from "react";
 import { createBrowserRouter } from "react-router-dom";
 
-import { ProtectedRoute, PublicOnlyRoute, RoleRoute } from "../auth/RouteGuards";
+import {
+  ExpertModeRoute,
+  OperationsFeatureRoute,
+  ProtectedRoute,
+  PublicOnlyRoute,
+  RoleRoute,
+} from "../auth/RouteGuards";
 import { AppShell } from "../components/AppShell";
 import { NotFoundPage, RouteErrorPage } from "../pages/RouteErrorPages";
 
-const Dashboard = lazy(() =>
-  import("../pages/Dashboard").then(({ Dashboard }) => ({ default: Dashboard })),
+const HomePage = lazy(() =>
+  import("../pages/operations/HomePage").then(({ HomePage }) => ({
+    default: HomePage,
+  })),
 );
 const LoginPage = lazy(() =>
   import("../pages/LoginPage").then(({ LoginPage }) => ({ default: LoginPage })),
@@ -105,13 +113,48 @@ const TrainingEvaluationPage = lazy(() =>
   ),
 );
 const AlertDetailPage = lazy(() =>
-  import("../pages/intelligence/AlertDetailPage").then(({ AlertDetailPage }) => ({
-    default: AlertDetailPage,
+  import("../pages/operations/AlertsRouterPage").then(({ AlertDetailRouterPage }) => ({
+    default: AlertDetailRouterPage,
   })),
 );
 const AlertsPage = lazy(() =>
-  import("../pages/intelligence/AlertsPage").then(({ AlertsPage }) => ({
-    default: AlertsPage,
+  import("../pages/operations/AlertsRouterPage").then(({ AlertsRouterPage }) => ({
+    default: AlertsRouterPage,
+  })),
+);
+const MachinesPage = lazy(() =>
+  import("../pages/operations/MachinesPage").then(({ MachinesPage }) => ({
+    default: MachinesPage,
+  })),
+);
+const RequiredActionsPage = lazy(() =>
+  import("../pages/operations/RequiredActionsPage").then(({ RequiredActionsPage }) => ({
+    default: RequiredActionsPage,
+  })),
+);
+const ActionDetailPage = lazy(() =>
+  import("../pages/operations/ActionDetailPage").then(({ ActionDetailPage }) => ({
+    default: ActionDetailPage,
+  })),
+);
+const ActivityPage = lazy(() =>
+  import("../pages/operations/ActivityPage").then(({ ActivityPage }) => ({
+    default: ActivityPage,
+  })),
+);
+const MachineTimelinePage = lazy(() =>
+  import("../pages/operations/MachineTimelinePage").then(({ MachineTimelinePage }) => ({
+    default: MachineTimelinePage,
+  })),
+);
+const ShiftsPage = lazy(() =>
+  import("../pages/operations/ShiftsPage").then(({ ShiftsPage }) => ({
+    default: ShiftsPage,
+  })),
+);
+const ShiftDetailPage = lazy(() =>
+  import("../pages/operations/ShiftDetailPage").then(({ ShiftDetailPage }) => ({
+    default: ShiftDetailPage,
   })),
 );
 const EvaluationDetailPage = lazy(() =>
@@ -238,8 +281,29 @@ export const router = createBrowserRouter([
     children: [
       {
         children: [
-          { element: <Dashboard />, index: true },
+          { element: <HomePage />, index: true },
           { element: <FactoriesPage />, path: "factories" },
+          {
+            children: [
+              { element: <MachinesPage />, path: "machines" },
+              { element: <RequiredActionsPage />, path: "operations/actions" },
+              {
+                element: <ActionDetailPage />,
+                path: "operations/actions/:actionId",
+              },
+              { element: <ActivityPage />, path: "activity" },
+              { element: <ShiftsPage />, path: "operations/shifts" },
+              {
+                element: <ShiftDetailPage />,
+                path: "operations/shifts/:shiftId",
+              },
+              {
+                element: <MachineTimelinePage />,
+                path: "factories/:factoryId/machines/:machineId/timeline",
+              },
+            ],
+            element: <OperationsFeatureRoute />,
+          },
           { element: <FactoryDetailPage />, path: "factories/:factoryId" },
           {
             element: <MachineDetailPage />,
@@ -257,99 +321,118 @@ export const router = createBrowserRouter([
             element: <SensorReadingsPage />,
             path: "factories/:factoryId/machines/:machineId/sensors/:sensorId/readings",
           },
-          { element: <SensorDataPage />, path: "sensor-data" },
-          { element: <UploadJobsPage />, path: "sensor-data/uploads" },
-          {
-            element: <UploadJobDetailPage />,
-            path: "sensor-data/uploads/:uploadJobId",
-          },
           {
             children: [
-              { element: <DatasetsPage />, index: true },
-              { element: <DatasetCreatePage />, path: "new" },
-              { element: <DatasetDetailPage />, path: ":datasetId" },
+              { element: <SensorDataPage />, path: "sensor-data" },
+              { element: <UploadJobsPage />, path: "sensor-data/uploads" },
               {
-                element: <DatasetVersionPage />,
-                path: ":datasetId/versions/:versionId",
+                element: <UploadJobDetailPage />,
+                path: "sensor-data/uploads/:uploadJobId",
               },
               {
-                element: <DatasetDocumentPage />,
-                path: ":datasetId/versions/:versionId/documents/:documentId",
+                children: [
+                  { element: <DatasetsPage />, index: true },
+                  { element: <DatasetCreatePage />, path: "new" },
+                  { element: <DatasetDetailPage />, path: ":datasetId" },
+                  {
+                    element: <DatasetVersionPage />,
+                    path: ":datasetId/versions/:versionId",
+                  },
+                  {
+                    element: <DatasetDocumentPage />,
+                    path: ":datasetId/versions/:versionId/documents/:documentId",
+                  },
+                ],
+                element: <RoleRoute roles={["admin", "engineer"]} />,
+                path: "datasets",
               },
-            ],
-            element: <RoleRoute roles={["admin", "engineer"]} />,
-            path: "datasets",
-          },
-          { element: <TrainingJobsPage />, path: "training" },
-          { element: <TrainingJobDetailPage />, path: "training/:trainingJobId" },
-          {
-            children: [
-              { element: <AutoMLStudiesPage />, index: true },
-              { element: <AutoMLCreatePage />, path: "new" },
-              { element: <AutoMLStudyDetailPage />, path: ":studyId" },
-              { element: <AutoMLStudyDetailPage />, path: "studies/:studyId" },
+              { element: <TrainingJobsPage />, path: "training" },
               {
-                element: <AutoMLTrialDetailPage />,
-                path: "studies/:studyId/trials/:trialId",
+                element: <TrainingJobDetailPage />,
+                path: "training/:trainingJobId",
               },
-            ],
-            element: <RoleRoute roles={["admin", "engineer"]} />,
-            path: "automl",
-          },
-          { element: <EvaluationsPage />, path: "evaluations" },
-          {
-            element: <TrainingEvaluationPage />,
-            path: "evaluations/jobs/:trainingJobId",
-          },
-          { element: <ModelsPage />, path: "models" },
-          { element: <ModelDetailPage />, path: "models/:registeredModelName" },
-          {
-            element: <ModelVersionPage />,
-            path: "models/:registeredModelName/versions/:versionOrAlias",
-          },
-          { element: <PredictionsPage />, path: "predictions" },
-          { element: <PredictionHistoryPage />, path: "predictions/history" },
-          {
-            element: <PredictionEventDetailPage />,
-            path: "predictions/history/:id",
-          },
-          {
-            children: [
-              { element: <KnowledgeBasesPage />, index: true },
-              { element: <KnowledgeBaseCreatePage />, path: "new" },
               {
-                element: <KnowledgeBaseDetailPage />,
-                path: ":knowledgeBaseId",
+                children: [
+                  { element: <AutoMLStudiesPage />, index: true },
+                  { element: <AutoMLCreatePage />, path: "new" },
+                  { element: <AutoMLStudyDetailPage />, path: ":studyId" },
+                  { element: <AutoMLStudyDetailPage />, path: "studies/:studyId" },
+                  {
+                    element: <AutoMLTrialDetailPage />,
+                    path: "studies/:studyId/trials/:trialId",
+                  },
+                ],
+                element: <RoleRoute roles={["admin", "engineer"]} />,
+                path: "automl",
+              },
+              { element: <EvaluationsPage />, path: "evaluations" },
+              {
+                element: <TrainingEvaluationPage />,
+                path: "evaluations/jobs/:trainingJobId",
+              },
+              { element: <ModelsPage />, path: "models" },
+              {
+                element: <ModelDetailPage />,
+                path: "models/:registeredModelName",
+              },
+              {
+                element: <ModelVersionPage />,
+                path: "models/:registeredModelName/versions/:versionOrAlias",
+              },
+              { element: <PredictionsPage />, path: "predictions" },
+              {
+                element: <PredictionHistoryPage />,
+                path: "predictions/history",
+              },
+              {
+                element: <PredictionEventDetailPage />,
+                path: "predictions/history/:id",
+              },
+              {
+                children: [
+                  { element: <KnowledgeBasesPage />, index: true },
+                  { element: <KnowledgeBaseCreatePage />, path: "new" },
+                  {
+                    element: <KnowledgeBaseDetailPage />,
+                    path: ":knowledgeBaseId",
+                  },
+                ],
+                element: <RoleRoute roles={["admin", "engineer"]} />,
+                path: "knowledge",
+              },
+              {
+                children: [
+                  { element: <ChatPage />, index: true },
+                  { element: <ConversationPage />, path: ":conversationId" },
+                ],
+                element: <RoleRoute roles={["admin", "engineer"]} />,
+                path: "chat",
+              },
+              { element: <MonitoringPage />, path: "monitoring" },
+              {
+                element: <EvaluationDetailPage />,
+                path: "monitoring/evaluations/:id",
+              },
+              {
+                element: <ModelMonitoringPage />,
+                path: "monitoring/models/:registeredModelName/versions/:versionOrAlias",
               },
             ],
-            element: <RoleRoute roles={["admin", "engineer"]} />,
-            path: "knowledge",
-          },
-          {
-            children: [
-              { element: <ChatPage />, index: true },
-              { element: <ConversationPage />, path: ":conversationId" },
-            ],
-            element: <RoleRoute roles={["admin", "engineer"]} />,
-            path: "chat",
-          },
-          { element: <MonitoringPage />, path: "monitoring" },
-          {
-            element: <EvaluationDetailPage />,
-            path: "monitoring/evaluations/:id",
-          },
-          {
-            element: <ModelMonitoringPage />,
-            path: "monitoring/models/:registeredModelName/versions/:versionOrAlias",
+            element: <ExpertModeRoute />,
           },
           { element: <AlertsPage />, path: "monitoring/alerts" },
           { element: <AlertDetailPage />, path: "monitoring/alerts/:id" },
-          { element: <RetrainingPage />, path: "retraining" },
           {
-            element: <RetrainingRequestPage />,
-            path: "retraining/requests/:id",
+            children: [
+              { element: <RetrainingPage />, path: "retraining" },
+              {
+                element: <RetrainingRequestPage />,
+                path: "retraining/requests/:id",
+              },
+              { element: <AuditLogsPage />, path: "audit-log" },
+            ],
+            element: <ExpertModeRoute />,
           },
-          { element: <AuditLogsPage />, path: "audit-log" },
           { element: <SettingsPage />, path: "settings" },
           {
             children: [{ element: <UsersPage />, index: true }],

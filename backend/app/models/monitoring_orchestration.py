@@ -196,6 +196,8 @@ class MonitoringAlertEntity(Base):
         Index("ix_monitoring_alert_severity_time", "severity", "last_detected_at"),
         Index("ix_monitoring_alert_evaluation", "monitoring_evaluation_id"),
         Index("ix_monitoring_alert_company_status", "company_id", "status"),
+        Index("ix_monitoring_alert_company_title", "company_id", "title"),
+        Index("ix_monitoring_alert_assignee_status", "assigned_user_id", "status"),
     )
 
     id: Mapped[UUID] = mapped_column(
@@ -266,6 +268,28 @@ class MonitoringAlertEntity(Base):
     operator_note: Mapped[str | None] = mapped_column(Text)
     engineer_note: Mapped[str | None] = mapped_column(Text)
     cooldown_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    assigned_user_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
+    )
+    assigned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    assigned_by_user_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
+    )
+    in_progress_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    escalated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    escalated_by_user_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
+    )
+    resolution_summary: Mapped[str | None] = mapped_column(Text)
+    resolution_classification: Mapped[str | None] = mapped_column(String(32))
+    reopened_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    reopened_by_user_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
+    )
+    reopen_reason: Mapped[str | None] = mapped_column(Text)
+    lifecycle_version: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default="1"
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

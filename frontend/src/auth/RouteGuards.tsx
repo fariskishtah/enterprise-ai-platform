@@ -1,6 +1,7 @@
 import type { ReactElement } from "react";
 import { Navigate, Outlet, useLocation } from "react-router-dom";
 
+import { useProductExperience } from "../product/productExperience";
 import { useAuth } from "./useAuth";
 
 export function AuthLoadingScreen(): ReactElement {
@@ -72,5 +73,53 @@ export function RoleRoute({
     <Outlet />
   ) : (
     <Navigate replace to="/" />
+  );
+}
+
+export function OperationsFeatureRoute(): ReactElement {
+  const { features, featuresLoading } = useProductExperience();
+  if (featuresLoading) return <AuthLoadingScreen />;
+  if (!features.operations_workflow_enabled) {
+    return (
+      <main className="rounded-lg border border-border bg-card p-8 shadow-panel">
+        <h2 className="text-xl font-semibold text-foreground">
+          Operations workflow is unavailable
+        </h2>
+        <p className="mt-2 text-sm text-secondary-foreground">
+          This optional company workflow is disabled in the current environment.
+        </p>
+      </main>
+    );
+  }
+  return <Outlet />;
+}
+
+export function ExpertModeRoute(): ReactElement {
+  const { role } = useAuth();
+  const { canSwitchMode, mode, setMode } = useProductExperience();
+  if (role === "operator") return <Navigate replace to="/" />;
+  if (mode === "expert") return <Outlet />;
+  return (
+    <main className="rounded-lg border border-border bg-card p-8 shadow-panel">
+      <p className="text-xs font-semibold uppercase tracking-wide text-eyebrow">
+        Expert mode
+      </p>
+      <h2 className="mt-2 text-xl font-semibold text-foreground">
+        This technical area is hidden in Simple Mode
+      </h2>
+      <p className="mt-2 max-w-xl text-sm text-secondary-foreground">
+        Switch to Expert Mode to use data, training, model, prediction, and governance
+        tools. Changing presentation does not change your permissions.
+      </p>
+      {canSwitchMode ? (
+        <button
+          className="mt-5 rounded-md bg-purple-700 px-4 py-2 text-sm font-semibold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={() => setMode("expert")}
+          type="button"
+        >
+          Switch to Expert Mode
+        </button>
+      ) : null}
+    </main>
   );
 }

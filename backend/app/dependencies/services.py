@@ -67,6 +67,7 @@ from app.services.model_registry import (
     MLflowModelRegistry as MetadataMLflowModelRegistry,
 )
 from app.services.model_registry import ModelRegistry
+from app.services.operations import OperationsService
 from app.services.optuna import OptunaStudyFactory
 from app.services.sensor_data import SensorDataService
 from app.services.sensor_data_etl import SensorDataEtlService
@@ -92,6 +93,13 @@ def get_audit_service(
 ) -> AuditService:
     """Return append-only audit use cases."""
     return AuditService(AuditRepository(session))
+
+
+def get_operations_service(
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> OperationsService:
+    """Return company-scoped operational maintenance use cases."""
+    return OperationsService(session)
 
 
 def get_manufacturing_repository(

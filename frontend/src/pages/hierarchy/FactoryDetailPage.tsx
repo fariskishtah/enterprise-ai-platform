@@ -29,6 +29,11 @@ import {
   primaryButtonClassName,
   secondaryButtonClassName,
 } from "../../components/hierarchy/ResourceStates";
+import {
+  readFavorites,
+  recordRecentResource,
+  toggleFavoriteResource,
+} from "../../product/resourcePreferences";
 import { displayValue, formatDate, hierarchyError } from "./shared";
 
 const PAGE_SIZE = 20;
@@ -36,7 +41,7 @@ const PAGE_SIZE = 20;
 export function FactoryDetailPage(): ReactElement {
   const { factoryId = "" } = useParams();
   const navigate = useNavigate();
-  const { role } = useAuth();
+  const { role, user } = useAuth();
   const canWrite = role === "admin" || role === "engineer";
   const canDelete = role === "admin";
   const [factory, setFactory] = useState<Factory | null>(null);
@@ -52,6 +57,7 @@ export function FactoryDetailPage(): ReactElement {
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
+  const [favorite, setFavorite] = useState(false);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -68,6 +74,19 @@ export function FactoryDetailPage(): ReactElement {
       .then(async ([factoryItem, machinePage, companyItems]) => {
         const companyItem = await getCompany(factoryItem.company_id, controller.signal);
         if (active) {
+          if (user !== null) {
+            recordRecentResource(user.id, {
+              id: factoryItem.id,
+              label: factoryItem.name,
+              path: `/factories/${factoryItem.id}`,
+              type: "factory",
+            });
+            setFavorite(
+              readFavorites(user.id).some(
+                (item) => item.type === "factory" && item.id === factoryItem.id,
+              ),
+            );
+          }
           setFactory(factoryItem);
           setMachines(machinePage);
           setCompanies(companyItems);
@@ -85,7 +104,7 @@ export function FactoryDetailPage(): ReactElement {
       active = false;
       controller.abort();
     };
-  }, [factoryId, machineOffset, revision]);
+  }, [factoryId, machineOffset, revision, user]);
 
   const reload = (): void => {
     setLoading(true);
@@ -126,6 +145,24 @@ export function FactoryDetailPage(): ReactElement {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <button
+            aria-pressed={favorite}
+            className={secondaryButtonClassName}
+            onClick={() => {
+              if (user === null) return;
+              setFavorite(
+                toggleFavoriteResource(user.id, {
+                  id: factory.id,
+                  label: factory.name,
+                  path: `/factories/${factory.id}`,
+                  type: "factory",
+                }),
+              );
+            }}
+            type="button"
+          >
+            {favorite ? "Remove favorite" : "Add favorite"}
+          </button>
           {canWrite ? (
             <button
               className={secondaryButtonClassName}

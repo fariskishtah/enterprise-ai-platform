@@ -55,6 +55,8 @@ class MonitoringAlertSeverity(StrEnum):
 class MonitoringAlertStatus(StrEnum):
     OPEN = "open"
     ACKNOWLEDGED = "acknowledged"
+    IN_PROGRESS = "in_progress"
+    ESCALATED = "escalated"
     RESOLVED = "resolved"
 
 
@@ -145,6 +147,18 @@ class MonitoringAlert:
     operator_note: str | None = None
     engineer_note: str | None = None
     cooldown_until: datetime | None = None
+    assigned_user_id: UUID | None = None
+    assigned_at: datetime | None = None
+    assigned_by_user_id: UUID | None = None
+    in_progress_at: datetime | None = None
+    escalated_at: datetime | None = None
+    escalated_by_user_id: UUID | None = None
+    resolution_summary: str | None = None
+    resolution_classification: str | None = None
+    reopened_at: datetime | None = None
+    reopened_by_user_id: UUID | None = None
+    reopen_reason: str | None = None
+    lifecycle_version: int = 1
 
 
 @dataclass(frozen=True, slots=True)

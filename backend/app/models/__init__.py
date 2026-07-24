@@ -28,6 +28,16 @@ from app.models.monitoring_orchestration import (
     MonitoringJobLockEntity,
     PredictionOutcomeEntity,
 )
+from app.models.operations import (
+    MaintenanceFeedback,
+    OperationalAction,
+    OperationalActionPriority,
+    OperationalActionStatus,
+    OperationalNote,
+    OperationalTimelineEvent,
+    ShiftHandover,
+    ShiftStatus,
+)
 from app.models.pilot import MachineRiskAssessment, ModelFeatureSchema
 from app.models.rag import (
     RAGChunkEmbedding,
@@ -72,8 +82,14 @@ __all__ = [
     "ModelRetrainingRequest",
     "ModelArtifact",
     "ModelFeatureSchema",
+    "MaintenanceFeedback",
     "MonitoringAlertEntity",
     "MonitoringJobLockEntity",
+    "OperationalAction",
+    "OperationalActionPriority",
+    "OperationalActionStatus",
+    "OperationalNote",
+    "OperationalTimelineEvent",
     "ReadingQuality",
     "ReadingSource",
     "RAGChunkEmbedding",
@@ -90,6 +106,8 @@ __all__ = [
     "PredictionOutcomeEntity",
     "Sensor",
     "SensorReading",
+    "ShiftHandover",
+    "ShiftStatus",
     "TrainingRun",
     "TrainingRunStatus",
     "TrainingJob",

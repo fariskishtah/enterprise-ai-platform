@@ -1,6 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
 const baseURL = process.env.E2E_BASE_URL ?? "http://127.0.0.1:5173";
+const localServerPort = new URL(baseURL).port || "5173";
 
 export default defineConfig({
   expect: { timeout: 5_000 },
@@ -22,7 +23,7 @@ export default defineConfig({
   webServer: process.env.E2E_EXTERNAL_SERVER
     ? undefined
     : {
-        command: "npm run dev -- --host 127.0.0.1",
+        command: `npm run dev -- --host 127.0.0.1 --port ${localServerPort} --strictPort`,
         reuseExistingServer: !process.env.CI,
         timeout: 120_000,
         url: baseURL,

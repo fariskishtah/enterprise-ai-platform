@@ -28,6 +28,11 @@ import {
   primaryButtonClassName,
   secondaryButtonClassName,
 } from "../../components/hierarchy/ResourceStates";
+import {
+  readFavorites,
+  recordRecentResource,
+  toggleFavoriteResource,
+} from "../../product/resourcePreferences";
 import { displayValue, formatDate, hierarchyError } from "./shared";
 
 const PAGE_SIZE = 20;
@@ -35,7 +40,7 @@ const PAGE_SIZE = 20;
 export function MachineDetailPage(): ReactElement {
   const { factoryId = "", machineId = "" } = useParams();
   const navigate = useNavigate();
-  const { role } = useAuth();
+  const { role, user } = useAuth();
   const canWrite = role === "admin" || role === "engineer";
   const canDelete = role === "admin";
   const [factory, setFactory] = useState<Factory | null>(null);
@@ -50,6 +55,7 @@ export function MachineDetailPage(): ReactElement {
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
+  const [favorite, setFavorite] = useState(false);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -68,6 +74,19 @@ export function MachineDetailPage(): ReactElement {
           throw new Error("This machine does not belong to the requested factory.");
         }
         if (active) {
+          if (user !== null) {
+            recordRecentResource(user.id, {
+              id: machineItem.id,
+              label: machineItem.name,
+              path: `/factories/${factoryId}/machines/${machineItem.id}`,
+              type: "machine",
+            });
+            setFavorite(
+              readFavorites(user.id).some(
+                (item) => item.type === "machine" && item.id === machineItem.id,
+              ),
+            );
+          }
           setFactory(factoryItem);
           setMachine(machineItem);
           setSensors(sensorPage);
@@ -84,7 +103,7 @@ export function MachineDetailPage(): ReactElement {
       active = false;
       controller.abort();
     };
-  }, [factoryId, machineId, revision, sensorOffset]);
+  }, [factoryId, machineId, revision, sensorOffset, user]);
 
   const reload = (): void => {
     setLoading(true);
@@ -127,11 +146,35 @@ export function MachineDetailPage(): ReactElement {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <button
+            aria-pressed={favorite}
+            className={secondaryButtonClassName}
+            onClick={() => {
+              if (user === null) return;
+              setFavorite(
+                toggleFavoriteResource(user.id, {
+                  id: machine.id,
+                  label: machine.name,
+                  path: `/factories/${factory.id}/machines/${machine.id}`,
+                  type: "machine",
+                }),
+              );
+            }}
+            type="button"
+          >
+            {favorite ? "Remove favorite" : "Add favorite"}
+          </button>
           <Link
             className={primaryButtonClassName}
             to={`/factories/${factory.id}/machines/${machine.id}/risk`}
           >
             View machine risk
+          </Link>
+          <Link
+            className={secondaryButtonClassName}
+            to={`/factories/${factory.id}/machines/${machine.id}/timeline`}
+          >
+            View timeline
           </Link>
           {canWrite ? (
             <button

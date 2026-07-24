@@ -16,6 +16,9 @@ services:
       DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://ai_manufacturing:ai_manufacturing_password@postgres:5432/ai_manufacturing}
       ENVIRONMENT: ${ENVIRONMENT:-local}
       ENABLE_API_DOCS: ${ENABLE_API_DOCS:-true}
+      SIMPLIFIED_EXPERIENCE_ENABLED: ${SIMPLIFIED_EXPERIENCE_ENABLED:-false}
+      OPERATIONS_WORKFLOW_ENABLED: ${OPERATIONS_WORKFLOW_ENABLED:-false}
+      DEMO_TOOLS_ENABLED: ${DEMO_TOOLS_ENABLED:-false}
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-15}
       JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
       JWT_ISSUER: ${JWT_ISSUER:-ai-manufacturing-platform}
