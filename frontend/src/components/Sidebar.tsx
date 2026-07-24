@@ -2,7 +2,8 @@ import type { RefObject, ReactElement } from "react";
 import { NavLink } from "react-router-dom";
 
 import { useAuth } from "../auth/useAuth";
-import { navigationItems } from "../navigation";
+import { getVisibleNavigationItems } from "../navigation";
+import { useProductExperience } from "../product/productExperience";
 import { Icon } from "./Icon";
 
 interface SidebarProps {
@@ -23,9 +24,8 @@ export function Sidebar({
   onToggleCollapsed,
 }: SidebarProps): ReactElement {
   const { role } = useAuth();
-  const visibleNavigationItems = navigationItems.filter(
-    (item) => item.roles === undefined || (role !== null && item.roles.includes(role)),
-  );
+  const { features, mode } = useProductExperience();
+  const visibleNavigationItems = getVisibleNavigationItems(role, mode, features);
 
   return (
     <div className="flex h-full flex-col border-r border-[var(--sidebar-border)] bg-[var(--sidebar)] text-neutral-100">
