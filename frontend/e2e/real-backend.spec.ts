@@ -475,7 +475,19 @@ test.describe("real staging backend", () => {
 
     await page.goto("/audit-log");
     await expect(page.locator("#audit-logs-heading")).toBeVisible();
+    const filteredAudit = page.waitForResponse(
+      (response) => {
+        const url = new URL(response.url());
+        return (
+          response.request().method() === "GET" &&
+          url.pathname.endsWith("/audit-events") &&
+          url.searchParams.get("action") === "user.created"
+        );
+      },
+      { timeout: 20_000 },
+    );
     await page.getByLabel("Exact action").fill("user.created");
+    expect((await filteredAudit).status()).toBe(200);
     await expect(page.getByText("user.created", { exact: true }).first()).toBeVisible();
     expect(errors).toEqual([]);
   });

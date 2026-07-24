@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import os
 import sys
@@ -15,6 +16,7 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 from app.config.settings import Settings
+from app.models.demo_experience import ReportSchedule
 from app.models.user import User, UserRole
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import create_async_engine
@@ -33,9 +35,15 @@ FACTORY_NAME = "Alexandria Smart Factory"
 MACHINE_NAME = "CNC Mill DEMO-01"
 SENSOR_NAME = "Spindle Temperature DEMO-01"
 VIBRATION_SENSOR_NAME = "Spindle Vibration DEMO-01"
+GUIDED_VALID_KEY = "demo-guided-valid-v1"
+GUIDED_WARNING_KEY = "demo-guided-warning-v1"
+GUIDED_REJECTED_KEY = "demo-guided-rejected-v1"
 TRAINING_DATASET_NAME = "DEMO Predictive Maintenance History"
 DOCUMENT_DATASET_NAME = "DEMO Maintenance Procedures"
-KNOWLEDGE_BASE_NAME = "DEMO Maintenance Knowledge"
+KNOWLEDGE_BASE_NAME = (
+    "DEMO Maintenance Knowledge "
+    f"{hashlib.sha256(DEMO_EMAIL.casefold().encode()).hexdigest()[:8]}"
+)
 OPERATIONAL_ACTION_TITLE = "Inspect DEMO-01 spindle before next production cycle"
 SHIFT_TEAM_LABEL = "DEMO completed day shift"
 
@@ -194,6 +202,7 @@ class ApiClient:
         media_type: str,
         content: bytes,
         fields: Mapping[str, str] | None = None,
+        headers: Mapping[str, str] | None = None,
     ) -> ApiResponse:
         boundary = f"----fk-demo-{uuid.uuid4().hex}"
         parts: list[bytes] = []
@@ -222,7 +231,10 @@ class ApiClient:
         return self.request(
             "POST",
             path,
-            headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+            headers={
+                **(headers or {}),
+                "Content-Type": f"multipart/form-data; boundary={boundary}",
+            },
             body=b"".join(parts),
         )
 
@@ -281,6 +293,52 @@ async def find_demo_operator_id() -> str | None:
                 )
             ).scalar_one_or_none()
             return str(operator_id) if operator_id is not None else None
+    finally:
+        await engine.dispose()
+
+
+async def ensure_demo_report_schedule() -> str:
+    """Persist one disabled, fail-closed email example without bypassing delivery."""
+    settings = Settings()
+    engine = create_async_engine(settings.database_url)
+    try:
+        async with engine.begin() as connection:
+            user = (
+                await connection.execute(
+                    select(User.id, User.company_id).where(
+                        User.email == DEMO_EMAIL.lower()
+                    )
+                )
+            ).one_or_none()
+            if user is None:
+                raise DemoSeedError("demo user is unavailable for report schedule")
+            existing = (
+                await connection.execute(
+                    select(ReportSchedule.last_result).where(
+                        ReportSchedule.company_id == user.company_id,
+                        ReportSchedule.idempotency_key == "demo-report-schedule-v1",
+                    )
+                )
+            ).scalar_one_or_none()
+            if existing is not None:
+                return str(existing)
+            await connection.execute(
+                ReportSchedule.__table__.insert().values(
+                    company_id=user.company_id,
+                    created_by=user.id,
+                    report_type="executive_factory_summary",
+                    format="pdf",
+                    period="last_7_days",
+                    cadence="weekly",
+                    timezone="UTC",
+                    recipients=["demo-report@example.com"],
+                    enabled=False,
+                    idempotency_key="demo-report-schedule-v1",
+                    last_result="delivery_unavailable",
+                    last_error="No supported mail provider is configured.",
+                )
+            )
+            return "delivery_unavailable"
     finally:
         await engine.dispose()
 
@@ -983,6 +1041,150 @@ def ensure_prediction_audit(client: ApiClient, version: str) -> bool:
     return True
 
 
+def ensure_guided_import(
+    client: ApiClient,
+    *,
+    key: str,
+    filename: str,
+    content: bytes,
+    confirm: bool,
+) -> tuple[str, bool]:
+    """Create one small mapped and validated guided import idempotently."""
+    response = require_response(
+        client.post_file(
+            "/data-onboarding/imports",
+            filename=filename,
+            media_type="text/csv",
+            content=content,
+            headers={"Idempotency-Key": key},
+        ),
+        {201},
+        f"upload guided import {filename}",
+    )
+    item = response.json()
+    import_id = str(item["id"])
+    created = not bool(item.get("quality_report"))
+    require_response(
+        client.put(
+            f"/data-onboarding/imports/{import_id}/mapping",
+            json={
+                "mapping": {
+                    "shape": "long",
+                    "timestamp": "timestamp",
+                    "machine": "machine",
+                    "sensor": "sensor",
+                    "value": "value",
+                },
+                "delimiter": ",",
+                "has_header": True,
+            },
+        ),
+        {200, 409},
+        f"map guided import {filename}",
+    )
+    validated = require_response(
+        client.post(f"/data-onboarding/imports/{import_id}/validate"),
+        {200, 409},
+        f"validate guided import {filename}",
+    )
+    if confirm and validated.status_code == 200:
+        require_response(
+            client.post(
+                f"/data-onboarding/imports/{import_id}/confirm",
+                json={"accept_warnings": True},
+            ),
+            {200},
+            f"confirm guided import {filename}",
+        )
+    return import_id, created
+
+
+def ensure_sprints_3_5_demo(
+    client: ApiClient,
+    domain: dict[str, dict[str, Any]],
+) -> dict[str, object]:
+    """Seed bounded guided-import, layout, report, and schedule examples."""
+    header = b"timestamp,machine,sensor,value\n"
+    machine = str(domain["machine"]["name"])
+    sensor = str(domain["temperature_sensor"]["name"])
+
+    def csv_rows(values: list[str]) -> bytes:
+        return (
+            header
+            + "".join(
+                f"2026-07-01T09:{index:02d}:00Z,{machine},{sensor},{value}\n"
+                for index, value in enumerate(values)
+            ).encode()
+        )
+
+    valid_id, valid_created = ensure_guided_import(
+        client,
+        key=GUIDED_VALID_KEY,
+        filename="demo-guided-valid.csv",
+        content=csv_rows(["71.5", "72.0", "72.6"]),
+        confirm=True,
+    )
+    warning_content = (
+        header
+        + f"2025-01-01T09:00:00Z,{machine},{sensor},70.0\n".encode()
+        + f"2025-01-01T09:00:00Z,{machine},{sensor},70.0\n".encode()
+    )
+    warning_id, warning_created = ensure_guided_import(
+        client,
+        key=GUIDED_WARNING_KEY,
+        filename="demo-guided-warning.csv",
+        content=warning_content,
+        confirm=False,
+    )
+    rejected_id, rejected_created = ensure_guided_import(
+        client,
+        key=GUIDED_REJECTED_KEY,
+        filename="demo-guided-rejected.csv",
+        content=csv_rows(["=2+2", "not-a-number"]),
+        confirm=False,
+    )
+    layout = require_response(
+        client.put(
+            f"/demo/factories/{domain['factory']['id']}/layout",
+            json={
+                "nodes": [
+                    {
+                        "machine_id": domain["machine"]["id"],
+                        "x": 35,
+                        "y": 40,
+                        "group": "Demo production line",
+                    }
+                ]
+            },
+        ),
+        {200, 404},
+        "seed demo factory layout",
+    )
+    now = "2026-07-24T12:00:00Z"
+    report = require_response(
+        client.post(
+            "/reporting/reports",
+            json={
+                "report_type": "executive_factory_summary",
+                "format": "pdf",
+                "factory_id": domain["factory"]["id"],
+                "period_start": "2026-07-17T12:00:00Z",
+                "period_end": now,
+                "idempotency_key": "demo-executive-report-v1",
+            },
+        ),
+        {201},
+        "seed executive report",
+    ).json()
+    return {
+        "guided_valid": {"id": valid_id, "created": valid_created},
+        "guided_warning": {"id": warning_id, "created": warning_created},
+        "guided_rejected": {"id": rejected_id, "created": rejected_created},
+        "layout_available": layout.status_code == 200,
+        "report_id": report["id"],
+    }
+
+
 def run() -> None:
     """Execute the complete idempotent local demo seed flow."""
     with ApiClient(base_url=API_BASE_URL, timeout=60.0) as anonymous:
@@ -1075,6 +1277,8 @@ def run() -> None:
             alert_id=alert_id,
             operator_id=operator_id,
         )
+        sprint_demo = ensure_sprints_3_5_demo(client, domain)
+    sprint_schedule_result = asyncio.run(ensure_demo_report_schedule())
 
     created_resources = (
         ", ".join(name for name, was_created in created.items() if was_created)
@@ -1110,6 +1314,15 @@ def run() -> None:
             f"{name}={'created' if was_created else 'reused'}"
             for name, was_created in operational_created.items()
         )
+    )
+    print(
+        "  Sprints 3-5 demo: "
+        f"valid_import={sprint_demo['guided_valid']}, "
+        f"warning_import={sprint_demo['guided_warning']}, "
+        f"rejected_import={sprint_demo['guided_rejected']}, "
+        f"layout={sprint_demo['layout_available']}, "
+        f"report={sprint_demo['report_id']}, "
+        f"schedule={sprint_schedule_result}"
     )
 
 

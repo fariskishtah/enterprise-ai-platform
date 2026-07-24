@@ -15,6 +15,16 @@ from app.models.datasets import (
     DocumentChunk,
     DocumentRecord,
 )
+from app.models.demo_experience import (
+    DataImport,
+    DataImportStatus,
+    DemoScenarioRun,
+    DemoScenarioStatus,
+    FactoryLayout,
+    ReportJob,
+    ReportSchedule,
+    ReportStatus,
+)
 from app.models.manufacturing import Company, Factory, Machine
 from app.models.mlops import (
     Experiment,
@@ -68,10 +78,15 @@ __all__ = [
     "Dataset",
     "DatasetUsageReference",
     "DatasetVersion",
+    "DataImport",
+    "DataImportStatus",
+    "DemoScenarioRun",
+    "DemoScenarioStatus",
     "DocumentChunk",
     "DocumentRecord",
     "Experiment",
     "Factory",
+    "FactoryLayout",
     "Machine",
     "MachineRiskAssessment",
     "ModelPromotionAudit",
@@ -92,6 +107,9 @@ __all__ = [
     "OperationalTimelineEvent",
     "ReadingQuality",
     "ReadingSource",
+    "ReportJob",
+    "ReportSchedule",
+    "ReportStatus",
     "RAGChunkEmbedding",
     "RAGConversation",
     "RAGIndexBuild",

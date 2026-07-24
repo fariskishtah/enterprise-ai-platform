@@ -177,7 +177,9 @@ test.describe("demo operations with real staging backend", () => {
     await expectAccessible(page);
 
     await login(page, accounts.engineer);
-    await expect(page.getByRole("link", { name: "Training Jobs" })).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: "Training Jobs", exact: true }),
+    ).toBeVisible();
     await expect(page.getByRole("link", { name: "Required Actions" })).toHaveCount(0);
     await expect(page.getByLabel("Product experience")).toHaveCount(0);
   });

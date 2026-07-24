@@ -242,7 +242,8 @@ BACKUP_COMPOSE_PROJECT_NAME=ai-manufacturing-staging-validation \
   cd "$FRONTEND_DIR"
   E2E_BASE_URL=http://127.0.0.1:18080 \
     E2E_EXTERNAL_SERVER=1 E2E_REAL_BACKEND=true \
-    npm run test:e2e -- real-backend.spec.ts demo-operations.spec.ts
+    npm run test:e2e -- real-backend.spec.ts demo-operations.spec.ts \
+      sprints-3-5.spec.ts --workers=1
 )
 BASE_URL=http://127.0.0.1:18080 \
   SMOKE_ALLOW_HTTP=true \

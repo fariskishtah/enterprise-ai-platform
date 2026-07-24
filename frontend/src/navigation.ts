@@ -1,6 +1,6 @@
 export type NavigationRole = "admin" | "engineer" | "operator";
 export type NavigationMode = "expert" | "simple";
-export type NavigationFeature = "operations";
+export type NavigationFeature = "demo" | "operations";
 
 export type NavigationIcon =
   | "audit"
@@ -87,6 +87,30 @@ export const navigationItems: readonly NavigationItem[] = [
     label: "Sensor Data",
     modes: ["expert"],
     path: "/sensor-data",
+    roles: ["admin", "engineer"],
+  },
+  {
+    description: "Preview, map, validate, and confirm bounded CSV imports.",
+    icon: "sensor-data",
+    label: "Data Onboarding",
+    modes: ["expert"],
+    path: "/sensor-data/onboarding",
+    roles: ["admin", "engineer"],
+  },
+  {
+    description: "Recent import quality, freshness, and blocking issues.",
+    icon: "monitoring",
+    label: "Data Quality",
+    modes: ["expert"],
+    path: "/sensor-data/quality",
+    roles: ["admin", "engineer"],
+  },
+  {
+    description: "Use-case templates and a grounded training readiness gate.",
+    icon: "training-jobs",
+    label: "Guided AI",
+    modes: ["expert"],
+    path: "/guided-ai",
     roles: ["admin", "engineer"],
   },
   {
@@ -191,18 +215,44 @@ export const navigationItems: readonly NavigationItem[] = [
     label: "Settings",
     path: "/settings",
   },
+  {
+    description: "Control deterministic, bounded factory demonstration scenarios.",
+    feature: "demo",
+    icon: "factories",
+    label: "Demo Control",
+    path: "/demo/control",
+    roles: ["admin", "engineer"],
+  },
+  {
+    description: "Grounded management metrics and operational drill-downs.",
+    icon: "dashboard",
+    label: "Executive Dashboard",
+    path: "/executive",
+    roles: ["admin"],
+  },
+  {
+    description: "Generate and download bounded authorized report exports.",
+    icon: "audit",
+    label: "Reports",
+    path: "/reports",
+    roles: ["admin"],
+  },
 ];
 
 export function getVisibleNavigationItems(
   role: NavigationRole | null,
   mode: NavigationMode,
-  features: { readonly operations_workflow_enabled: boolean },
+  features: {
+    readonly demo_tools_enabled: boolean;
+    readonly operations_workflow_enabled: boolean;
+  },
 ): readonly NavigationItem[] {
   return navigationItems.filter(
     (item) =>
       (item.roles === undefined || (role !== null && item.roles.includes(role))) &&
       (item.modes === undefined || item.modes.includes(mode)) &&
-      (item.feature !== "operations" || features.operations_workflow_enabled),
+      (item.feature !== "operations" || features.operations_workflow_enabled) &&
+      (item.feature !== "demo" || features.demo_tools_enabled),
   );
 }
 
