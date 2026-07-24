@@ -32,6 +32,8 @@ services:
         condition: service_healthy
     environment:
       ENVIRONMENT: staging
+      APP_ENV: staging
+      DEMO_TOOLS_ENABLED: ${DEMO_TOOLS_ENABLED:-false}
       LOG_ENVIRONMENT: staging
       OBSERVABILITY_ENVIRONMENT: staging
       OTEL_ENVIRONMENT: staging
@@ -44,6 +46,7 @@ services:
         condition: service_healthy
     environment:
       ENVIRONMENT: staging
+      APP_ENV: staging
       LOG_ENVIRONMENT: staging
       OBSERVABILITY_ENVIRONMENT: staging
       OTEL_ENVIRONMENT: staging

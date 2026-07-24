@@ -28,6 +28,7 @@ async def seed() -> None:
         (required("E2E_ADMIN_EMAIL"), UserRole.ADMIN),
         (required("E2E_ENGINEER_EMAIL"), UserRole.ENGINEER),
         (required("E2E_OPERATOR_EMAIL"), UserRole.OPERATOR),
+        (required("E2E_SMOKE_EMAIL"), UserRole.ENGINEER),
     )
     engine = create_async_engine(Settings().database_url)
     hasher = PasswordHasher()
@@ -76,7 +77,7 @@ async def seed() -> None:
                     )
     finally:
         await engine.dispose()
-    print("Staging validation users are ready: admin, engineer, operator.")
+    print("Staging validation users are ready: admin, engineer, operator, smoke.")
 
 
 if __name__ == "__main__":

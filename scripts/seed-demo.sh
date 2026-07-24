@@ -15,8 +15,11 @@ if ! "${compose[@]}" ps --status running --services | grep -qx backend; then
   exit 1
 fi
 
+: "${DEMO_EMAIL:?Set DEMO_EMAIL to a disposable local-only account}"
+: "${DEMO_PASSWORD:?Set DEMO_PASSWORD to a unique local-only password}"
+
 "${compose[@]}" exec -T \
   -e DEMO_API_BASE_URL="${DEMO_API_BASE_URL:-http://backend:8000}" \
-  -e DEMO_EMAIL="${DEMO_EMAIL:-demo@example.com}" \
-  -e DEMO_PASSWORD="${DEMO_PASSWORD:-LocalDemoPassword1!}" \
+  -e DEMO_EMAIL \
+  -e DEMO_PASSWORD \
   backend python - < scripts/seed_demo.py

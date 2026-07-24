@@ -28,6 +28,16 @@ class MemoryRateLimitStore:
 def _validated_settings(settings: Settings, **updates: object) -> Settings:
     values = settings.model_dump()
     values.update(updates)
+    if updates.get("environment") == "production":
+        values.update(
+            {
+                "allowed_hosts": ("platform.example",),
+                "api_base_url": "https://platform.example/api",
+                "app_base_url": "https://platform.example",
+                "cookie_secure": True,
+            }
+        )
+        values.update(updates)
     return Settings.model_validate(values)
 
 
@@ -234,3 +244,34 @@ def test_cors_rejects_wildcard_origin(settings: Settings) -> None:
     """An arbitrary wildcard cannot enter the CORS allowlist."""
     with pytest.raises(ValidationError):
         _validated_settings(settings, cors_allowed_origins=("*",))
+
+
+def test_production_requires_exact_domain_and_secure_cookie_settings(
+    settings: Settings,
+) -> None:
+    values = settings.model_dump()
+    values.update(
+        {
+            "cors_allowed_origins": ("https://platform.example",),
+            "enable_api_docs": False,
+            "environment": "production",
+        }
+    )
+    with pytest.raises(ValidationError, match="app_base_url"):
+        Settings.model_validate(values)
+    with pytest.raises(ValidationError, match="allowed_hosts"):
+        _validated_settings(
+            settings,
+            allowed_hosts=("*",),
+            cors_allowed_origins=("https://platform.example",),
+            enable_api_docs=False,
+            environment="production",
+        )
+    with pytest.raises(ValidationError, match="cookie_secure"):
+        _validated_settings(
+            settings,
+            cookie_secure=False,
+            cors_allowed_origins=("https://platform.example",),
+            enable_api_docs=False,
+            environment="production",
+        )
