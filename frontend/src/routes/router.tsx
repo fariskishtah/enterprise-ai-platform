@@ -30,6 +30,16 @@ const SettingsPage = lazy(() =>
     default: SettingsPage,
   })),
 );
+const MyProfilePage = lazy(() =>
+  import("../pages/account/MyProfilePage").then(({ MyProfilePage }) => ({
+    default: MyProfilePage,
+  })),
+);
+const ContactSupportPage = lazy(() =>
+  import("../pages/account/ContactSupportPage").then(({ ContactSupportPage }) => ({
+    default: ContactSupportPage,
+  })),
+);
 const UsersPage = lazy(() =>
   import("../pages/UsersPage").then(({ UsersPage }) => ({ default: UsersPage })),
 );
@@ -500,6 +510,8 @@ export const router = createBrowserRouter([
             element: <ExpertModeRoute />,
           },
           { element: <SettingsPage />, path: "settings" },
+          { element: <MyProfilePage />, path: "profile" },
+          { element: <ContactSupportPage />, path: "support" },
           {
             children: [
               {

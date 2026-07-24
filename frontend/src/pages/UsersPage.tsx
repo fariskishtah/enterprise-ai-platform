@@ -153,7 +153,16 @@ export function UsersPage(): ReactElement {
               {page.items.map((user) => (
                 <tr className="border-t border-border" key={user.id}>
                   <td className="px-4 py-3 font-medium text-foreground">
-                    {user.email}
+                    {user.full_name ? (
+                      <>
+                        <span className="block">{user.full_name}</span>
+                        <span className="block text-xs font-normal text-muted-foreground">
+                          {user.email}
+                        </span>
+                      </>
+                    ) : (
+                      user.email
+                    )}
                   </td>
                   <td className="px-4 py-3">{user.role}</td>
                   <td className="px-4 py-3">
@@ -226,6 +235,7 @@ function CreateUserDialog({
     setError(null);
     void createUser({
       email: String(data.get("email")),
+      full_name: String(data.get("fullName")).trim() || undefined,
       password: String(data.get("password")),
       role: String(data.get("role")) as UserRole,
     })
@@ -244,6 +254,15 @@ function CreateUserDialog({
       description="The temporary password must be delivered through an approved channel."
     >
       <form className="space-y-4" onSubmit={submit}>
+        <label className="block text-sm font-medium">
+          Full name
+          <input
+            className={inputClassName}
+            maxLength={160}
+            minLength={2}
+            name="fullName"
+          />
+        </label>
         <label className="block text-sm font-medium">
           Email
           <input className={inputClassName} name="email" required type="email" />

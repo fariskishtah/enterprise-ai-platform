@@ -9,6 +9,7 @@ export interface CurrentUser {
   readonly email: string;
   readonly id: string;
   readonly is_active: boolean;
+  readonly full_name: string | null;
   readonly role: UserRole;
   readonly updated_at: string;
 }

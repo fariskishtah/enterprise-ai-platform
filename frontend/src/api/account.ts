@@ -8,6 +8,7 @@ export interface CompanyUser {
   readonly email: string;
   readonly id: string;
   readonly is_active: boolean;
+  readonly full_name: string | null;
   readonly role: UserRole;
   readonly updated_at: string;
 }
@@ -45,6 +46,7 @@ export function listUsers(query: {
 
 export function createUser(payload: {
   readonly email: string;
+  readonly full_name?: string;
   readonly password: string;
   readonly role: UserRole;
 }): Promise<CompanyUser> {

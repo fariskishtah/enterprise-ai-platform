@@ -142,7 +142,11 @@ export function SettingsPage(): ReactElement {
         </section>
       </div>
       <div className="mt-6 grid gap-6 lg:grid-cols-2">
-        <section className={panelClassName} aria-labelledby="password-heading">
+        <section
+          className={panelClassName}
+          aria-labelledby="password-heading"
+          id="change-password"
+        >
           <h3 className="text-lg font-semibold text-foreground" id="password-heading">
             Change password
           </h3>
