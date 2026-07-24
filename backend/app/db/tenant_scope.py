@@ -20,6 +20,13 @@ from app.models.monitoring_orchestration import (
     MonitoringAlertEntity,
     PredictionOutcomeEntity,
 )
+from app.models.operations import (
+    MaintenanceFeedback,
+    OperationalAction,
+    OperationalNote,
+    OperationalTimelineEvent,
+    ShiftHandover,
+)
 from app.models.pilot import MachineRiskAssessment, ModelFeatureSchema
 from app.models.rag import RAGConversation, RAGKnowledgeBase
 from app.models.sensor_data import UploadJob
@@ -49,6 +56,11 @@ _SCOPED_MODELS = (
     AuditEvent,
     ModelFeatureSchema,
     MachineRiskAssessment,
+    OperationalAction,
+    OperationalNote,
+    MaintenanceFeedback,
+    OperationalTimelineEvent,
+    ShiftHandover,
 )
 
 

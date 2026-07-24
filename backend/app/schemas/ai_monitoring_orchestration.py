@@ -80,6 +80,18 @@ class MonitoringAlertResponse(BaseModel):
     operator_note: str | None
     engineer_note: str | None
     cooldown_until: datetime | None
+    assigned_user_id: UUID | None
+    assigned_at: datetime | None
+    assigned_by_user_id: UUID | None
+    in_progress_at: datetime | None
+    escalated_at: datetime | None
+    escalated_by_user_id: UUID | None
+    resolution_summary: str | None
+    resolution_classification: str | None
+    reopened_at: datetime | None
+    reopened_by_user_id: UUID | None
+    reopen_reason: str | None
+    lifecycle_version: int
 
 
 class AlertAcknowledgeBody(BaseModel):
@@ -91,7 +103,7 @@ class AlertAcknowledgeBody(BaseModel):
 class AlertResolveBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    engineer_note: str | None = Field(default=None, max_length=1000)
+    engineer_note: str = Field(min_length=1, max_length=1000)
 
 
 class MonitoringAlertPageResponse(BaseModel):
