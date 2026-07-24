@@ -83,7 +83,7 @@ async function login(page: Page, email: string | undefined): Promise<void> {
     await page.reload();
     expect((await identityResponse).status()).toBe(200);
     await expect(page).toHaveURL(/\/$/);
-    await expect(page.getByRole("button", { name: /Sign out/ })).toBeVisible();
+    await expect(page.getByRole("button", { name: /Open account menu/ })).toBeVisible();
     return;
   }
   await page.getByLabel("Email address").fill(email);
@@ -94,6 +94,7 @@ async function login(page: Page, email: string | undefined): Promise<void> {
   await page.getByRole("button", { name: "Sign in" }).click();
   expect((await response).status()).toBe(200);
   await expect(page).toHaveURL(/\/$/);
+  await expect(page.getByRole("button", { name: /Open account menu/ })).toBeVisible();
   savedSessions.set(
     email,
     await page.evaluate(() => sessionStorage.getItem("factorymind.auth.tokens") ?? ""),

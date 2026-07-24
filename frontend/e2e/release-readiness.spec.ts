@@ -125,7 +125,8 @@ test.describe("authentication", () => {
     await expect(page).toHaveURL(/\/settings$/);
     await page.reload();
     await expect(page.locator("#settings-heading")).toBeVisible();
-    await page.getByRole("button", { name: /Sign out/ }).click();
+    await page.getByRole("button", { name: /Open account menu/ }).click();
+    await page.getByRole("menuitem", { name: "Log Out" }).click();
     await expect(page).toHaveURL(/\/login$/);
     expect(failures).toEqual([]);
   });
@@ -324,6 +325,7 @@ test.describe("themes, responsiveness, and accessibility", () => {
   });
 
   for (const viewport of [
+    { height: 1080, width: 1920 },
     { height: 900, width: 1440 },
     { height: 800, width: 1280 },
     { height: 768, width: 1024 },
