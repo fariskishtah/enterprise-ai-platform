@@ -23,7 +23,7 @@ from app.ml.monitoring.evaluation_models import (
     MonitoringAlertStatus,
 )
 from app.models.demo_experience import ReportJob, ReportSchedule, ReportStatus
-from app.models.manufacturing import Factory, Machine
+from app.models.manufacturing import Company, Factory, Machine
 from app.models.monitoring_orchestration import MonitoringAlertEntity
 from app.models.operations import (
     MaintenanceFeedback,
@@ -298,9 +298,29 @@ async def create_report(
         start_at=start,
         end_at=end,
     )
-    company_label = str(user.company_id)
-    title = f"{payload.report_type.value.replace('_', ' ').title()} — {company_label}"
-    body = report_payload(payload.format.value, title=title, summary=summary, tables={})
+    company_name = await session.scalar(
+        select(Company.name).where(Company.id == user.company_id)
+    )
+    factory_name = (
+        await session.scalar(
+            select(Factory.name).where(Factory.id == payload.factory_id)
+        )
+        if payload.factory_id is not None
+        else None
+    )
+    title = payload.report_type.value.replace("_", " ").title()
+    body = report_payload(
+        payload.format.value,
+        title=title,
+        summary=summary,
+        tables={},
+        metadata=(
+            ("Company", company_name or "Authorized company"),
+            ("Factory", factory_name or "All authorized factories"),
+            ("Reporting period", f"{start.isoformat()} to {end.isoformat()}"),
+            ("Generated", utc_now().isoformat()),
+        ),
+    )
     stored = get_dataset_storage(settings.dataset_storage_root).write(
         io.BytesIO(body), maximum_bytes=settings.dataset_upload_max_bytes
     )
