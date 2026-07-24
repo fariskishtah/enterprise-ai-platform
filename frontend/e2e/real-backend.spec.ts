@@ -50,8 +50,24 @@ interface KnowledgeBaseDetail extends KnowledgeBaseSummary {
 
 interface TrainingJob {
   readonly dataset_version_id: string | null;
+  readonly registered_model_name?: string;
+  readonly registered_model_version?: string | null;
   readonly safe_error_message: string | null;
   readonly status: string;
+}
+
+interface FactorySummary {
+  readonly id: string;
+  readonly name: string;
+}
+
+interface MachineSummary {
+  readonly id: string;
+  readonly name: string;
+}
+
+interface CompanyUser {
+  readonly email: string;
 }
 
 interface RegisteredDataset {
@@ -387,6 +403,101 @@ test.describe("real staging backend", () => {
     expect(errors).toEqual([]);
   });
 
+  test("admin manages a company user and sees the unified audit event", async ({
+    page,
+  }) => {
+    test.skip(
+      !accounts.admin || !password,
+      "Disposable admin credentials are required.",
+    );
+    const errors = collectUnexpectedBrowserErrors(page);
+    const managedEmail = `pilot-${resourceNamespace}@example.com`.toLowerCase();
+    await login(page, accounts.admin ?? "");
+    const users = await apiGetAllPages<CompanyUser>(
+      page,
+      (limit, offset) => `/users?limit=${limit}&offset=${offset}`,
+    );
+    await page.goto("/users");
+    await expect(page.locator("#users-heading")).toBeVisible();
+    if (!users.some((user) => user.email === managedEmail)) {
+      await page.getByRole("button", { name: "Add user" }).click();
+      const dialog = page.getByRole("dialog", { name: "Add company user" });
+      await dialog.getByLabel("Email").fill(managedEmail);
+      await dialog.getByLabel("Initial role").selectOption("operator");
+      await dialog.getByLabel("Temporary password").fill(password ?? "");
+      const userCreated = page.waitForResponse(
+        (response) =>
+          response.request().method() === "POST" &&
+          new URL(response.url()).pathname.endsWith("/users"),
+        { timeout: 20_000 },
+      );
+      await dialog.getByRole("button", { name: "Create user" }).click();
+      expect((await userCreated).status()).toBe(201);
+    }
+    await expect(page.getByText(managedEmail, { exact: true })).toBeVisible();
+
+    await page.goto("/audit-log");
+    await expect(page.locator("#audit-logs-heading")).toBeVisible();
+    await page.getByLabel("Exact action").fill("user.created");
+    await expect(page.getByText("user.created", { exact: true }).first()).toBeVisible();
+    expect(errors).toEqual([]);
+  });
+
+  test("operator runs governed prediction and opens the machine-risk view", async ({
+    page,
+  }) => {
+    test.skip(
+      !accounts.operator || !password,
+      "Disposable operator credentials are required.",
+    );
+    const errors = collectUnexpectedBrowserErrors(page);
+    await login(page, accounts.operator ?? "");
+    await page.goto("/predictions");
+    await page
+      .getByLabel("Discoverable model or direct name")
+      .fill("demo_predictive_maintenance_regression");
+    await page.getByLabel("Exact version or alias").fill("1");
+    await expect(page.getByRole("group", { name: "Model inputs" })).toBeVisible({
+      timeout: 20_000,
+    });
+    await page.getByLabel("temperature_c (celsius)").fill("68");
+    await page.getByLabel("vibration_mm_s (mm/s)").fill("2.2");
+    await page.getByRole("button", { name: "Run prediction" }).click();
+    await expect(page.getByText("succeeded", { exact: true }).first()).toBeVisible({
+      timeout: 20_000,
+    });
+
+    const factories = await apiGetAllPages<FactorySummary>(
+      page,
+      (limit, offset) =>
+        `/factories?search=${encodeURIComponent("Alexandria Smart Factory")}&limit=${limit}&offset=${offset}`,
+    );
+    const factory = factories.find((item) => item.name === "Alexandria Smart Factory");
+    if (!factory) throw new Error("The deterministic pilot factory is unavailable.");
+    const machines = await apiGetAllPages<MachineSummary>(
+      page,
+      (limit, offset) =>
+        `/machines?factory_id=${factory.id}&limit=${limit}&offset=${offset}`,
+    );
+    const machine = machines.find((item) => item.name === "CNC Mill DEMO-01");
+    if (!machine) throw new Error("The deterministic pilot machine is unavailable.");
+    const machineRiskLoaded = page.waitForResponse(
+      (response) =>
+        response.request().method() === "GET" &&
+        new URL(response.url()).pathname.endsWith(`/pilot/machines/${machine.id}/risk`),
+      { timeout: 20_000 },
+    );
+    await page.goto(`/factories/${factory.id}/machines/${machine.id}/risk`);
+    expect((await machineRiskLoaded).status()).toBe(200);
+    await expect(page.locator("#machine-risk-heading")).toBeVisible();
+    await expect(
+      page.getByRole("definition").filter({ hasText: /warning|critical/i }),
+    ).toBeVisible();
+    await expect(page.getByText("Recommended operator action")).toBeVisible();
+    await expectNoSeriousA11yViolations(page);
+    expect(errors).toEqual([]);
+  });
+
   test("engineer loads the algorithm-driven training and evaluation studio", async ({
     page,
   }) => {
@@ -397,21 +508,47 @@ test.describe("real staging backend", () => {
     const errors = collectUnexpectedBrowserErrors(page);
     await login(page, accounts.engineer ?? "");
     await page.goto("/training");
+    const algorithmCatalogLoaded = page.waitForResponse(
+      (response) =>
+        response.request().method() === "GET" &&
+        new URL(response.url()).pathname.endsWith("/ai/algorithms"),
+      { timeout: 20_000 },
+    );
     await page.getByRole("button", { name: /Create training job/i }).click();
+    expect((await algorithmCatalogLoaded).status()).toBe(200);
     await expect(page.getByLabel("Algorithm")).toContainText("Linear Regression");
     await expect(
       page.getByText(/Algorithm controls come from the backend catalog/),
     ).toBeVisible();
     await page.getByRole("button", { name: "Cancel" }).click();
 
+    const evaluatedJobsLoaded = page.waitForResponse(
+      (response) => {
+        const url = new URL(response.url());
+        return (
+          response.request().method() === "GET" &&
+          url.pathname.endsWith("/ai/training-jobs") &&
+          url.searchParams.get("status") === "succeeded"
+        );
+      },
+      { timeout: 20_000 },
+    );
     await page.goto("/evaluations");
+    expect((await evaluatedJobsLoaded).status()).toBe(200);
     await expect(page.locator("#evaluation-studio-heading")).toBeVisible();
     await page.getByLabel("Task").selectOption("regression");
     const seededModelRow = page.getByRole("row", {
-      name: /demo_random_forest_regression/,
+      name: /demo_predictive_maintenance_regression/,
     });
     await expect(seededModelRow).toBeVisible();
+    const evaluationLoaded = page.waitForResponse(
+      (response) =>
+        response.request().method() === "GET" &&
+        new URL(response.url()).pathname.endsWith("/evaluation"),
+      { timeout: 20_000 },
+    );
     await seededModelRow.getByRole("link", { name: "Open" }).click();
+    expect((await evaluationLoaded).status()).toBe(200);
     await expect(page.locator("#training-evaluation-heading")).toBeVisible();
     await expect(page.getByRole("region", { name: "Held-out metrics" })).toBeVisible();
     const axe = await new AxeBuilder({ page }).analyze();

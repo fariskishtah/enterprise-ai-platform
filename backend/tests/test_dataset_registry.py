@@ -67,7 +67,7 @@ def _csv() -> bytes:
 
 
 @pytest.mark.anyio
-async def test_dataset_registry_is_owner_scoped_and_processes_bounded_csv(
+async def test_dataset_registry_is_company_scoped_and_processes_bounded_csv(
     settings,
     session_factory: async_sessionmaker[AsyncSession],
     tmp_path: Path,
@@ -144,7 +144,7 @@ async def test_dataset_registry_is_owner_scoped_and_processes_bounded_csv(
 
     assert created.status_code == 201
     assert duplicate.status_code == 409
-    assert hidden.status_code == 404
+    assert hidden.status_code == 200
     assert forbidden.status_code == 403
     assert uploaded.status_code == 202
     assert pre_process.json()["status"] == "pending"
@@ -155,7 +155,7 @@ async def test_dataset_registry_is_owner_scoped_and_processes_bounded_csv(
     assert detail.json()["schema_snapshot"]["target_column"] == "target"
     assert "storage_key" not in detail.text
     assert schema.json()["schema_snapshot"]["columns"][0]["name"] == "feature"
-    assert hidden_version.status_code == 404
+    assert hidden_version.status_code == 200
 
 
 @pytest.mark.anyio

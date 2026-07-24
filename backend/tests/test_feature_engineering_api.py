@@ -10,6 +10,7 @@ import pytest
 from app.config.settings import Settings
 from app.core.application import create_app
 from app.dependencies.database import get_db_session
+from app.models.manufacturing import Company
 from app.models.sensor_data import ReadingQuality, ReadingSource
 from app.models.user import UserRole
 from app.repositories.manufacturing import ManufacturingRepository
@@ -21,6 +22,7 @@ from app.services.sensors import SensorService
 from app.services.users import UserService
 from app.utils.passwords import PasswordHasher
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 VALID_PASSWORD = "ValidPassword1!"
@@ -38,7 +40,10 @@ async def create_role_user(
             repository=UserRepository(session),
             password_hasher=PasswordHasher(),
         )
-        await service.create_user(email=email, password=VALID_PASSWORD, role=role)
+        company_id = await session.scalar(select(Company.id).limit(1))
+        await service.create_user(
+            email=email, password=VALID_PASSWORD, role=role, company_id=company_id
+        )
 
 
 async def auth_headers(

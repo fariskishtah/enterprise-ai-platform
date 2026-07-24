@@ -2,6 +2,7 @@
 
 from collections.abc import AsyncIterator
 from pathlib import Path
+from uuid import UUID
 
 import pytest
 from app import models as app_models
@@ -9,11 +10,66 @@ from app.config.settings import Settings
 from app.core.application import create_app
 from app.db.base import Base
 from app.dependencies.database import get_db_session
+from app.models.manufacturing import Company
+from app.models.user import User
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
 _ = app_models
+_TEST_COMPANY_ID = UUID("00000000-0000-4000-8000-000000000099")
+
+
+@event.listens_for(Session, "before_flush")
+def _supply_legacy_test_tenant(session: Session, *_args: object) -> None:
+    """Keep pre-tenant unit fixtures in one explicit test company.
+
+    Production paths must always provide company scope. Older focused repository
+    tests intentionally construct ORM records directly, so this compatibility
+    fixture makes their former single-customer assumption explicit.
+    """
+    missing = [
+        item
+        for item in session.new
+        if hasattr(type(item), "company_id")
+        and getattr(item, "company_id", None) is None
+    ]
+    if not missing:
+        return
+    company = session.get(Company, _TEST_COMPANY_ID)
+    if company is None:
+        company = Company(
+            id=_TEST_COMPANY_ID,
+            name="Legacy test tenant",
+            normalized_name="legacy test tenant",
+            description="Compatibility tenant for pre-0015 direct ORM fixtures.",
+        )
+        session.add(company)
+    actor_columns = (
+        "owner_user_id",
+        "requested_by_user_id",
+        "created_by_user_id",
+        "evaluated_by_user_id",
+        "created_by",
+    )
+    for item in missing:
+        if isinstance(item, User):
+            item.company = company
+        else:
+            actor_id = next(
+                (
+                    getattr(item, column)
+                    for column in actor_columns
+                    if getattr(item, column, None) is not None
+                ),
+                None,
+            )
+            actor = session.get(User, actor_id) if actor_id is not None else None
+            item.company_id = (
+                actor.company_id if actor is not None else _TEST_COMPANY_ID
+            )
 
 
 @pytest.fixture
@@ -50,6 +106,14 @@ async def session_factory() -> AsyncIterator[async_sessionmaker[AsyncSession]]:
     )
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
+        await connection.execute(
+            Company.__table__.insert().values(
+                id=_TEST_COMPANY_ID,
+                name="Legacy test tenant",
+                normalized_name="legacy test tenant",
+                description="Compatibility tenant for pre-0015 direct ORM fixtures.",
+            )
+        )
 
     try:
         yield async_sessionmaker(engine, expire_on_commit=False)

@@ -52,7 +52,7 @@ from app.ml.trainers.random_forest.types import (
     RegressionTargetArray,
 )
 from app.models.ai_monitoring import ModelReferenceProfileEntity
-from app.models.user import User, UserRole
+from app.models.user import AuditEvent, User, UserRole
 from app.repositories.ai_governance import TrainingJobRepository
 from app.repositories.ai_monitoring import PredictionMonitoringRepository
 from app.utils.security import utc_now
@@ -401,6 +401,13 @@ async def test_worker_claims_once_checkpoints_and_skips_duplicate_delivery(
 
     async with session_factory() as session:
         completed = await TrainingJobRepository(session).get_by_id(submission.job.id)
+        audit_actions = set(
+            await session.scalars(
+                select(AuditEvent.action).where(
+                    AuditEvent.resource_id == str(submission.job.id)
+                )
+            )
+        )
 
     assert first is WorkerExecutionState.SUCCEEDED
     assert duplicate is WorkerExecutionState.SKIPPED
@@ -410,6 +417,7 @@ async def test_worker_claims_once_checkpoints_and_skips_duplicate_delivery(
     assert completed.status is TrainingJobStatus.SUCCEEDED
     assert completed.attempt_count == 1
     assert completed.metrics == {"rmse": 0.2, "r2": 0.8}
+    assert audit_actions == {"training.succeeded"}
 
 
 @pytest.mark.anyio
@@ -724,6 +732,13 @@ async def test_cancelled_and_deterministic_failed_jobs_do_not_retry(
         failed = await TrainingJobRepository(session).get_by_id(
             failed_submission.job.id,
         )
+        failure_audits = list(
+            await session.scalars(
+                select(AuditEvent).where(
+                    AuditEvent.resource_id == str(failed_submission.job.id)
+                )
+            )
+        )
 
     assert cancelled.status is TrainingJobStatus.CANCELLED
     assert cancelled_result is WorkerExecutionState.SKIPPED
@@ -732,6 +747,9 @@ async def test_cancelled_and_deterministic_failed_jobs_do_not_retry(
     assert failed.status is TrainingJobStatus.FAILED
     assert failed.attempt_count == 1
     assert failed.error_code == "training_validation_failed"
+    assert len(failure_audits) == 1
+    assert failure_audits[0].action == "training.failed"
+    assert failure_audits[0].result == "failure"
 
 
 def _raise_invalid() -> BackgroundTrainingOutcome:

@@ -625,10 +625,12 @@ test("dataset, index, and grounded-message polling follow real lifecycle state",
   const errors = collectUnexpectedBrowserErrors(page);
   await authenticated(page);
   const api = await mockProductApi(page, { lifecycleChat: true });
+  await page.clock.install();
 
   await page.goto(`/datasets/${DATASET_ID}/versions/${PROCESSING_VERSION_ID}`);
   await expect(page.getByText("processing", { exact: true })).toBeVisible();
   api.setDatasetVersionStatus("ready");
+  await page.clock.runFor(3_100);
   await expect(page.getByText("ready", { exact: true })).toBeVisible({
     timeout: 7_000,
   });
@@ -638,10 +640,12 @@ test("dataset, index, and grounded-message polling follow real lifecycle state",
   await page.goto(`/knowledge/${KNOWLEDGE_BASE_ID}`);
   await expect(page.getByText("queued", { exact: true })).toBeVisible();
   api.setBuildStatus("running");
+  await page.clock.runFor(3_100);
   await expect(page.getByText("running", { exact: true })).toBeVisible({
     timeout: 7_000,
   });
   api.setBuildStatus("succeeded");
+  await page.clock.runFor(3_100);
   await expect(page.getByText("succeeded", { exact: true })).toBeVisible({
     timeout: 7_000,
   });
@@ -650,14 +654,17 @@ test("dataset, index, and grounded-message polling follow real lifecycle state",
   await page.goto(`/chat/${CONVERSATION_ID}`);
   await expect(page.getByText("queued", { exact: true })).toBeVisible();
   api.setMessageStatus("retrieving");
+  await page.clock.runFor(2_100);
   await expect(page.getByText("retrieving", { exact: true })).toBeVisible({
     timeout: 5_000,
   });
   api.setMessageStatus("generating");
+  await page.clock.runFor(2_100);
   await expect(page.getByText("generating", { exact: true })).toBeVisible({
     timeout: 5_000,
   });
   api.setMessageStatus("succeeded");
+  await page.clock.runFor(2_100);
   await expect(page.getByText("succeeded", { exact: true })).toBeVisible({
     timeout: 5_000,
   });
@@ -667,9 +674,7 @@ test("dataset, index, and grounded-message polling follow real lifecycle state",
   expect(errors).toEqual([]);
 });
 
-test("dataset registry upload, schema, document safety, role guard, and accessibility", async ({
-  page,
-}) => {
+test("dataset registry lists data and validates document uploads", async ({ page }) => {
   const errors = collectUnexpectedBrowserErrors(page);
   await authenticated(page);
   const api = await mockProductApi(page);
@@ -703,7 +708,15 @@ test("dataset registry upload, schema, document safety, role guard, and accessib
     new RegExp(`/datasets/${DOCUMENT_DATASET_ID}/versions/${DOCUMENT_VERSION_ID}$`),
   );
   expect(api.creates()).toBe(1);
+  expect(errors).toEqual([]);
+});
 
+test("dataset schema, document safety, archiving, and accessibility", async ({
+  page,
+}) => {
+  const errors = collectUnexpectedBrowserErrors(page);
+  await authenticated(page);
+  const api = await mockProductApi(page);
   await page.goto("/datasets/new");
   await page.getByLabel("Dataset name").fill("Fixture readings");
   await page.getByLabel("CSV file").setInputFiles({
@@ -715,7 +728,7 @@ test("dataset registry upload, schema, document safety, role guard, and accessib
   await expect(page).toHaveURL(
     new RegExp(`/datasets/${DATASET_ID}/versions/${VERSION_ID}$`),
   );
-  expect(api.creates()).toBe(2);
+  expect(api.creates()).toBe(1);
   await expect(page.getByRole("heading", { name: "Tabular schema" })).toBeVisible();
   await page.goto(`/datasets/${DATASET_ID}/versions/${FAILED_VERSION_ID}`);
   await expect(page.getByText("failed", { exact: true })).toBeVisible();
@@ -740,15 +753,17 @@ test("dataset registry upload, schema, document safety, role guard, and accessib
       ({ impact }) => impact === "critical" || impact === "serious",
     ),
   ).toEqual([]);
+  expect(errors).toEqual([]);
+});
 
-  const operator = await page.context().newPage();
-  await authenticated(operator, "operator");
-  await operator.goto("/datasets");
-  await expect(operator).toHaveURL(/\/$/);
-  await expect(operator.getByRole("link", { name: "Dataset Registry" })).toHaveCount(0);
-  await expect(operator.getByRole("link", { name: "Knowledge Bases" })).toHaveCount(0);
-  await expect(operator.getByRole("link", { name: "AI Assistant" })).toHaveCount(0);
-  await operator.close();
+test("operator cannot navigate to dataset or RAG workspaces", async ({ page }) => {
+  const errors = collectUnexpectedBrowserErrors(page);
+  await authenticated(page, "operator");
+  await page.goto("/datasets");
+  await expect(page).toHaveURL(/\/$/);
+  await expect(page.getByRole("link", { name: "Dataset Registry" })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "Knowledge Bases" })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "AI Assistant" })).toHaveCount(0);
   expect(errors).toEqual([]);
 });
 
