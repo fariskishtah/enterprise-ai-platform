@@ -4,6 +4,22 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BASE_URL="${BASE_URL:-http://127.0.0.1:8000}"
 SUITE="${1:-smoke}"
+K6_ENV=(-e BASE_URL="$BASE_URL")
+for variable in \
+  TEST_EMAIL TEST_PASSWORD INVALID_TEST_EMAIL INVALID_TEST_PASSWORD \
+  PUBLIC_PROXY \
+  SMOKE_VUS SMOKE_DURATION_SECONDS \
+  API_VUS API_WARMUP_SECONDS API_STEADY_SECONDS API_COOLDOWN_SECONDS API_PAUSE_SECONDS \
+  AUTH_ITERATIONS AUTH_PAUSE_SECONDS \
+  RAG_VUS RAG_WARMUP_SECONDS RAG_STEADY_SECONDS RAG_COOLDOWN_SECONDS RAG_PAUSE_SECONDS \
+  IMPORT_JOBS IMPORT_IDEMPOTENCY_KEY REPORT_JOBS REPORT_IDEMPOTENCY_KEY \
+  STRESS_PEAK_VUS SOAK_VUS SOAK_DURATION_MINUTES \
+  ENABLE_TRAINING_LOAD TRAINING_JOBS TRAINING_MAX_POLLS \
+  TRAINING_POLL_SECONDS TRAINING_IDEMPOTENCY_KEY; do
+  if [[ -n "${!variable:-}" ]]; then
+    K6_ENV+=(-e "$variable=${!variable}")
+  fi
+done
 
 echo "Running k6 performance suite '${SUITE}' against ${BASE_URL}..."
 
@@ -12,7 +28,7 @@ case "$SUITE" in
     docker run --rm \
       --network host \
       --volume "$ROOT_DIR/performance/k6:/scripts:ro" \
-      -e BASE_URL="$BASE_URL" \
+      "${K6_ENV[@]}" \
       grafana/k6:2.1.0 \
       run /scripts/smoke.js
     ;;
@@ -20,7 +36,7 @@ case "$SUITE" in
     docker run --rm \
       --network host \
       --volume "$ROOT_DIR/performance/k6:/scripts:ro" \
-      -e BASE_URL="$BASE_URL" \
+      "${K6_ENV[@]}" \
       grafana/k6:2.1.0 \
       run /scripts/api-load.js
     ;;
@@ -28,7 +44,7 @@ case "$SUITE" in
     docker run --rm \
       --network host \
       --volume "$ROOT_DIR/performance/k6:/scripts:ro" \
-      -e BASE_URL="$BASE_URL" \
+      "${K6_ENV[@]}" \
       grafana/k6:2.1.0 \
       run /scripts/auth-load.js
     ;;
@@ -36,7 +52,7 @@ case "$SUITE" in
     docker run --rm \
       --network host \
       --volume "$ROOT_DIR/performance/k6:/scripts:ro" \
-      -e BASE_URL="$BASE_URL" \
+      "${K6_ENV[@]}" \
       grafana/k6:2.1.0 \
       run /scripts/data-rag-load.js
     ;;
@@ -44,7 +60,7 @@ case "$SUITE" in
     docker run --rm \
       --network host \
       --volume "$ROOT_DIR/performance/k6:/scripts:ro" \
-      -e BASE_URL="$BASE_URL" \
+      "${K6_ENV[@]}" \
       grafana/k6:2.1.0 \
       run /scripts/stress.js
     ;;
@@ -52,12 +68,36 @@ case "$SUITE" in
     docker run --rm \
       --network host \
       --volume "$ROOT_DIR/performance/k6:/scripts:ro" \
-      -e BASE_URL="$BASE_URL" \
+      "${K6_ENV[@]}" \
       grafana/k6:2.1.0 \
       run /scripts/soak.js
     ;;
+  training)
+    docker run --rm \
+      --network host \
+      --volume "$ROOT_DIR/performance/k6:/scripts:ro" \
+      "${K6_ENV[@]}" \
+      grafana/k6:2.1.0 \
+      run /scripts/training-job-load.js
+    ;;
+  import)
+    docker run --rm \
+      --network host \
+      --volume "$ROOT_DIR/performance/k6:/scripts:ro" \
+      "${K6_ENV[@]}" \
+      grafana/k6:2.1.0 \
+      run /scripts/import-load.js
+    ;;
+  report)
+    docker run --rm \
+      --network host \
+      --volume "$ROOT_DIR/performance/k6:/scripts:ro" \
+      "${K6_ENV[@]}" \
+      grafana/k6:2.1.0 \
+      run /scripts/report-load.js
+    ;;
   inspect)
-    for script in smoke.js api-load.js auth-load.js training-job-load.js data-rag-load.js stress.js soak.js; do
+    for script in smoke.js api-load.js auth-load.js training-job-load.js import-load.js report-load.js data-rag-load.js stress.js soak.js; do
       echo "--- Inspecting ${script} ---"
       docker run --rm \
         --volume "$ROOT_DIR/performance/k6:/scripts:ro" \
@@ -66,7 +106,7 @@ case "$SUITE" in
     done
     ;;
   *)
-    echo "Unknown suite '${SUITE}'. Available suites: smoke, api, auth, data-rag, stress, soak, inspect."
+    echo "Unknown suite '${SUITE}'. Available suites: smoke, api, auth, data-rag, stress, soak, training, import, report, inspect."
     exit 1
     ;;
 esac

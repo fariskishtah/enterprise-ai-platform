@@ -6,13 +6,14 @@ import {
   bearerParams,
   boundedInteger,
   credentialsConfigured,
+  enabled,
   login,
   logout,
   summaryTrendStats,
 } from './common.js';
 
 const smokeDurationSeconds = boundedInteger('SMOKE_DURATION_SECONDS', 10, 1, 30);
-const smokeVus = boundedInteger('SMOKE_VUS', 1, 1, 2);
+const smokeVus = boundedInteger('SMOKE_VUS', 5, 1, 5);
 
 export const options = {
   scenarios: {
@@ -48,12 +49,14 @@ export default function smoke(data) {
     'health returned ok': (response) => response.json('status') === 'ok',
   });
 
-  const metricsResponse = http.get(`${BASE_URL}/metrics`, {
-    tags: { endpoint: 'metrics' },
-  });
-  check(metricsResponse, {
-    'metrics returned 200': (response) => response.status === 200,
-  });
+  if (!enabled('PUBLIC_PROXY')) {
+    const metricsResponse = http.get(`${BASE_URL}/metrics`, {
+      tags: { endpoint: 'metrics' },
+    });
+    check(metricsResponse, {
+      'internal metrics returned 200': (response) => response.status === 200,
+    });
+  }
 
   if (data.accessToken) {
     const factoriesResponse = http.get(

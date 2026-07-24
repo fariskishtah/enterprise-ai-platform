@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from io import BytesIO
 from pathlib import Path
 from zipfile import ZipFile
@@ -449,13 +449,38 @@ async def test_new_resources_are_denied_across_company_boundaries(
 
 def test_export_helpers_prevent_formula_execution_and_emit_valid_signatures() -> None:
     assert spreadsheet_safe("=SUM(A1:A2)") == "'=SUM(A1:A2)"
-    workbook = xlsx_report({"Summary": [{"value": "=2+2"}]})
+    workbook = xlsx_report(
+        {
+            "Summary": [
+                {
+                    "captured_at": datetime(2026, 7, 24, tzinfo=UTC),
+                    "value": "=2+2",
+                }
+            ]
+        }
+    )
     assert workbook.startswith(b"PK")
     with ZipFile(BytesIO(workbook)) as archive:
-        assert "'=2+2" in archive.read("xl/worksheets/sheet1.xml").decode()
-    report = pdf_report("Report", ["Safe content"], chart_values=[("alerts", 2)])
+        worksheet = archive.read("xl/worksheets/sheet1.xml").decode()
+        assert "'=2+2" in worksheet
+        assert 's="1"' in worksheet
+        assert 's="2"' in worksheet
+        assert "<autoFilter " in worksheet
+        assert 'state="frozen"' in worksheet
+        assert "xl/styles.xml" in archive.namelist()
+    report = pdf_report(
+        "Report",
+        ["Safe content"],
+        chart_values=[("alerts", 2)],
+        metadata=(("Company", "FK Manufacturing"),),
+    )
     assert report.startswith(b"%PDF-")
+    assert len(report) > 1_500
     assert b"Key metrics chart" in report
+    assert b"Company: FK Manufacturing" in report
+    assert b"Alerts" in report
+    assert b"Page 1 of 1" in report
+    assert b"0 0 595 842 re f" in report
     assert b" re f" in report
 
 

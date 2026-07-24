@@ -1,5 +1,5 @@
-import { useEffect, useState, type RefObject, type ReactElement } from "react";
-import { Link } from "react-router-dom";
+import { useEffect, useRef, useState, type RefObject, type ReactElement } from "react";
+import { Link, useLocation } from "react-router-dom";
 
 import { isRequestCancelled } from "../api/client";
 import { searchOperations, type OperationalSearchResult } from "../api/operations";
@@ -28,7 +28,11 @@ export function Topbar({
   const { logout, role, user } = useAuth();
   const { canSwitchMode, features, mode, setMode } = useProductExperience();
   const { preference, setPreference } = useTheme();
+  const location = useLocation();
   const initials = user?.email.slice(0, 2).toUpperCase() ?? "US";
+  const accountButtonRef = useRef<HTMLButtonElement>(null);
+  const accountMenuRef = useRef<HTMLDivElement>(null);
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [searchFocused, setSearchFocused] = useState(false);
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
@@ -67,6 +71,44 @@ export function Topbar({
       controller.abort();
     };
   }, [features.operations_workflow_enabled, query]);
+
+  useEffect(() => {
+    if (!accountMenuOpen) return;
+    const closeOnOutsideClick = (event: PointerEvent): void => {
+      if (
+        event.target instanceof Node &&
+        !accountMenuRef.current?.contains(event.target)
+      ) {
+        setAccountMenuOpen(false);
+      }
+    };
+    const handleKeyboard = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") {
+        setAccountMenuOpen(false);
+        accountButtonRef.current?.focus();
+        return;
+      }
+      if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+      const items = Array.from(
+        accountMenuRef.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ??
+          [],
+      );
+      if (items.length === 0) return;
+      event.preventDefault();
+      const current = items.indexOf(document.activeElement as HTMLElement);
+      const next =
+        event.key === "ArrowDown"
+          ? (current + 1 + items.length) % items.length
+          : (current - 1 + items.length) % items.length;
+      items[next]?.focus();
+    };
+    window.addEventListener("pointerdown", closeOnOutsideClick);
+    window.addEventListener("keydown", handleKeyboard);
+    return () => {
+      window.removeEventListener("pointerdown", closeOnOutsideClick);
+      window.removeEventListener("keydown", handleKeyboard);
+    };
+  }, [accountMenuOpen]);
 
   return (
     <header className="sticky top-0 z-20 flex h-[4.5rem] shrink-0 items-center border-b border-neutral-200 bg-neutral-50 px-4 sm:px-6 lg:px-10">
@@ -172,28 +214,69 @@ export function Topbar({
           <option value="light">Light theme</option>
           <option value="dark">Dark theme</option>
         </select>
-        <button
-          aria-label={`Sign out ${user?.email ?? "current user"}`}
-          className="flex h-10 items-center justify-center gap-2 rounded-md border border-border-strong bg-card px-2.5 text-xs font-bold text-secondary-foreground hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-purple-700"
-          onClick={() => void logout()}
-          title="Sign out"
-          type="button"
-        >
-          <span
-            aria-hidden="true"
-            className="flex h-7 w-7 items-center justify-center rounded-md bg-[var(--sidebar)] text-[10px] text-inverse"
+        <div className="relative" ref={accountMenuRef}>
+          <button
+            aria-expanded={accountMenuOpen}
+            aria-haspopup="menu"
+            aria-label={`Open account menu for ${user?.email ?? "current user"}`}
+            className="flex h-10 items-center justify-center gap-2 rounded-md border border-border-strong bg-card px-2.5 text-xs font-bold text-secondary-foreground hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-purple-700"
+            onClick={() => setAccountMenuOpen((value) => !value)}
+            ref={accountButtonRef}
+            type="button"
           >
-            {initials}
-          </span>
-          <span className="hidden min-w-0 text-left sm:block">
-            <span className="block max-w-40 truncate text-sm font-medium">
-              {user?.email}
+            <span
+              aria-hidden="true"
+              className="flex h-7 w-7 items-center justify-center rounded-md bg-[var(--sidebar)] text-[10px] text-inverse"
+            >
+              {initials}
             </span>
-            <span className="block text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-              {role}
+            <span className="hidden min-w-0 text-left sm:block">
+              <span className="block max-w-40 truncate text-sm font-medium">
+                {user?.full_name ?? user?.email}
+              </span>
+              <span className="block text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                {role}
+              </span>
             </span>
-          </span>
-        </button>
+          </button>
+          {accountMenuOpen ? (
+            <div
+              aria-label="Account options"
+              className="absolute right-0 top-12 z-50 w-56 rounded-lg border border-border bg-card p-2 shadow-lg"
+              role="menu"
+            >
+              <Link
+                className="block rounded-md px-3 py-2 text-sm font-medium text-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                onClick={() => setAccountMenuOpen(false)}
+                role="menuitem"
+                to="/profile"
+              >
+                My Profile
+              </Link>
+              <Link
+                className="block rounded-md px-3 py-2 text-sm font-medium text-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                onClick={() => setAccountMenuOpen(false)}
+                role="menuitem"
+                state={{ from: `${location.pathname}${location.search}` }}
+                to="/support"
+              >
+                Contact Support
+              </Link>
+              <div className="my-1 border-t border-border" />
+              <button
+                className="block w-full rounded-md px-3 py-2 text-left text-sm font-medium text-danger-700 hover:bg-danger-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                onClick={() => {
+                  setAccountMenuOpen(false);
+                  void logout();
+                }}
+                role="menuitem"
+                type="button"
+              >
+                Log Out
+              </button>
+            </div>
+          ) : null}
+        </div>
       </div>
       {mobileSearchOpen ? (
         <div

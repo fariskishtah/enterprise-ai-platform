@@ -60,6 +60,7 @@ from app.repositories.sensors import SensorRepository
 from app.repositories.users import UserRepository
 from app.services.audit import AuditService
 from app.services.authentication import AuthenticationService
+from app.services.email import EmailProvider, configured_email_provider
 from app.services.feature_engineering import FeatureEngineeringService
 from app.services.manufacturing import ManufacturingService
 from app.services.mlops import MLOpsService
@@ -93,6 +94,13 @@ def get_audit_service(
 ) -> AuditService:
     """Return append-only audit use cases."""
     return AuditService(AuditRepository(session))
+
+
+def get_support_email_provider(
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> EmailProvider:
+    """Return the narrow configured support email provider."""
+    return configured_email_provider(settings)
 
 
 def get_operations_service(

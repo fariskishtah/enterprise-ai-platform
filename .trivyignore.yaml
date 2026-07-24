@@ -1,0 +1,6 @@
+vulnerabilities:
+  - id: GHSA-qwww-vcr4-c8h2
+    paths:
+      - "frontend/package-lock.json"
+    statement: "SEC-2026-003: Static Vite SPA; no React Server Components, RSC actions, or server actions are deployed."
+    expired_at: 2026-08-15

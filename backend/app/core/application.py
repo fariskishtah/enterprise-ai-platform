@@ -1,7 +1,5 @@
 """FastAPI application factory."""
 
-from urllib.parse import urlsplit
-
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
@@ -130,14 +128,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         redoc_url=redoc_url,
     )
     if resolved_settings.environment == "production":
-        public_hosts = {
-            parsed.hostname
-            for origin in resolved_settings.cors_allowed_origins
-            if (parsed := urlsplit(origin)).hostname is not None
-        }
         application.add_middleware(
             TrustedHostMiddleware,
-            allowed_hosts=sorted({*public_hosts, "backend", "localhost"}),
+            allowed_hosts=sorted(
+                {*resolved_settings.allowed_hosts, "backend", "localhost"}
+            ),
         )
     # The streaming limiter stays inside response hardening, request context,
     # metrics, tracing, and CORS so its early 413 response receives the same

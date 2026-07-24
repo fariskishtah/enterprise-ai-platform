@@ -33,10 +33,20 @@ generate_environment() {
     printf 'JWT_AUDIENCE=staging-validation-browser\n'
     printf 'JWT_ALGORITHM=HS256\n'
     printf 'ENVIRONMENT=staging\n'
+    printf 'APP_ENV=staging\n'
+    printf 'APP_BASE_URL=http://127.0.0.1:18080\n'
+    printf 'API_BASE_URL=http://127.0.0.1:18080/api\n'
+    printf 'ALLOWED_HOSTS=["127.0.0.1","localhost"]\n'
+    printf 'COOKIE_SECURE=false\n'
+    printf 'COOKIE_SAMESITE=lax\n'
     printf 'SIMPLIFIED_EXPERIENCE_ENABLED=true\n'
     printf 'OPERATIONS_WORKFLOW_ENABLED=true\n'
     printf 'DEMO_TOOLS_ENABLED=true\n'
     printf 'CORS_ALLOWED_ORIGINS=["http://127.0.0.1:18080"]\n'
+    printf 'EMAIL_PROVIDER=disabled\n'
+    printf 'RESEND_API_KEY=staging-disabled-provider-placeholder\n'
+    printf 'EMAIL_FROM=support@example.com\n'
+    printf 'SUPPORT_EMAIL_TO=support@example.com\n'
     printf 'TRUSTED_PROXY_IPS=*\n'
     printf 'PUBLIC_HTTP_PORT=18080\n'
     printf 'AI_DEFAULT_REGISTERED_MODEL_PREFIX=staging_validation\n'
@@ -85,11 +95,12 @@ case "$action" in
     ;;
   seed)
     [[ -f "$ENV_FILE" ]] || { echo "Start the staging runtime first." >&2; exit 1; }
-    for variable in E2E_ADMIN_EMAIL E2E_ENGINEER_EMAIL E2E_OPERATOR_EMAIL E2E_PASSWORD; do
+    for variable in E2E_ADMIN_EMAIL E2E_ENGINEER_EMAIL E2E_OPERATOR_EMAIL E2E_SMOKE_EMAIL E2E_PASSWORD; do
       [[ -n "${!variable:-}" ]] || { echo "$variable is required." >&2; exit 2; }
     done
     compose exec -T \
-      -e E2E_ADMIN_EMAIL -e E2E_ENGINEER_EMAIL -e E2E_OPERATOR_EMAIL -e E2E_PASSWORD \
+      -e E2E_ADMIN_EMAIL -e E2E_ENGINEER_EMAIL -e E2E_OPERATOR_EMAIL \
+      -e E2E_SMOKE_EMAIL -e E2E_PASSWORD \
       backend python - <"$REPO_ROOT/scripts/seed_staging_users.py"
     compose exec -T \
       -e DEMO_API_BASE_URL=http://backend:8000 \

@@ -23,7 +23,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 API_BASE_URL = os.getenv("DEMO_API_BASE_URL", "http://backend:8000").rstrip("/")
 DEMO_EMAIL = os.getenv("DEMO_EMAIL", "demo@example.com")
-DEMO_PASSWORD = os.getenv("DEMO_PASSWORD", "LocalDemoPassword1!")
+DEMO_PASSWORD = os.getenv("DEMO_PASSWORD", "")
 DEMO_OPERATOR_EMAIL = os.getenv("DEMO_OPERATOR_EMAIL", "").strip().lower()
 MODEL_NAME = "demo_predictive_maintenance_regression"
 PREDICTION_CORRELATION_ID = "local-demo-prediction-v1"
@@ -40,10 +40,8 @@ GUIDED_WARNING_KEY = "demo-guided-warning-v1"
 GUIDED_REJECTED_KEY = "demo-guided-rejected-v1"
 TRAINING_DATASET_NAME = "DEMO Predictive Maintenance History"
 DOCUMENT_DATASET_NAME = "DEMO Maintenance Procedures"
-KNOWLEDGE_BASE_NAME = (
-    "DEMO Maintenance Knowledge "
-    f"{hashlib.sha256(DEMO_EMAIL.casefold().encode()).hexdigest()[:8]}"
-)
+DEMO_OWNER_FINGERPRINT = hashlib.sha256(DEMO_EMAIL.casefold().encode()).hexdigest()[:8]
+KNOWLEDGE_BASE_NAME = f"DEMO Maintenance Knowledge {DEMO_OWNER_FINGERPRINT}"
 OPERATIONAL_ACTION_TITLE = "Inspect DEMO-01 spindle before next production cycle"
 SHIFT_TEAM_LABEL = "DEMO completed day shift"
 
@@ -348,6 +346,47 @@ def exact_named(items: list[dict[str, Any]], name: str) -> dict[str, Any] | None
     return next((item for item in items if item.get("name") == name), None)
 
 
+def resolve_owned_dataset(
+    datasets: list[dict[str, Any]],
+    *,
+    name: str,
+    owner_user_id: str,
+) -> tuple[dict[str, Any] | None, str]:
+    """Resolve an owner-compatible deterministic dataset name."""
+    dataset = next(
+        (
+            item
+            for item in datasets
+            if item.get("name") == name
+            and str(item.get("owner_user_id")) == owner_user_id
+        ),
+        None,
+    )
+    if dataset is not None or exact_named(datasets, name) is None:
+        return dataset, name
+
+    # Dataset names are company-unique, while RAG attachment intentionally
+    # requires the dataset and knowledge base to share a creating user. An
+    # owner suffix preserves idempotency without bypassing either boundary.
+    resolved_name = f"{name} {DEMO_OWNER_FINGERPRINT}"
+    dataset = next(
+        (
+            item
+            for item in datasets
+            if item.get("name") == resolved_name
+            and str(item.get("owner_user_id")) == owner_user_id
+        ),
+        None,
+    )
+    collision = exact_named(datasets, resolved_name)
+    if dataset is None and collision is not None:
+        raise DemoSeedError(
+            f"the deterministic demo dataset name {resolved_name!r} "
+            "belongs to another user"
+        )
+    return dataset, resolved_name
+
+
 def list_items(
     client: ApiClient,
     path: str,
@@ -551,25 +590,31 @@ def seed_dataset_version(
     client: ApiClient,
     *,
     name: str,
+    owner_user_id: str,
     kind: str,
     filename: str,
     media_type: str,
     content: bytes,
     fields: Mapping[str, str] | None = None,
 ) -> tuple[dict[str, Any], bool]:
-    dataset = exact_named(list_items(client, "/ai/datasets"), name)
+    datasets = list_items(client, "/ai/datasets")
+    dataset, resolved_name = resolve_owned_dataset(
+        datasets,
+        name=name,
+        owner_user_id=owner_user_id,
+    )
     if dataset is None:
         dataset = require_response(
             client.post(
                 "/ai/datasets",
                 json={
-                    "name": name,
+                    "name": resolved_name,
                     "description": "Deterministic local-only pilot fixture",
                     "kind": kind,
                 },
             ),
             {201},
-            f"create dataset {name}",
+            f"create dataset {resolved_name}",
         ).json()
     versions = list_items(client, f"/ai/datasets/{dataset['id']}/versions")
     matching = next(
@@ -592,7 +637,7 @@ def seed_dataset_version(
                 fields=fields,
             ),
             {202},
-            f"upload dataset version {name}",
+            f"upload dataset version {resolved_name}",
         ).json()
     if matching["status"] != "ready":
         matching = _wait_for_status(
@@ -600,7 +645,7 @@ def seed_dataset_version(
             f"/ai/datasets/{dataset['id']}/versions/{matching['id']}",
             successful={"ready"},
             failed={"failed", "archived"},
-            operation=f"process dataset {name}",
+            operation=f"process dataset {resolved_name}",
         )
     return matching, created
 
@@ -1187,6 +1232,13 @@ def ensure_sprints_3_5_demo(
 
 def run() -> None:
     """Execute the complete idempotent local demo seed flow."""
+    requested_environment = (
+        (os.getenv("APP_ENV") or os.getenv("ENVIRONMENT") or "").strip().lower()
+    )
+    if requested_environment == "production":
+        raise DemoSeedError("demo seeding is disabled in production")
+    if not DEMO_PASSWORD:
+        raise DemoSeedError("DEMO_PASSWORD is required for local demo seeding")
     with ApiClient(base_url=API_BASE_URL, timeout=60.0) as anonymous:
         health = require_response(anonymous.get("/health"), {200}, "backend health")
         if health.json().get("status") not in {"ok", "healthy"}:
@@ -1224,6 +1276,12 @@ def run() -> None:
         headers=headers,
         timeout=60.0,
     ) as client:
+        current_user = require_response(
+            client.get("/users/me"),
+            {200},
+            "load demo user identity",
+        ).json()
+        owner_user_id = str(current_user["id"])
         domain, created = seed_domain(client)
         temperature_readings_created = seed_readings(
             client,
@@ -1238,6 +1296,7 @@ def run() -> None:
         training_version, training_dataset_created = seed_dataset_version(
             client,
             name=TRAINING_DATASET_NAME,
+            owner_user_id=owner_user_id,
             kind="tabular",
             filename="demo-predictive-maintenance-v1.csv",
             media_type="text/csv",
@@ -1251,6 +1310,7 @@ def run() -> None:
         document_version, document_dataset_created = seed_dataset_version(
             client,
             name=DOCUMENT_DATASET_NAME,
+            owner_user_id=owner_user_id,
             kind="document_collection",
             filename="demo-maintenance-procedure-v1.txt",
             media_type="text/plain",

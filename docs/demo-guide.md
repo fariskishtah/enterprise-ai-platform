@@ -15,24 +15,18 @@ docker compose up -d postgres redis backend training-worker
 docker compose exec backend alembic upgrade head
 ```
 
-The seed script expects a healthy backend and a running training worker:
-
-```bash
-./scripts/seed-demo.sh
-```
-
-The local-only defaults are `demo@example.com` and
-`LocalDemoPassword1!`. Override them without editing a file when desired:
+The seed script expects a healthy backend, a running training worker, and
+explicit disposable local credentials:
 
 ```bash
 DEMO_EMAIL=reviewer@example.com \
-DEMO_PASSWORD='AnotherLocalPassword1!' \
+DEMO_PASSWORD='Choose-A-Unique-Local-Password-1!' \
 ./scripts/seed-demo.sh
 ```
 
-These credentials are intentionally for an isolated developer laptop only. Do
-not reuse or deploy them. The seed output never prints the password or access
-tokens.
+There are no default credentials. These values are intentionally for an
+isolated developer laptop only; choose unique values and do not reuse or deploy
+them. The seed output never prints the password or access tokens.
 
 ## Reviewer path
 

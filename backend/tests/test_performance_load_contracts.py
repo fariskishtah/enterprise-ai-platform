@@ -52,7 +52,7 @@ def test_default_load_profiles_are_bounded() -> None:
     auth = _text(_K6_DIR / "auth-load.js")
 
     assert "boundedInteger('SMOKE_DURATION_SECONDS', 10, 1, 30)" in smoke
-    assert "boundedInteger('SMOKE_VUS', 1, 1, 2)" in smoke
+    assert "boundedInteger('SMOKE_VUS', 5, 1, 5)" in smoke
     assert "boundedInteger('API_VUS', 3, 1, 20)" in api
     assert "> 300" in api
     assert "boundedInteger('AUTH_ITERATIONS', 2, 1, 3)" in auth

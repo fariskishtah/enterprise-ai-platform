@@ -63,7 +63,7 @@ async function login(page: Page, email: string | undefined): Promise<void> {
       ),
     );
   }
-  await expect(page.getByRole("button", { name: /Sign out/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Open account menu/ })).toBeVisible();
 }
 
 async function token(page: Page): Promise<string> {

@@ -2,6 +2,7 @@ import {
   createContext,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useState,
   type ReactElement,
@@ -44,9 +45,22 @@ export function ThemeProvider({
     return () => query.removeEventListener("change", update);
   }, []);
 
-  useEffect(() => {
-    document.documentElement.dataset.theme = resolvedTheme;
-    document.documentElement.style.colorScheme = resolvedTheme;
+  useLayoutEffect(() => {
+    const root = document.documentElement;
+    root.classList.add("theme-updating");
+    root.dataset.theme = resolvedTheme;
+    root.style.colorScheme = resolvedTheme;
+    let secondFrame = 0;
+    const firstFrame = window.requestAnimationFrame(() => {
+      secondFrame = window.requestAnimationFrame(() => {
+        root.classList.remove("theme-updating");
+      });
+    });
+    return () => {
+      window.cancelAnimationFrame(firstFrame);
+      window.cancelAnimationFrame(secondFrame);
+      root.classList.remove("theme-updating");
+    };
   }, [resolvedTheme]);
 
   const value = useMemo<ThemeContextValue>(

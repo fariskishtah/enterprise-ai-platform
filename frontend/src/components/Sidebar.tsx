@@ -5,6 +5,7 @@ import { useAuth } from "../auth/useAuth";
 import { getVisibleNavigationItems } from "../navigation";
 import { useProductExperience } from "../product/productExperience";
 import { Icon } from "./Icon";
+import { IconMotion } from "./IconMotion";
 
 interface SidebarProps {
   readonly closeButtonRef?: RefObject<HTMLButtonElement>;
@@ -82,11 +83,17 @@ export function Sidebar({
                 title={collapsed ? item.label : undefined}
                 to={item.path}
               >
-                <Icon className="h-[1.125rem] w-[1.125rem] shrink-0" name={item.icon} />
-                {!collapsed ? (
-                  <span>{item.label}</span>
-                ) : (
-                  <span className="sr-only">{item.label}</span>
+                {({ isActive }) => (
+                  <>
+                    <IconMotion active={isActive} motion={item.motion}>
+                      <Icon className="h-[1.125rem] w-[1.125rem]" name={item.icon} />
+                    </IconMotion>
+                    {!collapsed ? (
+                      <span>{item.label}</span>
+                    ) : (
+                      <span className="sr-only">{item.label}</span>
+                    )}
+                  </>
                 )}
               </NavLink>
             </li>

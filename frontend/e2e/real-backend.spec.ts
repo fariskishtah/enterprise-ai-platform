@@ -109,7 +109,7 @@ async function login(page: Page, email: string): Promise<void> {
     await page.reload();
     expect((await identityResponse).status()).toBe(200);
     await expect(page).toHaveURL(/\/$/, { timeout: 20_000 });
-    await expect(page.getByRole("button", { name: /Sign out/ })).toBeVisible();
+    await expect(page.getByRole("button", { name: /Open account menu/ })).toBeVisible();
     return;
   }
   await page.getByLabel("Email address").fill(email);
@@ -516,9 +516,8 @@ test.describe("real staging backend", () => {
       timeout: 20_000,
     });
 
-    await page
-      .getByRole("button", { name: `Sign out ${accounts.engineer ?? ""}` })
-      .click();
+    await page.getByRole("button", { name: /Open account menu/ }).click();
+    await page.getByRole("menuitem", { name: "Log Out" }).click();
     await expect(page).toHaveURL(/\/login$/, { timeout: 20_000 });
     await login(page, accounts.operator ?? "");
 
@@ -899,6 +898,55 @@ test.describe("real staging backend", () => {
       await expect(page.getByText(/read-only/)).toBeVisible();
     });
 
+    expect(errors).toEqual([]);
+  });
+
+  test("account menu, profile, support failure, and explicit logout use the real backend", async ({
+    page,
+  }) => {
+    test.skip(
+      !accounts.admin || !password,
+      "Disposable admin credentials are required.",
+    );
+    const errors = collectUnexpectedBrowserErrors(page);
+    await login(page, accounts.admin ?? "");
+
+    const accountButton = page.getByRole("button", { name: /Open account menu/ });
+    await accountButton.click();
+    await page.getByRole("menuitem", { name: "My Profile" }).click();
+    await expect(page.locator("#profile-page-heading")).toBeVisible();
+    await expect(
+      page.getByRole("main").getByText(accounts.admin ?? "", { exact: true }),
+    ).toBeVisible();
+
+    await accountButton.click();
+    await page.getByRole("menuitem", { name: "Contact Support" }).click();
+    await expect(page.locator("#support-heading")).toBeVisible();
+    await page.getByLabel("Subject").fill("Staging delivery boundary check");
+    await page
+      .getByLabel("Message")
+      .fill("Verify that a disabled email provider retains this bounded request.");
+    const supportResponse = page.waitForResponse(
+      (response) =>
+        response.url().includes("/support/requests") &&
+        response.request().method() === "POST",
+    );
+    await page.getByRole("button", { name: "Submit support request" }).click();
+    expect((await supportResponse).status()).toBe(201);
+    await expect(page.getByRole("status")).toContainText(
+      "saved, but email delivery failed",
+    );
+    await expect(page.getByRole("status")).toContainText("Request ID:");
+
+    await accountButton.click();
+    const logoutResponse = page.waitForResponse(
+      (response) =>
+        response.url().includes("/auth/logout") &&
+        response.request().method() === "POST",
+    );
+    await page.getByRole("menuitem", { name: "Log Out" }).click();
+    expect((await logoutResponse).status()).toBe(204);
+    await expect(page).toHaveURL(/\/login$/);
     expect(errors).toEqual([]);
   });
 });

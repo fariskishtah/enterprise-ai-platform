@@ -7,13 +7,25 @@ import html
 import io
 import json
 import re
+import textwrap
 import zipfile
 from collections.abc import Iterable
-from datetime import datetime
+from datetime import UTC, datetime
 from xml.sax.saxutils import escape
 
 FORMULA_PREFIXES = ("=", "+", "-", "@")
 MAX_REPORT_ROWS = 10_000
+CHART_LABELS = {
+    "average_acknowledgement_seconds": "Avg. acknowledgement (s)",
+    "average_resolution_seconds": "Avg. resolution (s)",
+    "critical_alerts": "Critical alerts",
+    "completed_actions": "Completed actions",
+    "machine_count": "Machines",
+    "maintenance_feedback_count": "Maintenance feedback",
+    "open_alerts": "Open alerts",
+    "overdue_actions": "Overdue actions",
+    "shift_activity_count": "Shift activity",
+}
 
 
 def spreadsheet_safe(value: object) -> str:
@@ -53,17 +65,19 @@ def _sheet_xml(rows: list[dict[str, object]]) -> str:
         cells = []
         for column_number, raw in enumerate(row, start=1):
             reference = f"{_column_name(column_number)}{row_number}"
+            style = ' s="1"' if row_number == 1 else ""
             if isinstance(raw, (int, float)) and not isinstance(raw, bool):
-                cells.append(f'<c r="{reference}"><v>{raw}</v></c>')
+                cells.append(f'<c r="{reference}"{style}><v>{raw}</v></c>')
             elif isinstance(raw, datetime):
-                cells.append(
-                    f'<c r="{reference}" t="inlineStr"><is><t>'
-                    f"{escape(raw.isoformat())}</t></is></c>"
-                )
+                aware = raw if raw.tzinfo is not None else raw.replace(tzinfo=UTC)
+                epoch = datetime(1899, 12, 30, tzinfo=UTC)
+                serial = (aware.astimezone(UTC) - epoch).total_seconds() / 86_400
+                cells.append(f'<c r="{reference}" s="2"><v>{serial:.10f}</v></c>')
             else:
                 value = escape(spreadsheet_safe(raw))
                 cells.append(
-                    f'<c r="{reference}" t="inlineStr"><is><t>{value}</t></is></c>'
+                    f'<c r="{reference}"{style} t="inlineStr"><is><t>{value}'
+                    "</t></is></c>"
                 )
         xml_rows.append(f'<row r="{row_number}">{"".join(cells)}</row>')
     auto_filter = f"A1:{_column_name(len(fields))}{max(1, len(values))}"
@@ -72,7 +86,9 @@ def _sheet_xml(rows: list[dict[str, object]]) -> str:
         '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
         '<sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" '
         'activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>'
-        f'<sheetData>{"".join(xml_rows)}</sheetData><autoFilter ref="{auto_filter}"/>'
+        f'<cols><col min="1" max="{len(fields)}" width="22" customWidth="1"/>'
+        f'</cols><sheetData>{"".join(xml_rows)}</sheetData>'
+        f'<autoFilter ref="{auto_filter}"/>'
         "</worksheet>"
     )
 
@@ -91,6 +107,8 @@ def xlsx_report(sheets: dict[str, list[dict[str, object]]]) -> bytes:
             '<Default Extension="xml" ContentType="application/xml"/>'
             '<Override PartName="/xl/workbook.xml" '
             'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+            '<Override PartName="/xl/styles.xml" '
+            'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>'
             + "".join(
                 f'<Override PartName="/xl/worksheets/sheet{index}.xml" '
                 'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
@@ -131,7 +149,35 @@ def xlsx_report(sheets: dict[str, list[dict[str, object]]]) -> bytes:
                 f'Target="worksheets/sheet{index}.xml"/>'
                 for index in range(1, len(safe_sheets) + 1)
             )
+            + (
+                f'<Relationship Id="rId{len(safe_sheets) + 1}" '
+                'Type="http://schemas.openxmlformats.org/officeDocument/2006/'
+                'relationships/styles" Target="styles.xml"/>'
+            )
             + "</Relationships>",
+        )
+        archive.writestr(
+            "xl/styles.xml",
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<styleSheet xmlns="http://schemas.openxmlformats.org/'
+            'spreadsheetml/2006/main">'
+            '<fonts count="2"><font><sz val="11"/><name val="Aptos"/></font>'
+            '<font><b/><color rgb="FFFFFFFF"/><sz val="11"/>'
+            '<name val="Aptos"/></font></fonts>'
+            '<fills count="2"><fill><patternFill patternType="none"/></fill>'
+            '<fill><patternFill patternType="solid"><fgColor rgb="FF5941C6"/>'
+            '<bgColor indexed="64"/></patternFill></fill></fills>'
+            '<borders count="1"><border><left/><right/><top/><bottom/>'
+            "<diagonal/></border></borders>"
+            '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" '
+            'borderId="0"/></cellStyleXfs>'
+            '<cellXfs count="3"><xf numFmtId="0" fontId="0" fillId="0" '
+            'borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="1" '
+            'borderId="0" xfId="0" applyFont="1" applyFill="1"/>'
+            '<xf numFmtId="22" fontId="0" fillId="0" borderId="0" xfId="0" '
+            'applyNumberFormat="1"/></cellXfs>'
+            '<cellStyles count="1"><cellStyle name="Normal" xfId="0" '
+            'builtinId="0"/></cellStyles></styleSheet>',
         )
         for index, (_, rows) in enumerate(safe_sheets, start=1):
             archive.writestr(
@@ -156,52 +202,166 @@ def pdf_report(
     lines: Iterable[str],
     *,
     chart_values: Iterable[tuple[str, float]] = (),
+    metadata: Iterable[tuple[str, str]] = (),
 ) -> bytes:
-    """Create a deterministic printable A4 report with a bounded metrics chart."""
-    pages: list[list[str]] = []
-    current = [title]
+    """Create a deterministic A4 vector report with labelled, bounded charts."""
+    flattened: list[str] = []
+    for label, value in metadata:
+        flattened.extend(
+            textwrap.wrap(f"{label}: {value}", width=82) or [f"{label}: -"]
+        )
     for line in lines:
-        current.append(str(line)[:110])
-        if len(current) == 45:
-            pages.append(current)
-            current = [f"{title} — continued"]
-    pages.append(current)
+        value = str(line).strip()
+        flattened.extend(textwrap.wrap(value, width=82) if value else [""])
+    bounded_chart = [
+        (
+            CHART_LABELS.get(str(label), str(label).replace("_", " ").title())[:28],
+            float(value),
+        )
+        for label, value in list(chart_values)[:6]
+    ]
+    pages: list[list[str]] = []
+    first_page_limit = 21 if bounded_chart else 42
+    pages.append(flattened[:first_page_limit])
+    remaining = flattened[first_page_limit:]
+    while remaining:
+        pages.append(remaining[:42])
+        remaining = remaining[42:]
+    if not pages:
+        pages = [[]]
+
     objects: list[bytes] = []
     page_ids: list[int] = []
     font_id = 3
-    bounded_chart = list(chart_values)[:6]
     chart_maximum = max((abs(value) for _, value in bounded_chart), default=0)
     for page_number, page_lines in enumerate(pages, start=1):
-        content = ["BT", "/F1 10 Tf", "48 795 Td", "14 TL"]
-        for index, line in enumerate(page_lines):
-            if index == 0:
-                content.extend(
-                    ["/F1 16 Tf", f"({_pdf_escape(line)}) Tj", "0 -24 Td", "/F1 10 Tf"]
-                )
-            else:
-                content.extend([f"({_pdf_escape(line)}) Tj", "T*"])
-        content.append("ET")
-        if page_number == 1 and chart_maximum > 0:
+        display_title = title if page_number == 1 else f"{title} - continued"
+        content = [
+            "q",
+            "1 1 1 rg",
+            "0 0 595 842 re f",
+            "Q",
+            "q",
+            "0.035 0.078 0.161 rg",
+            "0 762 595 80 re f",
+            "0.427 0.290 1 rg",
+            "0 756 595 6 re f",
+            "Q",
+            "BT",
+            "/F1 19 Tf",
+            "1 1 1 rg",
+            f"1 0 0 1 46 803 Tm ({_pdf_escape(display_title[:72])}) Tj",
+            "/F1 9 Tf",
+            "0.82 0.80 0.90 rg",
+            "1 0 0 1 46 781 Tm (FK SOLUTIONS | AI Manufacturing Platform) Tj",
+            "ET",
+        ]
+        y = 730
+        for line in page_lines:
+            if not line:
+                y -= 8
+                continue
             content.extend(
                 [
                     "BT",
-                    "/F1 11 Tf",
-                    "48 430 Td",
-                    "(Key metrics chart) Tj",
+                    "/F1 9 Tf",
+                    "0.12 0.14 0.22 rg",
+                    f"1 0 0 1 48 {y} Tm ({_pdf_escape(line)}) Tj",
                     "ET",
-                    "q",
-                    "0.43 0.29 1 rg",
                 ]
             )
-            for index, (_label, value) in enumerate(bounded_chart):
-                width = max(1.0, 300 * abs(value) / chart_maximum)
-                content.append(f"48 {400 - index * 22} {width:.2f} 10 re f")
-            content.append("Q")
+            y -= 14
+        if page_number == 1 and bounded_chart:
+            content.extend(
+                [
+                    "q",
+                    "0.976 0.973 0.992 rg",
+                    "42 92 511 284 re f",
+                    "0.847 0.827 0.902 RG",
+                    "0.8 w",
+                    "42 92 511 284 re S",
+                    "Q",
+                    "BT",
+                    "/F1 12 Tf",
+                    "0.035 0.078 0.161 rg",
+                    "1 0 0 1 58 352 Tm (Key metrics chart) Tj",
+                    "/F1 8 Tf",
+                    "0.35 0.37 0.46 rg",
+                    (
+                        "1 0 0 1 58 337 Tm "
+                        "(Grounded values for the selected reporting period) Tj"
+                    ),
+                    "ET",
+                ]
+            )
+            for tick in range(5):
+                x = 180 + tick * 76
+                content.extend(
+                    [
+                        "q",
+                        "0.88 0.87 0.92 RG",
+                        "0.5 w",
+                        f"{x} 116 m {x} 320 l S",
+                        "Q",
+                    ]
+                )
+            if chart_maximum > 0:
+                for index, (metric_label, metric_value) in enumerate(bounded_chart):
+                    row_y = 298 - index * 32
+                    width = max(2.0, 300 * abs(metric_value) / chart_maximum)
+                    content.extend(
+                        [
+                            "BT",
+                            "/F1 8 Tf",
+                            "0.18 0.20 0.29 rg",
+                            (
+                                f"1 0 0 1 58 {row_y} Tm "
+                                f"({_pdf_escape(metric_label)}) Tj"
+                            ),
+                            "ET",
+                            "q",
+                            "0.427 0.290 1 rg",
+                            f"180 {row_y - 5} {width:.2f} 12 re f",
+                            "Q",
+                            "BT",
+                            "/F1 8 Tf",
+                            "0.18 0.20 0.29 rg",
+                            (
+                                f"1 0 0 1 {min(492, 187 + width):.2f} {row_y} Tm "
+                                f"({_pdf_escape(f'{metric_value:,.1f}')}) Tj"
+                            ),
+                            "ET",
+                        ]
+                    )
+            else:
+                content.extend(
+                    [
+                        "BT",
+                        "/F1 10 Tf",
+                        "0.35 0.37 0.46 rg",
+                        (
+                            "1 0 0 1 58 285 Tm "
+                            "(No non-zero metric values are available for this "
+                            "period.) Tj"
+                        ),
+                        "ET",
+                    ]
+                )
         content.extend(
             [
+                "q",
+                "0.847 0.827 0.902 RG",
+                "0.5 w",
+                "42 48 m 553 48 l S",
+                "Q",
                 "BT",
-                "/F1 9 Tf",
-                f"280 24 Td (Page {page_number} of {len(pages)}) Tj",
+                "/F1 8 Tf",
+                "0.35 0.37 0.46 rg",
+                (
+                    "1 0 0 1 42 31 Tm "
+                    "(Authorized operational records | Confidential) Tj"
+                ),
+                (f"1 0 0 1 500 31 Tm " f"(Page {page_number} of {len(pages)}) Tj"),
                 "ET",
             ]
         )
@@ -253,6 +413,7 @@ def report_payload(
     title: str,
     summary: dict[str, object],
     tables: dict[str, list[dict[str, object]]],
+    metadata: Iterable[tuple[str, str]] = (),
 ) -> bytes:
     if format == "csv":
         rows = [{"metric": key, "value": value} for key, value in summary.items()]
@@ -272,7 +433,9 @@ def report_payload(
             "Model Governance": tables.get("Model Governance", []),
         }
         return xlsx_report(ordered)
-    lines = [f"{key}: {value}" for key, value in summary.items()]
+    lines = [
+        f"{key.replace('_', ' ').title()}: {value}" for key, value in summary.items()
+    ]
     lines.extend(
         [
             "",
@@ -281,12 +444,33 @@ def report_payload(
             "efficiency is inferred.",
         ]
     )
+    metric_definitions = {
+        "machine_count": "Authorized active machines in the selected factory scope.",
+        "open_alerts": "Alerts detected in the period that are not resolved.",
+        "critical_alerts": "Critical alerts first detected in the selected period.",
+        "overdue_actions": "Incomplete actions whose due timestamp has passed.",
+        "completed_actions": "Actions completed during the selected period.",
+        "average_acknowledgement_seconds": (
+            "Mean elapsed seconds from alert detection to acknowledgement."
+        ),
+        "average_resolution_seconds": (
+            "Mean elapsed seconds from alert detection to resolution."
+        ),
+        "data_freshness_at": "Most recent authorized sensor-reading timestamp.",
+    }
+    present_definitions = [
+        f"{key.replace('_', ' ').title()}: {definition}"
+        for key, definition in metric_definitions.items()
+        if key in summary
+    ]
+    if present_definitions:
+        lines.extend(["", "Metric definitions:", *present_definitions])
     chart_values = [
         (key, float(value))
         for key, value in summary.items()
         if isinstance(value, (int, float)) and not isinstance(value, bool)
     ]
-    return pdf_report(title, lines, chart_values=chart_values)
+    return pdf_report(title, lines, chart_values=chart_values, metadata=metadata)
 
 
 def json_summary(value: dict[str, object]) -> str:

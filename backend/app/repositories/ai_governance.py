@@ -385,18 +385,39 @@ class TrainingJobRepository:
         *,
         queued_before: datetime,
     ) -> tuple[TrainingJobRecord, ...]:
-        """Return aged queued jobs that have no persisted broker identifier."""
+        """Return aged queued jobs whose broker delivery may no longer be live."""
         statement = (
             select(TrainingJob)
             .where(
                 TrainingJob.status == TrainingJobStatus.QUEUED,
-                TrainingJob.queue_message_id.is_(None),
                 TrainingJob.queued_at < queued_before,
             )
             .order_by(TrainingJob.queued_at.asc(), TrainingJob.id.asc())
         )
         result = await self._session.execute(statement)
         return tuple(_job_record(entity) for entity in result.scalars())
+
+    async def reset_orphaned_queued(
+        self,
+        *,
+        job_id: UUID,
+        expected_version: int,
+        queued_at: datetime,
+    ) -> TrainingJobRecord | None:
+        """Age-gate one queued job before issuing a replacement broker message."""
+        return await self._conditional_update(
+            job_id=job_id,
+            expected_status=TrainingJobStatus.QUEUED,
+            expected_version=expected_version,
+            values={
+                "queued_at": queued_at,
+                "queue_message_id": None,
+                "error_code": "broker_message_stale",
+                "safe_error_message": (
+                    "The queued broker delivery became stale and was resubmitted."
+                ),
+            },
+        )
 
     async def fail_exhausted_stale(
         self,

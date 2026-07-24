@@ -123,6 +123,37 @@ export function logout(refreshToken, endpoint = 'auth_logout') {
   });
 }
 
+export function refresh(refreshToken, endpoint = 'auth_refresh') {
+  if (!refreshToken) {
+    return { accessToken: null, refreshToken: null };
+  }
+  const response = http.post(
+    `${BASE_URL}/auth/refresh`,
+    JSON.stringify({ refresh_token: refreshToken }),
+    jsonParams(endpoint),
+  );
+  const statusOk = check(response, {
+    'refresh succeeded': (result) => result.status === 200,
+  });
+  if (!statusOk) {
+    return { accessToken: null, refreshToken: null };
+  }
+  const body = response.json();
+  const tokenShapeOk = check(body, {
+    'refresh returned an access token': (value) =>
+      typeof value.access_token === 'string' && value.access_token.length > 0,
+    'refresh rotated the refresh token': (value) =>
+      typeof value.refresh_token === 'string' && value.refresh_token.length > 0,
+  });
+  if (!tokenShapeOk) {
+    return { accessToken: null, refreshToken: null };
+  }
+  return {
+    accessToken: body.access_token,
+    refreshToken: body.refresh_token,
+  };
+}
+
 export function bearerParams(accessToken, endpoint) {
   return {
     headers: {

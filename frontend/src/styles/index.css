@@ -201,6 +201,12 @@ a {
   -webkit-tap-highlight-color: transparent;
 }
 
+:root.theme-updating *,
+:root.theme-updating *::before,
+:root.theme-updating *::after {
+  transition: none !important;
+}
+
 ::selection {
   background: var(--selected);
   color: var(--color-neutral-950);
@@ -292,6 +298,111 @@ a {
 }
 
 @layer components {
+  .nav-icon-motion {
+    display: inline-flex;
+    height: 1.125rem;
+    width: 1.125rem;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    transform-origin: center;
+    transition:
+      transform 240ms ease,
+      opacity 220ms ease,
+      filter 240ms ease;
+  }
+
+  .group:hover .nav-icon-motion--lift,
+  .group:focus-visible .nav-icon-motion--lift {
+    transform: translateY(-2px);
+  }
+
+  .group:hover .nav-icon-motion--rotate,
+  .group:focus-visible .nav-icon-motion--rotate,
+  .group:hover .nav-icon-motion--progress,
+  .group:focus-visible .nav-icon-motion--progress {
+    transform: rotate(28deg);
+  }
+
+  .group:hover .nav-icon-motion--bounce,
+  .group:focus-visible .nav-icon-motion--bounce {
+    transform: translateY(-2px) scale(1.03);
+  }
+
+  .group:hover .nav-icon-motion--flow,
+  .group:focus-visible .nav-icon-motion--flow,
+  .group:hover .nav-icon-motion--chart-rise,
+  .group:focus-visible .nav-icon-motion--chart-rise {
+    transform: translate(2px, -1px);
+  }
+
+  .group:hover .nav-icon-motion--pop,
+  .group:focus-visible .nav-icon-motion--pop {
+    transform: scale(1.1);
+  }
+
+  .group:hover .nav-icon-motion--pulse,
+  .group:focus-visible .nav-icon-motion--pulse {
+    transform: scale(1.06);
+    opacity: 0.88;
+  }
+
+  .group:hover .nav-icon-motion--glow,
+  .group:focus-visible .nav-icon-motion--glow {
+    filter: drop-shadow(0 0 4px rgb(192 161 248 / 0.7));
+    transform: scale(1.05);
+  }
+
+  .group:hover .nav-icon-motion--shake,
+  .group:focus-visible .nav-icon-motion--shake {
+    animation: nav-icon-shake 280ms ease both;
+  }
+
+  .group:active .nav-icon-motion {
+    transform: scale(0.94);
+  }
+
+  .nav-icon-motion--active {
+    animation: nav-icon-entry 240ms ease both;
+  }
+
+  @keyframes nav-icon-entry {
+    from {
+      opacity: 0.72;
+      transform: translateY(2px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  @keyframes nav-icon-shake {
+    0%,
+    100% {
+      transform: rotate(0);
+    }
+    35% {
+      transform: rotate(-8deg);
+    }
+    70% {
+      transform: rotate(7deg);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .nav-icon-motion,
+    .group:hover .nav-icon-motion,
+    .group:focus-visible .nav-icon-motion,
+    .group:active .nav-icon-motion,
+    .nav-icon-motion--active {
+      animation: none !important;
+      filter: none !important;
+      transform: none !important;
+      transition: none !important;
+    }
+  }
+
   :root[data-theme="dark"] #main-content {
     color: var(--text-primary);
   }

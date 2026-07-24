@@ -818,6 +818,7 @@ async def test_orphan_reconciliation_recovers_crash_once_and_ignores_recent_jobs
     """A post-requeue crash is repaired once after age gating, without early races."""
     requested_by = await _user_id(session_factory, email="job-orphan@example.com")
     crashed_id = uuid4()
+    stranded_message_id = uuid4()
     recent_id = uuid4()
     now = utc_now()
     stale_time = now - timedelta(hours=2)
@@ -843,6 +844,22 @@ async def test_orphan_reconciliation_recovers_crash_once_and_ignores_recent_jobs
             queued_at=now - timedelta(minutes=2),
         )
         assert requeued == (crashed_id,)
+        stranded = await repository.create(
+            job_id=stranded_message_id,
+            requested_by_user_id=requested_by,
+            key=random_forest_key(TaskType.REGRESSION),
+            specification=_specification(seed=13),
+            idempotency_key=None,
+            request_fingerprint=_specification(seed=13).fingerprint(),
+            max_attempts=3,
+            queued_at=stale_time,
+        )
+        attached = await repository.set_queue_identifier(
+            job_id=stranded.id,
+            queue_message_id="stranded-broker-message",
+            expected_version=stranded.state_version,
+        )
+        assert attached is not None
         await repository.create(
             job_id=recent_id,
             requested_by_user_id=requested_by,
@@ -867,9 +884,12 @@ async def test_orphan_reconciliation_recovers_crash_once_and_ignores_recent_jobs
         first = await service.reconcile()
         second = await service.reconcile()
         recent = await TrainingJobRepository(session).get_by_id(recent_id)
+        stranded = await TrainingJobRepository(session).get_by_id(stranded_message_id)
 
-    assert first == (crashed_id,)
+    assert set(first) == {crashed_id, stranded_message_id}
     assert second == ()
-    assert queue.job_ids == [crashed_id]
+    assert set(queue.job_ids) == {crashed_id, stranded_message_id}
     assert recent is not None
     assert recent.queue_message_id is None
+    assert stranded is not None
+    assert stranded.queue_message_id == f"message-{stranded_message_id}"

@@ -18,6 +18,11 @@ def require_feature(feature: FeatureName) -> Callable[..., None]:
     """Return a dependency that fails closed when a feature is disabled."""
 
     def verify(settings: Annotated[Settings, Depends(get_settings)]) -> None:
+        if feature == "demo_tools_enabled" and settings.environment == "production":
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="This product capability is not enabled.",
+            )
         if not getattr(settings, feature):
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,

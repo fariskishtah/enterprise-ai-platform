@@ -55,6 +55,7 @@ class User(Base):
         default=uuid4,
     )
     email: Mapped[str] = mapped_column(String(length=320), nullable=False)
+    full_name: Mapped[str | None] = mapped_column(String(length=160))
     company_id: Mapped[UUID] = mapped_column(
         Uuid(as_uuid=True),
         ForeignKey("companies.id", ondelete="RESTRICT"),

@@ -141,7 +141,7 @@ section "Frontend browser and accessibility tests"
 (
   cd "$FRONTEND_DIR"
   npx playwright install chromium
-  E2E_BASE_URL=http://127.0.0.1:15173 npm run test:e2e
+  CI=true E2E_BASE_URL=http://127.0.0.1:15173 npm run test:e2e
 )
 
 section "Dependency and source security"
@@ -157,7 +157,7 @@ section "Dependency and source security"
 )
 (
   cd "$FRONTEND_DIR"
-  npm audit --audit-level=high --json >"$EVIDENCE_DIR/npm-audit.json"
+  npm run audit:security -- "$EVIDENCE_DIR/npm-audit.json"
   node scripts/write-license-inventory.mjs "$EVIDENCE_DIR/frontend-licenses.json"
 )
 docker run --rm --volume "$REPO_ROOT:/repo" \
@@ -210,12 +210,20 @@ section "Disposable staging runtime, real-backend browser, and smoke"
 export E2E_ADMIN_EMAIL="admin@release-validation.example"
 export E2E_ENGINEER_EMAIL="engineer@release-validation.example"
 export E2E_OPERATOR_EMAIL="operator@release-validation.example"
+export E2E_SMOKE_EMAIL="smoke@release-validation.example"
 E2E_PASSWORD="$(openssl rand -hex 18)Aa1!"
 export E2E_PASSWORD
 STAGING_STARTED=true
 "$REPO_ROOT/scripts/staging-local.sh" start
 "$REPO_ROOT/scripts/staging-local.sh" seed
 "$REPO_ROOT/scripts/staging-local.sh" seed
+
+BASE_URL=http://127.0.0.1:18080 \
+  SMOKE_ALLOW_HTTP=true \
+  SMOKE_DOCS_EXPECTED_STATUS=404 \
+  SMOKE_EMAIL="$E2E_SMOKE_EMAIL" \
+  SMOKE_PASSWORD="$E2E_PASSWORD" \
+  "$REPO_ROOT/scripts/smoke-production.sh"
 
 section "Encrypted backup and disposable recovery"
 BACKUP_COMPOSE_PROJECT_NAME=ai-manufacturing-staging-validation \
@@ -234,7 +242,7 @@ latest_backup="$(find "$EVIDENCE_DIR/backups" -maxdepth 1 -type f \
 BACKUP_COMPOSE_PROJECT_NAME=ai-manufacturing-staging-validation \
   BACKUP_COMPOSE_ENV_FILE="$REPO_ROOT/.staging-validation/environment" \
   BACKUP_COMPOSE_FILES="$REPO_ROOT/docker-compose.yml:$REPO_ROOT/docker-compose.prod.yml:$REPO_ROOT/docker-compose.staging.yml" \
-  BACKUP_ENCRYPTION_PASSPHRASE="$E2E_PASSWORD" \
+BACKUP_ENCRYPTION_PASSPHRASE="$E2E_PASSWORD" \
   RESTORE_EVIDENCE_DIR="$EVIDENCE_DIR" \
   "$REPO_ROOT/scripts/restore-validation.sh" "$latest_backup"
 
@@ -245,12 +253,6 @@ BACKUP_COMPOSE_PROJECT_NAME=ai-manufacturing-staging-validation \
     npm run test:e2e -- real-backend.spec.ts demo-operations.spec.ts \
       sprints-3-5.spec.ts --workers=1
 )
-BASE_URL=http://127.0.0.1:18080 \
-  SMOKE_ALLOW_HTTP=true \
-  SMOKE_DOCS_EXPECTED_STATUS=404 \
-  SMOKE_EMAIL="$E2E_ENGINEER_EMAIL" \
-  SMOKE_PASSWORD="$E2E_PASSWORD" \
-  "$REPO_ROOT/scripts/smoke-production.sh"
 
 echo
 echo "Full release validation passed. Evidence is in artifacts/release."

@@ -16,6 +16,7 @@ class UserResponse(BaseModel):
     id: UUID
     company_id: UUID
     email: EmailStr
+    full_name: str | None
     role: UserRole
     is_active: bool
     created_at: datetime
@@ -33,6 +34,7 @@ class UserCreateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     email: EmailStr
+    full_name: str | None = Field(default=None, min_length=2, max_length=160)
     password: str = Field(min_length=12, max_length=128)
     role: UserRole
 

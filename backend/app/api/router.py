@@ -39,6 +39,7 @@ from app.api.routes.sensor_data import (
 )
 from app.api.routes.sensors import machine_sensor_router
 from app.api.routes.sensors import router as sensors_router
+from app.api.routes.support import router as support_router
 from app.api.routes.users import router as users_router
 
 api_router = APIRouter()
@@ -73,4 +74,5 @@ api_router.include_router(machine_sensor_router)
 api_router.include_router(upload_jobs_router)
 api_router.include_router(sensor_readings_router)
 api_router.include_router(sensor_readings_nested_router)
+api_router.include_router(support_router)
 api_router.include_router(users_router)

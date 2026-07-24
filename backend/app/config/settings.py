@@ -6,6 +6,8 @@ from urllib.parse import urlsplit
 from uuid import UUID
 
 from pydantic import (
+    AliasChoices,
+    EmailStr,
     Field,
     FiniteFloat,
     NonNegativeFloat,
@@ -46,7 +48,10 @@ class Settings(BaseSettings):
     database_url: str = Field(min_length=1)
     redis_url: str = Field(min_length=1)
     secret_key: SecretStr = Field(min_length=32)
-    environment: EnvironmentName = "local"
+    environment: EnvironmentName = Field(
+        default="local",
+        validation_alias=AliasChoices("APP_ENV", "ENVIRONMENT", "environment"),
+    )
     enable_api_docs: bool = True
     jwt_algorithm: Literal["HS256"] = "HS256"
     jwt_issuer: str = Field(
@@ -65,6 +70,11 @@ class Settings(BaseSettings):
     refresh_token_expire_days: PositiveInt = 30
     password_reset_expire_minutes: PositiveInt = Field(default=30, le=1440)
     expose_local_password_reset_token: bool = False
+    email_provider: Literal["disabled", "resend"] = "disabled"
+    resend_api_key: SecretStr | None = None
+    email_from: EmailStr | None = None
+    support_email_to: EmailStr | None = None
+    support_email_max_attempts: PositiveInt = Field(default=3, le=5)
     simplified_experience_enabled: bool = False
     operations_workflow_enabled: bool = False
     demo_tools_enabled: bool = False
@@ -78,6 +88,11 @@ class Settings(BaseSettings):
         default=50 * 1024 * 1024,
         le=100 * 1024 * 1024,
     )
+    app_base_url: str | None = None
+    api_base_url: str | None = None
+    allowed_hosts: tuple[str, ...] = ("localhost", "127.0.0.1")
+    cookie_secure: bool = False
+    cookie_samesite: Literal["lax", "strict"] = "lax"
     cors_allowed_origins: tuple[str, ...] = (
         "http://localhost:5173",
         "http://127.0.0.1:5173",
@@ -351,6 +366,29 @@ class Settings(BaseSettings):
                 normalized_origins.append(normalized)
         return tuple(normalized_origins)
 
+    @field_validator("allowed_hosts")
+    @classmethod
+    def validate_allowed_hosts(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        """Require exact normalized hostnames rather than wildcard patterns."""
+        normalized: list[str] = []
+        for host in value:
+            candidate = host.strip().lower()
+            if (
+                not candidate
+                or "*" in candidate
+                or "://" in candidate
+                or "/" in candidate
+                or "@" in candidate
+                or candidate.startswith(".")
+                or candidate.endswith(".")
+            ):
+                raise ValueError("allowed_hosts contains an invalid exact hostname.")
+            if candidate not in normalized:
+                normalized.append(candidate)
+        if not normalized:
+            raise ValueError("allowed_hosts must contain at least one hostname.")
+        return tuple(normalized)
+
     @model_validator(mode="after")
     def validate_drift_threshold_order(self) -> Self:
         """Require the operational warning threshold below critical."""
@@ -364,6 +402,39 @@ class Settings(BaseSettings):
         ):
             raise ValueError(
                 "production cors_allowed_origins must not contain local origins."
+            )
+        if self.environment == "production":
+            for name, value in (
+                ("app_base_url", self.app_base_url),
+                ("api_base_url", self.api_base_url),
+            ):
+                parsed = urlsplit(value or "")
+                if (
+                    parsed.scheme != "https"
+                    or not parsed.hostname
+                    or parsed.username is not None
+                    or parsed.password is not None
+                    or parsed.fragment
+                ):
+                    raise ValueError(
+                        f"{name} must be a credential-free HTTPS URL in production."
+                    )
+            if not self.cookie_secure:
+                raise ValueError("cookie_secure must be true in production.")
+            if any(
+                host in {"localhost", "127.0.0.1", "::1"} for host in self.allowed_hosts
+            ):
+                raise ValueError(
+                    "production allowed_hosts must not contain local hosts."
+                )
+        if self.email_provider == "resend" and (
+            self.resend_api_key is None
+            or self.email_from is None
+            or self.support_email_to is None
+        ):
+            raise ValueError(
+                "resend_api_key, email_from, and support_email_to are required "
+                "when email_provider is resend."
             )
         otlp_endpoint = urlsplit(self.otel_exporter_otlp_endpoint)
         if (
