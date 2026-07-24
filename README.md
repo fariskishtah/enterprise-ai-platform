@@ -37,7 +37,8 @@ architecture, data-flow, deployment, and observability diagrams.
 
 ## Implemented product areas
 
-- JWT login, refresh rotation, logout, and admin/engineer/operator RBAC.
+- JWT login, refresh rotation, logout, admin/engineer/operator RBAC, and
+  company-scoped user, password, and session lifecycle controls.
 - Company → factory → machine → sensor hierarchy.
 - Manual sensor readings and bounded CSV upload jobs.
 - Owner-scoped dataset registry with immutable tabular/document versions.
@@ -51,12 +52,15 @@ architecture, data-flow, deployment, and observability diagrams.
   grounded/insufficient-evidence outcomes, and citations.
 - React routes for manufacturing, datasets, training, AutoML, models,
   predictions, monitoring, retraining, knowledge bases, and chat.
+- Company-scoped, append-only audit history with bounded filters and CSV/JSON
+  export for critical identity, data, model, prediction, alert, and retraining
+  actions.
 - Docker Compose local/staging/single-host deployment, optional HTTPS, backup,
   isolated restore verification, rollback, smoke, and observability tooling.
 
-User administration, enterprise identity, tenant management, complete audit
-logging, HA, off-host durable storage, semantic/LLM RAG, advanced document
-ingestion, billing, and entitlements are explicitly outside this release.
+Enterprise identity federation and automated tenant provisioning, HA, off-host
+durable storage, semantic/LLM RAG, advanced document ingestion, billing, and
+entitlements are explicitly outside this release.
 
 ## Repository layout
 

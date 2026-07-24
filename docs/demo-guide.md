@@ -46,7 +46,7 @@ tokens.
    readings.
 5. Open `GET /ai/training-jobs` to see the single succeeded demo job.
 6. Open `GET /ai/models/{registered_model_name}/versions/{version_or_alias}`
-   with `demo_random_forest_regression` and the version printed by the seed.
+   with `demo_predictive_maintenance_regression` and the version printed by the seed.
 7. Open `GET /ai/monitoring/prediction-events` and filter by that model name to
    see the successful one-row prediction audit and correlation ID.
 
