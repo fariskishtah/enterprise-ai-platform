@@ -79,6 +79,7 @@ class UploadJob(Base):
             name="ck_upload_jobs_finished_after_started",
         ),
         Index("ix_upload_jobs_created_by", "created_by"),
+        Index("ix_upload_jobs_company_created", "company_id", "created_at"),
         Index("ix_upload_jobs_status", "status"),
         Index("ix_upload_jobs_source", "source"),
         Index("ix_upload_jobs_created_at", "created_at"),
@@ -133,6 +134,11 @@ class UploadJob(Base):
     created_by: Mapped[UUID] = mapped_column(
         Uuid(as_uuid=True),
         ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    company_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("companies.id", ondelete="RESTRICT"),
         nullable=False,
     )
     created_at: Mapped[datetime] = mapped_column(

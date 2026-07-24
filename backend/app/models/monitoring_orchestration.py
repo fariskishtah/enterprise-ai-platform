@@ -63,10 +63,16 @@ class ModelMonitoringEvaluationEntity(Base):
             "window_end",
         ),
         Index("ix_monitoring_evaluation_status_time", "overall_status", "created_at"),
+        Index("ix_monitoring_evaluation_company_time", "company_id", "created_at"),
     )
 
     id: Mapped[UUID] = mapped_column(
         Uuid(as_uuid=True), primary_key=True, default=uuid4
+    )
+    company_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("companies.id", ondelete="RESTRICT"),
+        nullable=False,
     )
     registered_model_name: Mapped[str] = mapped_column(String(128), nullable=False)
     model_version: Mapped[str] = mapped_column(String(128), nullable=False)
@@ -189,10 +195,22 @@ class MonitoringAlertEntity(Base):
         ),
         Index("ix_monitoring_alert_severity_time", "severity", "last_detected_at"),
         Index("ix_monitoring_alert_evaluation", "monitoring_evaluation_id"),
+        Index("ix_monitoring_alert_company_status", "company_id", "status"),
     )
 
     id: Mapped[UUID] = mapped_column(
         Uuid(as_uuid=True), primary_key=True, default=uuid4
+    )
+    company_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("companies.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    factory_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("factories.id", ondelete="SET NULL")
+    )
+    machine_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("machines.id", ondelete="SET NULL")
     )
     alert_type: Mapped[MonitoringAlertType] = mapped_column(
         SQLAlchemyEnum(
@@ -245,6 +263,9 @@ class MonitoringAlertEntity(Base):
         Uuid(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
     )
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    operator_note: Mapped[str | None] = mapped_column(Text)
+    engineer_note: Mapped[str | None] = mapped_column(Text)
+    cooldown_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -278,10 +299,16 @@ class PredictionOutcomeEntity(Base):
         ),
         Index("ix_prediction_outcome_maturity", "label_maturity_at"),
         Index("ix_prediction_outcome_type", "outcome_type"),
+        Index("ix_prediction_outcome_company", "company_id", "created_at"),
     )
 
     id: Mapped[UUID] = mapped_column(
         Uuid(as_uuid=True), primary_key=True, default=uuid4
+    )
+    company_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("companies.id", ondelete="RESTRICT"),
+        nullable=False,
     )
     prediction_event_id: Mapped[UUID] = mapped_column(
         Uuid(as_uuid=True),

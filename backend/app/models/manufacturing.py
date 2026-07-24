@@ -14,6 +14,7 @@ from app.db.base import Base
 
 if TYPE_CHECKING:
     from app.models.sensor import Sensor
+    from app.models.user import User
 
 
 class Company(Base):
@@ -52,6 +53,7 @@ class Company(Base):
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
+    users: Mapped[list[User]] = relationship(back_populates="company")
 
 
 class Factory(Base):

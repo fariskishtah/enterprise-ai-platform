@@ -28,6 +28,7 @@ from app.models.monitoring_orchestration import (
     MonitoringJobLockEntity,
     PredictionOutcomeEntity,
 )
+from app.models.pilot import MachineRiskAssessment, ModelFeatureSchema
 from app.models.rag import (
     RAGChunkEmbedding,
     RAGConversation,
@@ -46,12 +47,13 @@ from app.models.sensor_data import (
     UploadJob,
     UploadJobStatus,
 )
-from app.models.user import RefreshToken, User, UserRole
+from app.models.user import AuditEvent, PasswordResetToken, RefreshToken, User, UserRole
 
 __all__ = [
     "AutoMLExecutionSlot",
     "AutoMLStudy",
     "AutoMLTrial",
+    "AuditEvent",
     "Company",
     "Dataset",
     "DatasetUsageReference",
@@ -61,6 +63,7 @@ __all__ = [
     "Experiment",
     "Factory",
     "Machine",
+    "MachineRiskAssessment",
     "ModelPromotionAudit",
     "ModelReferenceProfileEntity",
     "ModelMonitoringEvaluationEntity",
@@ -68,6 +71,7 @@ __all__ = [
     "ModelRetrainingPolicy",
     "ModelRetrainingRequest",
     "ModelArtifact",
+    "ModelFeatureSchema",
     "MonitoringAlertEntity",
     "MonitoringJobLockEntity",
     "ReadingQuality",
@@ -81,6 +85,7 @@ __all__ = [
     "RAGMessage",
     "RAGMessageCitation",
     "RefreshToken",
+    "PasswordResetToken",
     "PredictionEventEntity",
     "PredictionOutcomeEntity",
     "Sensor",

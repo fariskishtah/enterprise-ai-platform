@@ -40,7 +40,7 @@ class Dataset(Base):
     __tablename__ = "datasets"
     __table_args__ = (
         UniqueConstraint(
-            "owner_user_id", "normalized_name", name="uq_datasets_owner_name"
+            "company_id", "normalized_name", name="uq_datasets_company_name"
         ),
         CheckConstraint("state_version >= 0", name="ck_datasets_state_version"),
         CheckConstraint(
@@ -50,6 +50,7 @@ class Dataset(Base):
             "status IN ('active','archived','failed')", name="ck_datasets_status"
         ),
         Index("ix_datasets_owner_created", "owner_user_id", "created_at"),
+        Index("ix_datasets_company_created", "company_id", "created_at"),
         Index("ix_datasets_kind_status", "kind", "status"),
     )
 
@@ -58,6 +59,11 @@ class Dataset(Base):
     )
     owner_user_id: Mapped[UUID] = mapped_column(
         Uuid(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    company_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("companies.id", ondelete="RESTRICT"),
+        nullable=False,
     )
     name: Mapped[str] = mapped_column(String(128), nullable=False)
     normalized_name: Mapped[str] = mapped_column(String(128), nullable=False)

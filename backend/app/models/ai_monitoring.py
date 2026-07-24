@@ -54,7 +54,9 @@ class PredictionEventEntity(Base):
             name="ck_prediction_events_success_rows_positive",
         ),
         CheckConstraint(
-            "algorithm IN ('random_forest')",
+            "algorithm IN ('random_forest','logistic_regression','decision_tree',"
+            "'extra_trees','knn','svm','gradient_boosting','linear_regression',"
+            "'ridge','lasso','elastic_net','xgboost','lightgbm','catboost')",
             name="ck_prediction_events_algorithm_valid",
         ),
         CheckConstraint(
@@ -71,6 +73,7 @@ class PredictionEventEntity(Base):
         Index("ix_prediction_events_status", "status"),
         Index("ix_prediction_events_created_at", "created_at"),
         Index("ix_prediction_events_requested_by", "requested_by_user_id"),
+        Index("ix_prediction_events_company_time", "company_id", "created_at"),
         Index(
             "ix_prediction_events_model_window",
             "registered_model_name",
@@ -87,6 +90,11 @@ class PredictionEventEntity(Base):
     requested_by_user_id: Mapped[UUID] = mapped_column(
         Uuid(as_uuid=True),
         ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    company_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("companies.id", ondelete="RESTRICT"),
         nullable=False,
     )
     registered_model_name: Mapped[str] = mapped_column(String(128), nullable=False)
@@ -153,6 +161,7 @@ class ModelReferenceProfileEntity(Base):
     __tablename__ = "model_reference_profiles"
     __table_args__ = (
         UniqueConstraint(
+            "company_id",
             "registered_model_name",
             "model_version",
             name="uq_model_reference_profiles_version",
@@ -166,7 +175,9 @@ class ModelReferenceProfileEntity(Base):
             name="ck_model_reference_profiles_dimensions_positive",
         ),
         CheckConstraint(
-            "algorithm IN ('random_forest')",
+            "algorithm IN ('random_forest','logistic_regression','decision_tree',"
+            "'extra_trees','knn','svm','gradient_boosting','linear_regression',"
+            "'ridge','lasso','elastic_net','xgboost','lightgbm','catboost')",
             name="ck_model_reference_profiles_algorithm_valid",
         ),
         CheckConstraint(
@@ -175,6 +186,7 @@ class ModelReferenceProfileEntity(Base):
         ),
         Index(
             "ix_model_reference_profiles_model_version",
+            "company_id",
             "registered_model_name",
             "model_version",
             unique=True,
@@ -184,12 +196,23 @@ class ModelReferenceProfileEntity(Base):
             "training_job_id",
             unique=True,
         ),
+        Index(
+            "ix_model_reference_profiles_company_model",
+            "company_id",
+            "registered_model_name",
+            "model_version",
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(
         Uuid(as_uuid=True),
         primary_key=True,
         default=uuid4,
+    )
+    company_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("companies.id", ondelete="RESTRICT"),
+        nullable=False,
     )
     registered_model_name: Mapped[str] = mapped_column(String(128), nullable=False)
     model_version: Mapped[str] = mapped_column(String(128), nullable=False)
