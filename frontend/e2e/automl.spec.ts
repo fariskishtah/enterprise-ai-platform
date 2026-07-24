@@ -48,6 +48,13 @@ async function authenticated(
       updated_at: NOW,
     }),
   );
+  await page.route("**/product/features", (route) =>
+    json(route, {
+      demo_tools_enabled: false,
+      operations_workflow_enabled: true,
+      simplified_experience_enabled: true,
+    }),
+  );
 }
 
 function study(status: string) {

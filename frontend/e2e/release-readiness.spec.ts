@@ -38,6 +38,13 @@ async function mockAuthenticatedUser(page: Page, role: Role): Promise<void> {
       updated_at: NOW,
     }),
   );
+  await page.route("**/product/features", (route) =>
+    json(route, {
+      demo_tools_enabled: false,
+      operations_workflow_enabled: true,
+      simplified_experience_enabled: true,
+    }),
+  );
   await page.route("**/auth/logout", (route) => route.fulfill({ status: 204 }));
 }
 
@@ -226,6 +233,13 @@ test.describe("role-aware navigation", () => {
       await page.route(API_PATTERN, (route) => {
         if (route.request().url().endsWith("/users/me")) return route.fallback();
         if (route.request().url().endsWith("/auth/logout")) return route.fallback();
+        if (route.request().url().endsWith("/product/features")) {
+          return json(route, {
+            demo_tools_enabled: false,
+            operations_workflow_enabled: true,
+            simplified_experience_enabled: true,
+          });
+        }
         if (route.request().url().includes("/ai/retraining/audits")) {
           restrictedAuditRequests += 1;
         }
@@ -242,8 +256,12 @@ test.describe("role-aware navigation", () => {
       });
       await expect(navigation.getByRole("link", { name: "Settings" })).toBeVisible();
       if (role === "operator") {
-        await expect(navigation.getByRole("link", { name: "Dashboard" })).toBeVisible();
-        await expect(navigation.getByRole("link", { name: "Models" })).toBeVisible();
+        await expect(navigation.getByRole("link", { name: "Home" })).toBeVisible();
+        await expect(
+          navigation.getByRole("link", { name: "Required Actions" }),
+        ).toBeVisible();
+        await expect(navigation.getByRole("link", { name: "Alerts" })).toBeVisible();
+        await expect(navigation.getByRole("link", { name: "Models" })).toHaveCount(0);
         await expect(
           navigation.getByRole("link", { name: "Training Jobs" }),
         ).toHaveCount(0);
@@ -256,10 +274,7 @@ test.describe("role-aware navigation", () => {
         );
         await page.goto("/audit-log");
         await directRouteIdentityReady;
-        await expect(page).toHaveURL(/\/audit-log$/);
-        await expect(
-          page.getByRole("heading", { name: "Administrator access required" }),
-        ).toBeVisible();
+        await expect(page).toHaveURL(/\/$/);
         expect(restrictedAuditRequests).toBe(0);
       } else {
         await expect(
@@ -268,6 +283,22 @@ test.describe("role-aware navigation", () => {
         await expect(
           navigation.getByRole("link", { name: "Audit Logs" }),
         ).toBeVisible();
+        if (role === "admin") {
+          await page.getByLabel("Product experience").selectOption("simple");
+          await expect(
+            navigation.getByRole("link", { name: "Required Actions" }),
+          ).toBeVisible();
+          await expect(
+            navigation.getByRole("link", { name: "Training Jobs" }),
+          ).toHaveCount(0);
+          await page.goto("/training");
+          await expect(
+            page.getByRole("heading", {
+              name: "This technical area is hidden in Simple Mode",
+            }),
+          ).toBeVisible();
+          expect(restrictedAuditRequests).toBe(0);
+        }
       }
       expect(failures).toEqual([]);
     });

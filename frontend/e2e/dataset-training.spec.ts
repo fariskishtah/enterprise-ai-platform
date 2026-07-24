@@ -38,6 +38,13 @@ async function authenticated(page: Page): Promise<void> {
       updated_at: NOW,
     }),
   );
+  await page.route("**/product/features", (route) =>
+    json(route, {
+      demo_tools_enabled: false,
+      operations_workflow_enabled: true,
+      simplified_experience_enabled: true,
+    }),
+  );
 }
 
 async function registeredDatasetRoutes(page: Page): Promise<void> {
