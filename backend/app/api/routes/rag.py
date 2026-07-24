@@ -13,6 +13,7 @@ from app.dependencies.auth import require_roles
 from app.dependencies.database import get_db_session
 from app.dependencies.operational import require_training_worker_available
 from app.dependencies.rate_limit import enforce_mutation_rate_limit
+from app.dependencies.services import get_audit_service
 from app.models.rag import (
     RAGConversation,
     RAGIndexBuild,
@@ -44,6 +45,7 @@ from app.schemas.rag import (
     RetrievalSearchRequest,
     RetrievalSearchResponse,
 )
+from app.services.audit import AuditService
 from app.services.rag import (
     KnowledgeBaseDetail,
     RAGConflictError,
@@ -63,6 +65,7 @@ AuthorizedUser = Annotated[
 ]
 Session = Annotated[AsyncSession, Depends(get_db_session)]
 IndexQueue = Annotated[RAGIndexQueue, Depends(get_rag_index_queue)]
+Audit = Annotated[AuditService, Depends(get_audit_service)]
 
 
 def _service(session: AsyncSession) -> RAGService:
@@ -104,7 +107,7 @@ async def list_knowledge_bases(
 ) -> KnowledgeBasePageResponse:
     page = await _service(session).list_knowledge_bases(
         user_id=current_user.id,
-        is_admin=current_user.role is UserRole.ADMIN,
+        is_admin=False,
         status=status_filter,
         limit=limit,
         offset=offset,
@@ -128,10 +131,12 @@ async def create_knowledge_base(
     payload: KnowledgeBaseCreateRequest,
     current_user: AuthorizedUser,
     session: Session,
+    audit: Audit,
 ) -> KnowledgeBaseDetailResponse:
     try:
         detail = await _service(session).create_knowledge_base(
             owner_user_id=current_user.id,
+            company_id=current_user.company_id,
             name=payload.name,
             description=payload.description,
             chunk_size=payload.chunk_size,
@@ -139,6 +144,14 @@ async def create_knowledge_base(
         )
     except RAGServiceError as exc:
         raise _http_error(exc) from exc
+    await audit.record(
+        company_id=current_user.company_id,
+        actor=current_user,
+        action="knowledge_base.created",
+        resource_type="knowledge_base",
+        resource_id=detail.knowledge_base.id,
+        result="success",
+    )
     return _knowledge_base_detail(detail)
 
 
@@ -156,7 +169,7 @@ async def get_knowledge_base(
         detail = await _service(session).get_knowledge_base_detail(
             knowledge_base_id=knowledge_base_id,
             user_id=current_user.id,
-            is_admin=current_user.role is UserRole.ADMIN,
+            is_admin=False,
         )
     except RAGServiceError as exc:
         raise _http_error(exc) from exc
@@ -178,7 +191,7 @@ async def archive_knowledge_base(
         detail = await _service(session).archive_knowledge_base(
             knowledge_base_id=knowledge_base_id,
             user_id=current_user.id,
-            is_admin=current_user.role is UserRole.ADMIN,
+            is_admin=False,
         )
     except RAGServiceError as exc:
         raise _http_error(exc) from exc
@@ -197,16 +210,26 @@ async def attach_dataset_version(
     payload: DatasetVersionAttachmentRequest,
     current_user: AuthorizedUser,
     session: Session,
+    audit: Audit,
 ) -> DatasetVersionAttachmentResponse:
     try:
         attachment = await _service(session).attach_dataset_version(
             knowledge_base_id=knowledge_base_id,
             dataset_version_id=payload.dataset_version_id,
             user_id=current_user.id,
-            is_admin=current_user.role is UserRole.ADMIN,
+            is_admin=False,
         )
     except RAGServiceError as exc:
         raise _http_error(exc) from exc
+    await audit.record(
+        company_id=current_user.company_id,
+        actor=current_user,
+        action="knowledge_base.dataset_attached",
+        resource_type="knowledge_base",
+        resource_id=knowledge_base_id,
+        result="success",
+        metadata={"dataset_version_id": str(payload.dataset_version_id)},
+    )
     return DatasetVersionAttachmentResponse.model_validate(attachment)
 
 
@@ -227,7 +250,7 @@ async def detach_dataset_version(
             knowledge_base_id=knowledge_base_id,
             dataset_version_id=dataset_version_id,
             user_id=current_user.id,
-            is_admin=current_user.role is UserRole.ADMIN,
+            is_admin=False,
         )
     except RAGServiceError as exc:
         raise _http_error(exc) from exc
@@ -249,16 +272,26 @@ async def build_index(
     current_user: AuthorizedUser,
     session: Session,
     queue: IndexQueue,
+    audit: Audit,
 ) -> IndexBuildResponse:
     try:
         build = await _service(session).create_and_enqueue_build(
             knowledge_base_id=knowledge_base_id,
             user_id=current_user.id,
-            is_admin=current_user.role is UserRole.ADMIN,
+            is_admin=False,
             queue=queue,
         )
     except RAGServiceError as exc:
         raise _http_error(exc) from exc
+    await audit.record(
+        company_id=current_user.company_id,
+        actor=current_user,
+        action="knowledge_base.index_submitted",
+        resource_type="rag_index_build",
+        resource_id=build.id,
+        result="success",
+        metadata={"knowledge_base_id": str(knowledge_base_id)},
+    )
     return _build_response(build)
 
 
@@ -277,7 +310,7 @@ async def cancel_index_build(
         build = await _service(session).cancel_active_build(
             knowledge_base_id=knowledge_base_id,
             user_id=current_user.id,
-            is_admin=current_user.role is UserRole.ADMIN,
+            is_admin=False,
         )
     except RAGServiceError as exc:
         raise _http_error(exc) from exc
@@ -300,7 +333,7 @@ async def list_index_builds(
         page = await _service(session).list_builds(
             knowledge_base_id=knowledge_base_id,
             user_id=current_user.id,
-            is_admin=current_user.role is UserRole.ADMIN,
+            is_admin=False,
             limit=limit,
             offset=offset,
         )
@@ -330,7 +363,7 @@ async def search_knowledge_base(
         result = await _service(session).search(
             knowledge_base_id=knowledge_base_id,
             user_id=current_user.id,
-            is_admin=current_user.role is UserRole.ADMIN,
+            is_admin=False,
             query=payload.query,
             top_k=payload.top_k,
             min_score=float(payload.min_score),
@@ -373,7 +406,7 @@ async def list_conversations(
 ) -> ConversationPageResponse:
     page = await _service(session).list_conversations(
         user_id=current_user.id,
-        is_admin=current_user.role is UserRole.ADMIN,
+        is_admin=False,
         status=status_filter,
         limit=limit,
         offset=offset,
@@ -397,16 +430,26 @@ async def create_conversation(
     payload: ConversationCreateRequest,
     current_user: AuthorizedUser,
     session: Session,
+    audit: Audit,
 ) -> ConversationResponse:
     try:
         entity = await _service(session).create_conversation(
             owner_user_id=current_user.id,
-            is_admin=current_user.role is UserRole.ADMIN,
+            company_id=current_user.company_id,
+            is_admin=False,
             knowledge_base_id=payload.knowledge_base_id,
             title=payload.title,
         )
     except RAGServiceError as exc:
         raise _http_error(exc) from exc
+    await audit.record(
+        company_id=current_user.company_id,
+        actor=current_user,
+        action="rag.conversation_created",
+        resource_type="rag_conversation",
+        resource_id=entity.id,
+        result="success",
+    )
     return _conversation_response(entity)
 
 
@@ -424,7 +467,7 @@ async def get_conversation(
         entity = await _service(session).get_conversation(
             conversation_id=conversation_id,
             user_id=current_user.id,
-            is_admin=current_user.role is UserRole.ADMIN,
+            is_admin=False,
         )
     except RAGServiceError as exc:
         raise _http_error(exc) from exc
@@ -446,7 +489,7 @@ async def archive_conversation(
         entity = await _service(session).archive_conversation(
             conversation_id=conversation_id,
             user_id=current_user.id,
-            is_admin=current_user.role is UserRole.ADMIN,
+            is_admin=False,
         )
     except RAGServiceError as exc:
         raise _http_error(exc) from exc
@@ -469,7 +512,7 @@ async def list_messages(
         page = await _service(session).list_messages(
             conversation_id=conversation_id,
             user_id=current_user.id,
-            is_admin=current_user.role is UserRole.ADMIN,
+            is_admin=False,
             limit=limit,
             offset=offset,
         )
@@ -500,7 +543,7 @@ async def submit_message(
         result = await _service(session).submit_message(
             conversation_id=conversation_id,
             user_id=current_user.id,
-            is_admin=current_user.role is UserRole.ADMIN,
+            is_admin=False,
             content=payload.content,
             idempotency_key=payload.idempotency_key,
         )
@@ -522,15 +565,24 @@ async def cancel_message(
     message_id: UUID,
     current_user: AuthorizedUser,
     session: Session,
+    audit: Audit,
 ) -> MessageResponse:
     try:
         entity = await _service(session).cancel_message(
             message_id=message_id,
             user_id=current_user.id,
-            is_admin=current_user.role is UserRole.ADMIN,
+            is_admin=False,
         )
     except RAGServiceError as exc:
         raise _http_error(exc) from exc
+    await audit.record(
+        company_id=current_user.company_id,
+        actor=current_user,
+        action="rag.message_cancelled",
+        resource_type="rag_message",
+        resource_id=entity.id,
+        result="success",
+    )
     return _message_response(entity)
 
 

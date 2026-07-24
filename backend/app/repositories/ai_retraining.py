@@ -34,6 +34,7 @@ from app.models.ai_retraining import (
     ModelRetrainingPolicy,
     ModelRetrainingRequest,
 )
+from app.models.user import AuditEvent
 from app.repositories.ai_governance import _job_record
 from app.repositories.tenant import company_for_user
 
@@ -62,6 +63,33 @@ class RetrainingRepository:
 
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
+
+    async def append_terminal_audit(
+        self,
+        *,
+        request: RetrainingRequest,
+        job: TrainingJobRecord,
+        status: RetrainingRequestStatus,
+    ) -> None:
+        """Stage a safe unified event beside a terminal reconciliation."""
+        succeeded = status is RetrainingRequestStatus.COMPLETED
+        self._session.add(
+            AuditEvent(
+                company_id=job.company_id,
+                actor_user_id=request.requested_by_user_id,
+                actor_role=None,
+                action=("retraining.completed" if succeeded else "retraining.failed"),
+                resource_type="retraining_request",
+                resource_id=str(request.id),
+                result="success" if succeeded else "failure",
+                safe_metadata={
+                    "status": status.value,
+                    "training_job_id": str(job.id),
+                    "error_code": job.error_code,
+                },
+                retention_class="operations",
+            )
+        )
 
     async def get_policy(self, registered_model_name: str) -> RetrainingPolicy | None:
         entity = (

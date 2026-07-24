@@ -6,7 +6,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 
 from app.dependencies.auth import require_roles
-from app.dependencies.services import get_manufacturing_service
+from app.dependencies.services import get_audit_service, get_manufacturing_service
 from app.models.user import User, UserRole
 from app.schemas.common import PaginatedResponse, SortOrder
 from app.schemas.manufacturing import (
@@ -15,6 +15,7 @@ from app.schemas.manufacturing import (
     FactorySortField,
     FactoryUpdate,
 )
+from app.services.audit import AuditService
 from app.services.exceptions import RelatedResourceNotFoundError, ResourceNotFoundError
 from app.services.manufacturing import FactoryUpdateFields, ManufacturingService
 
@@ -39,7 +40,7 @@ def _related_not_found(exc: RelatedResourceNotFoundError) -> HTTPException:
     summary="List factories",
 )
 async def list_factories(
-    _current_user: Annotated[
+    current_user: Annotated[
         User,
         Depends(require_roles(UserRole.ADMIN, UserRole.ENGINEER, UserRole.OPERATOR)),
     ],
@@ -52,11 +53,12 @@ async def list_factories(
     sort_order: SortOrder = SortOrder.ASC,
 ) -> PaginatedResponse[FactoryResponse]:
     """List active factories with pagination, filtering, search, and sorting."""
+    del company_id  # The authenticated tenant always overrides this legacy filter.
     page = await service.list_factories(
         limit=limit,
         offset=offset,
         search=search,
-        company_id=company_id,
+        company_id=current_user.company_id,
         sort_by=sort_by,
         sort_order=sort_order,
     )
@@ -76,14 +78,17 @@ async def list_factories(
 )
 async def create_factory(
     payload: FactoryCreate,
-    _current_user: Annotated[
+    current_user: Annotated[
         User,
         Depends(require_roles(UserRole.ADMIN, UserRole.ENGINEER)),
     ],
     service: Annotated[ManufacturingService, Depends(get_manufacturing_service)],
+    audit: Annotated[AuditService, Depends(get_audit_service)],
 ) -> FactoryResponse:
     """Create a factory."""
     try:
+        if payload.company_id != current_user.company_id:
+            raise RelatedResourceNotFoundError("Company does not exist.")
         factory = await service.create_factory(
             company_id=payload.company_id,
             name=payload.name,
@@ -92,6 +97,14 @@ async def create_factory(
         )
     except RelatedResourceNotFoundError as exc:
         raise _related_not_found(exc) from exc
+    await audit.record(
+        company_id=current_user.company_id,
+        actor=current_user,
+        action="factory.created",
+        resource_type="factory",
+        resource_id=factory.id,
+        result="success",
+    )
     return FactoryResponse.model_validate(factory)
 
 
@@ -103,7 +116,7 @@ async def create_factory(
 )
 async def get_factory(
     factory_id: UUID,
-    _current_user: Annotated[
+    current_user: Annotated[
         User,
         Depends(require_roles(UserRole.ADMIN, UserRole.ENGINEER, UserRole.OPERATOR)),
     ],
@@ -111,7 +124,9 @@ async def get_factory(
 ) -> FactoryResponse:
     """Return a factory by ID."""
     try:
-        factory = await service.get_factory(factory_id)
+        factory = await service.get_factory_for_company(
+            factory_id, current_user.company_id
+        )
     except ResourceNotFoundError as exc:
         raise _not_found(exc) from exc
     return FactoryResponse.model_validate(factory)
@@ -126,14 +141,21 @@ async def get_factory(
 async def update_factory(
     factory_id: UUID,
     payload: FactoryUpdate,
-    _current_user: Annotated[
+    current_user: Annotated[
         User,
         Depends(require_roles(UserRole.ADMIN, UserRole.ENGINEER)),
     ],
     service: Annotated[ManufacturingService, Depends(get_manufacturing_service)],
+    audit: Annotated[AuditService, Depends(get_audit_service)],
 ) -> FactoryResponse:
     """Update a factory."""
     try:
+        await service.get_factory_for_company(factory_id, current_user.company_id)
+        if (
+            payload.company_id is not None
+            and payload.company_id != current_user.company_id
+        ):
+            raise RelatedResourceNotFoundError("Company does not exist.")
         factory = await service.update_factory(
             factory_id,
             FactoryUpdateFields(
@@ -148,6 +170,15 @@ async def update_factory(
         raise _related_not_found(exc) from exc
     except ResourceNotFoundError as exc:
         raise _not_found(exc) from exc
+    await audit.record(
+        company_id=current_user.company_id,
+        actor=current_user,
+        action="factory.updated",
+        resource_type="factory",
+        resource_id=factory.id,
+        result="success",
+        metadata={"fields": ",".join(sorted(payload.model_fields_set))},
+    )
     return FactoryResponse.model_validate(factory)
 
 
@@ -158,12 +189,22 @@ async def update_factory(
 )
 async def delete_factory(
     factory_id: UUID,
-    _current_user: Annotated[User, Depends(require_roles(UserRole.ADMIN))],
+    current_user: Annotated[User, Depends(require_roles(UserRole.ADMIN))],
     service: Annotated[ManufacturingService, Depends(get_manufacturing_service)],
+    audit: Annotated[AuditService, Depends(get_audit_service)],
 ) -> Response:
     """Soft delete a factory."""
     try:
+        await service.get_factory_for_company(factory_id, current_user.company_id)
         await service.delete_factory(factory_id)
     except ResourceNotFoundError as exc:
         raise _not_found(exc) from exc
+    await audit.record(
+        company_id=current_user.company_id,
+        actor=current_user,
+        action="factory.deleted",
+        resource_type="factory",
+        resource_id=factory_id,
+        result="success",
+    )
     return Response(status_code=status.HTTP_204_NO_CONTENT)

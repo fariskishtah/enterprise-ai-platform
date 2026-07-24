@@ -19,6 +19,7 @@ from app.dependencies.auth import require_roles
 from app.dependencies.database import get_db_session
 from app.dependencies.datasets import get_dataset_service
 from app.dependencies.rate_limit import enforce_mutation_rate_limit
+from app.dependencies.services import get_audit_service
 from app.ml.automl.champion import ChampionCandidate, rank_champions
 from app.ml.automl.models import (
     AutoMLDataSpecificationReference,
@@ -51,6 +52,7 @@ from app.schemas.automl import (
     AutoMLTrialListResponse,
     AutoMLTrialSummaryResponse,
 )
+from app.services.audit import AuditService
 from app.services.automl import AutoMLConflictError, AutoMLNotFoundError, AutoMLService
 
 router = APIRouter(prefix="/ai/automl", tags=["AI AutoML"])
@@ -123,6 +125,7 @@ async def create_study(
     session: Annotated[AsyncSession, Depends(get_db_session)],
     dataset_service: Annotated[DatasetService, Depends(get_dataset_service)],
     queue: Annotated[AutoMLQueue, Depends(get_automl_queue)],
+    audit: Annotated[AuditService, Depends(get_audit_service)],
     idempotency_key: Annotated[
         str | None, Header(alias="Idempotency-Key", max_length=128)
     ] = None,
@@ -138,9 +141,7 @@ async def create_study(
         try:
             snapshot = await dataset_service.resolve_training_snapshot(
                 dataset_version_id,
-                owner_id=(
-                    None if current_user.role is UserRole.ADMIN else current_user.id
-                ),
+                owner_id=current_user.company_id,
             )
         except DatasetNotFoundError as exc:
             raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
@@ -198,6 +199,15 @@ async def create_study(
                 await session.rollback()
         except Exception:
             await session.rollback()
+        await audit.record(
+            company_id=current_user.company_id,
+            actor=current_user,
+            action="automl.submitted",
+            resource_type="automl_study",
+            resource_id=study.id,
+            result="success",
+            metadata={"task_type": study.task_type.value},
+        )
     return AutoMLStudySubmissionResponse(
         study_id=study.id,
         status=study.status,
@@ -362,6 +372,7 @@ async def cancel_study(
         User, Depends(require_roles(UserRole.ADMIN, UserRole.ENGINEER))
     ],
     session: Annotated[AsyncSession, Depends(get_db_session)],
+    audit: Annotated[AuditService, Depends(get_audit_service)],
 ) -> AutoMLCancelResponse:
     try:
         value, outcome = await _service(session).cancel(
@@ -373,6 +384,15 @@ async def cancel_study(
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
     except AutoMLConflictError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    await audit.record(
+        company_id=current_user.company_id,
+        actor=current_user,
+        action="automl.cancelled",
+        resource_type="automl_study",
+        resource_id=value.id,
+        result="success",
+        metadata={"outcome": str(outcome)},
+    )
     return AutoMLCancelResponse(
         study_id=value.id,
         status=value.status,

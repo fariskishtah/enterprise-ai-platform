@@ -145,6 +145,11 @@ class RetrainingCompletionService:
                 comparison=comparison,
                 updated_at=now,
             )
+            await self._repository.append_terminal_audit(
+                request=request,
+                job=job,
+                status=RetrainingRequestStatus.COMPLETED,
+            )
             await self._repository.commit()
             return "synchronized"
         if job.status in {TrainingJobStatus.FAILED, TrainingJobStatus.CANCELLED}:
@@ -160,6 +165,11 @@ class RetrainingCompletionService:
                 failure_code=job.error_code,
                 failure_message=job.safe_error_message,
                 updated_at=now,
+            )
+            await self._repository.append_terminal_audit(
+                request=request,
+                job=job,
+                status=status,
             )
             await self._repository.commit()
             return "failed"

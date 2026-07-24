@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, 
 from app.dependencies.auth import require_roles
 from app.dependencies.rate_limit import enforce_mutation_rate_limit
 from app.dependencies.services import (
+    get_audit_service,
     get_sensor_data_etl_service,
     get_sensor_data_service,
 )
@@ -23,6 +24,7 @@ from app.schemas.sensor_data import (
     UploadJobResponse,
     UploadJobSortField,
 )
+from app.services.audit import AuditService
 from app.services.exceptions import (
     InvalidSensorDataUploadError,
     InvalidSensorReadingError,
@@ -79,12 +81,22 @@ async def create_upload_job(
         Depends(require_roles(UserRole.ADMIN, UserRole.ENGINEER)),
     ],
     service: Annotated[SensorDataService, Depends(get_sensor_data_service)],
+    audit: Annotated[AuditService, Depends(get_audit_service)],
 ) -> UploadJobResponse:
     """Create an upload job."""
     upload_job = await service.create_upload_job(
         filename=payload.filename,
         source=payload.source,
         created_by=current_user.id,
+    )
+    await audit.record(
+        company_id=current_user.company_id,
+        actor=current_user,
+        action="sensor_ingestion.created",
+        resource_type="upload_job",
+        resource_id=upload_job.id,
+        result="success",
+        metadata={"source": upload_job.source.value},
     )
     return UploadJobResponse.model_validate(upload_job)
 
@@ -102,11 +114,12 @@ async def upload_sensor_readings_csv(
         UploadFile,
         File(description="CSV file containing sensor readings"),
     ],
-    _current_user: Annotated[
+    current_user: Annotated[
         User,
         Depends(require_roles(UserRole.ADMIN, UserRole.ENGINEER)),
     ],
     service: Annotated[SensorDataEtlService, Depends(get_sensor_data_etl_service)],
+    audit: Annotated[AuditService, Depends(get_audit_service)],
 ) -> UploadJobResponse:
     """Process a CSV file into sensor readings for an upload job."""
     try:
@@ -115,9 +128,41 @@ async def upload_sensor_readings_csv(
             file=file.file,
         )
     except InvalidSensorDataUploadError as exc:
+        await audit.record(
+            company_id=current_user.company_id,
+            actor=current_user,
+            action="sensor_ingestion.completed",
+            resource_type="upload_job",
+            resource_id=upload_job_id,
+            result="failure",
+            metadata={"error_category": "invalid_upload"},
+        )
         raise _invalid_upload(exc) from exc
     except ResourceNotFoundError as exc:
+        await audit.record(
+            company_id=current_user.company_id,
+            actor=current_user,
+            action="sensor_ingestion.completed",
+            resource_type="upload_job",
+            resource_id=upload_job_id,
+            result="failure",
+            metadata={"error_category": "not_found"},
+        )
         raise _not_found(exc) from exc
+    await audit.record(
+        company_id=current_user.company_id,
+        actor=current_user,
+        action="sensor_ingestion.completed",
+        resource_type="upload_job",
+        resource_id=upload_job.id,
+        result="success",
+        metadata={
+            "status": upload_job.status.value,
+            "total_rows": upload_job.total_rows,
+            "valid_rows": upload_job.valid_rows,
+            "invalid_rows": upload_job.invalid_rows,
+        },
+    )
     return UploadJobResponse.model_validate(upload_job)
 
 

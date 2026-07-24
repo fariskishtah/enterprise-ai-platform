@@ -6,7 +6,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 
 from app.dependencies.auth import require_roles
-from app.dependencies.services import get_sensor_service
+from app.dependencies.services import get_audit_service, get_sensor_service
 from app.models.user import User, UserRole
 from app.schemas.common import PaginatedResponse, SortOrder
 from app.schemas.sensors import (
@@ -15,6 +15,7 @@ from app.schemas.sensors import (
     SensorSortField,
     SensorUpdate,
 )
+from app.services.audit import AuditService
 from app.services.exceptions import (
     DuplicateSensorNameError,
     InvalidSensorRangeError,
@@ -56,7 +57,7 @@ def _invalid_range(exc: InvalidSensorRangeError) -> HTTPException:
     summary="List sensors",
 )
 async def list_sensors(
-    _current_user: Annotated[
+    current_user: Annotated[
         User,
         Depends(require_roles(UserRole.ADMIN, UserRole.ENGINEER, UserRole.OPERATOR)),
     ],
@@ -76,6 +77,7 @@ async def list_sensors(
         machine_id=machine_id,
         sort_by=sort_by,
         sort_order=sort_order,
+        company_id=current_user.company_id,
     )
     return PaginatedResponse(
         items=[SensorResponse.model_validate(item) for item in page.items],
@@ -93,14 +95,24 @@ async def list_sensors(
 )
 async def create_sensor(
     payload: SensorCreate,
-    _current_user: Annotated[
+    current_user: Annotated[
         User,
         Depends(require_roles(UserRole.ADMIN, UserRole.ENGINEER)),
     ],
     service: Annotated[SensorService, Depends(get_sensor_service)],
+    audit: Annotated[AuditService, Depends(get_audit_service)],
 ) -> SensorResponse:
     """Create a sensor."""
     try:
+        await service.list_machine_sensors(
+            machine_id=payload.machine_id,
+            limit=1,
+            offset=0,
+            search=None,
+            sort_by=SensorSortField.CREATED_AT,
+            sort_order=SortOrder.ASC,
+            company_id=current_user.company_id,
+        )
         sensor = await service.create_sensor(
             machine_id=payload.machine_id,
             name=payload.name,
@@ -117,6 +129,18 @@ async def create_sensor(
         raise _invalid_range(exc) from exc
     except RelatedResourceNotFoundError as exc:
         raise _related_not_found(exc) from exc
+    except ResourceNotFoundError as exc:
+        raise _related_not_found(
+            RelatedResourceNotFoundError("Machine does not exist."),
+        ) from exc
+    await audit.record(
+        company_id=current_user.company_id,
+        actor=current_user,
+        action="sensor.created",
+        resource_type="sensor",
+        resource_id=sensor.id,
+        result="success",
+    )
     return SensorResponse.model_validate(sensor)
 
 
@@ -128,7 +152,7 @@ async def create_sensor(
 )
 async def get_sensor(
     sensor_id: UUID,
-    _current_user: Annotated[
+    current_user: Annotated[
         User,
         Depends(require_roles(UserRole.ADMIN, UserRole.ENGINEER, UserRole.OPERATOR)),
     ],
@@ -136,7 +160,9 @@ async def get_sensor(
 ) -> SensorResponse:
     """Return a sensor by ID."""
     try:
-        sensor = await service.get_sensor(sensor_id)
+        sensor = await service.get_sensor_for_company(
+            sensor_id, current_user.company_id
+        )
     except ResourceNotFoundError as exc:
         raise _not_found(exc) from exc
     return SensorResponse.model_validate(sensor)
@@ -151,14 +177,26 @@ async def get_sensor(
 async def update_sensor(
     sensor_id: UUID,
     payload: SensorUpdate,
-    _current_user: Annotated[
+    current_user: Annotated[
         User,
         Depends(require_roles(UserRole.ADMIN, UserRole.ENGINEER)),
     ],
     service: Annotated[SensorService, Depends(get_sensor_service)],
+    audit: Annotated[AuditService, Depends(get_audit_service)],
 ) -> SensorResponse:
     """Update a sensor."""
     try:
+        await service.get_sensor_for_company(sensor_id, current_user.company_id)
+        if payload.machine_id is not None:
+            await service.list_machine_sensors(
+                machine_id=payload.machine_id,
+                limit=1,
+                offset=0,
+                search=None,
+                sort_by=SensorSortField.CREATED_AT,
+                sort_order=SortOrder.ASC,
+                company_id=current_user.company_id,
+            )
         sensor = await service.update_sensor(
             sensor_id,
             SensorUpdateFields(
@@ -181,6 +219,15 @@ async def update_sensor(
         raise _related_not_found(exc) from exc
     except ResourceNotFoundError as exc:
         raise _not_found(exc) from exc
+    await audit.record(
+        company_id=current_user.company_id,
+        actor=current_user,
+        action="sensor.updated",
+        resource_type="sensor",
+        resource_id=sensor.id,
+        result="success",
+        metadata={"fields": ",".join(sorted(payload.model_fields_set))},
+    )
     return SensorResponse.model_validate(sensor)
 
 
@@ -191,14 +238,24 @@ async def update_sensor(
 )
 async def delete_sensor(
     sensor_id: UUID,
-    _current_user: Annotated[User, Depends(require_roles(UserRole.ADMIN))],
+    current_user: Annotated[User, Depends(require_roles(UserRole.ADMIN))],
     service: Annotated[SensorService, Depends(get_sensor_service)],
+    audit: Annotated[AuditService, Depends(get_audit_service)],
 ) -> Response:
     """Soft delete a sensor."""
     try:
+        await service.get_sensor_for_company(sensor_id, current_user.company_id)
         await service.delete_sensor(sensor_id)
     except ResourceNotFoundError as exc:
         raise _not_found(exc) from exc
+    await audit.record(
+        company_id=current_user.company_id,
+        actor=current_user,
+        action="sensor.deleted",
+        resource_type="sensor",
+        resource_id=sensor_id,
+        result="success",
+    )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -210,7 +267,7 @@ async def delete_sensor(
 )
 async def list_machine_sensors(
     machine_id: UUID,
-    _current_user: Annotated[
+    current_user: Annotated[
         User,
         Depends(require_roles(UserRole.ADMIN, UserRole.ENGINEER, UserRole.OPERATOR)),
     ],
@@ -230,6 +287,7 @@ async def list_machine_sensors(
             search=search,
             sort_by=sort_by,
             sort_order=sort_order,
+            company_id=current_user.company_id,
         )
     except ResourceNotFoundError as exc:
         raise _not_found(exc) from exc

@@ -48,6 +48,7 @@ from app.repositories.ai_governance import (
 )
 from app.repositories.ai_monitoring import PredictionMonitoringRepository
 from app.repositories.ai_retraining import RetrainingRepository
+from app.repositories.audit import AuditRepository
 from app.repositories.feature_engineering import FeatureEngineeringRepository
 from app.repositories.manufacturing import ManufacturingRepository
 from app.repositories.mlops import MLOpsRepository
@@ -57,6 +58,7 @@ from app.repositories.prediction_outcomes import PredictionOutcomeRepository
 from app.repositories.sensor_data import SensorDataRepository
 from app.repositories.sensors import SensorRepository
 from app.repositories.users import UserRepository
+from app.services.audit import AuditService
 from app.services.authentication import AuthenticationService
 from app.services.feature_engineering import FeatureEngineeringService
 from app.services.manufacturing import ManufacturingService
@@ -83,6 +85,13 @@ def get_user_repository(
 ) -> UserRepository:
     """Return the user repository."""
     return UserRepository(session)
+
+
+def get_audit_service(
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> AuditService:
+    """Return append-only audit use cases."""
+    return AuditService(AuditRepository(session))
 
 
 def get_manufacturing_repository(

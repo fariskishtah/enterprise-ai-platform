@@ -65,6 +65,7 @@ from app.ml.trainers.random_forest.types import (
     RegressionPredictionArray,
     RegressionTargetArray,
 )
+from app.models.user import AuditEvent
 from app.observability.logging import emit_safe
 from app.observability.metrics import record_training_job_finished
 from app.repositories.ai_governance import TrainingJobRepository
@@ -308,6 +309,23 @@ class TrainingJobWorker:
                     },
                 )
                 return WorkerExecutionState.SKIPPED
+            session.add(
+                AuditEvent(
+                    company_id=completed.company_id,
+                    actor_user_id=completed.requested_by_user_id,
+                    actor_role=None,
+                    action="training.succeeded",
+                    resource_type="training_job",
+                    resource_id=str(completed.id),
+                    result="success",
+                    safe_metadata={
+                        "algorithm": completed.key.algorithm.value,
+                        "task_type": completed.key.task_type.value,
+                        "model_version": completed.registered_model_version,
+                    },
+                    retention_class="operations",
+                )
+            )
             await repository.commit()
         return finished(WorkerExecutionState.SUCCEEDED)
 
@@ -396,6 +414,23 @@ class TrainingJobWorker:
             if failed is None:
                 await repository.rollback()
                 return WorkerExecutionState.SKIPPED
+            session.add(
+                AuditEvent(
+                    company_id=failed.company_id,
+                    actor_user_id=failed.requested_by_user_id,
+                    actor_role=None,
+                    action="training.failed",
+                    resource_type="training_job",
+                    resource_id=str(failed.id),
+                    result="failure",
+                    safe_metadata={
+                        "algorithm": failed.key.algorithm.value,
+                        "task_type": failed.key.task_type.value,
+                        "error_code": error_code,
+                    },
+                    retention_class="operations",
+                )
+            )
             await repository.commit()
         return WorkerExecutionState.TERMINAL
 

@@ -6,7 +6,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 
 from app.dependencies.auth import require_roles
-from app.dependencies.services import get_manufacturing_service
+from app.dependencies.services import get_audit_service, get_manufacturing_service
 from app.models.user import User, UserRole
 from app.schemas.common import PaginatedResponse, SortOrder
 from app.schemas.manufacturing import (
@@ -15,6 +15,7 @@ from app.schemas.manufacturing import (
     MachineSortField,
     MachineUpdate,
 )
+from app.services.audit import AuditService
 from app.services.exceptions import RelatedResourceNotFoundError, ResourceNotFoundError
 from app.services.manufacturing import MachineUpdateFields, ManufacturingService
 
@@ -39,7 +40,7 @@ def _related_not_found(exc: RelatedResourceNotFoundError) -> HTTPException:
     summary="List machines",
 )
 async def list_machines(
-    _current_user: Annotated[
+    current_user: Annotated[
         User,
         Depends(require_roles(UserRole.ADMIN, UserRole.ENGINEER, UserRole.OPERATOR)),
     ],
@@ -53,12 +54,13 @@ async def list_machines(
     sort_order: SortOrder = SortOrder.ASC,
 ) -> PaginatedResponse[MachineResponse]:
     """List active machines with pagination, filtering, search, and sorting."""
+    del company_id  # The authenticated tenant always overrides this legacy filter.
     page = await service.list_machines(
         limit=limit,
         offset=offset,
         search=search,
         factory_id=factory_id,
-        company_id=company_id,
+        company_id=current_user.company_id,
         sort_by=sort_by,
         sort_order=sort_order,
     )
@@ -78,16 +80,20 @@ async def list_machines(
 )
 async def create_machine(
     payload: MachineCreate,
-    _current_user: Annotated[
+    current_user: Annotated[
         User,
         Depends(require_roles(UserRole.ADMIN, UserRole.ENGINEER)),
     ],
     service: Annotated[ManufacturingService, Depends(get_manufacturing_service)],
+    audit: Annotated[AuditService, Depends(get_audit_service)],
 ) -> MachineResponse:
     """Create a machine."""
     try:
+        factory = await service.get_factory_for_company(
+            payload.factory_id, current_user.company_id
+        )
         machine = await service.create_machine(
-            factory_id=payload.factory_id,
+            factory_id=factory.id,
             name=payload.name,
             serial_number=payload.serial_number,
             manufacturer=payload.manufacturer,
@@ -95,6 +101,18 @@ async def create_machine(
         )
     except RelatedResourceNotFoundError as exc:
         raise _related_not_found(exc) from exc
+    except ResourceNotFoundError as exc:
+        raise _related_not_found(
+            RelatedResourceNotFoundError("Factory does not exist."),
+        ) from exc
+    await audit.record(
+        company_id=current_user.company_id,
+        actor=current_user,
+        action="machine.created",
+        resource_type="machine",
+        resource_id=machine.id,
+        result="success",
+    )
     return MachineResponse.model_validate(machine)
 
 
@@ -106,7 +124,7 @@ async def create_machine(
 )
 async def get_machine(
     machine_id: UUID,
-    _current_user: Annotated[
+    current_user: Annotated[
         User,
         Depends(require_roles(UserRole.ADMIN, UserRole.ENGINEER, UserRole.OPERATOR)),
     ],
@@ -114,7 +132,9 @@ async def get_machine(
 ) -> MachineResponse:
     """Return a machine by ID."""
     try:
-        machine = await service.get_machine(machine_id)
+        machine = await service.get_machine_for_company(
+            machine_id, current_user.company_id
+        )
     except ResourceNotFoundError as exc:
         raise _not_found(exc) from exc
     return MachineResponse.model_validate(machine)
@@ -129,14 +149,20 @@ async def get_machine(
 async def update_machine(
     machine_id: UUID,
     payload: MachineUpdate,
-    _current_user: Annotated[
+    current_user: Annotated[
         User,
         Depends(require_roles(UserRole.ADMIN, UserRole.ENGINEER)),
     ],
     service: Annotated[ManufacturingService, Depends(get_manufacturing_service)],
+    audit: Annotated[AuditService, Depends(get_audit_service)],
 ) -> MachineResponse:
     """Update a machine."""
     try:
+        await service.get_machine_for_company(machine_id, current_user.company_id)
+        if payload.factory_id is not None:
+            await service.get_factory_for_company(
+                payload.factory_id, current_user.company_id
+            )
         machine = await service.update_machine(
             machine_id,
             MachineUpdateFields(
@@ -152,6 +178,15 @@ async def update_machine(
         raise _related_not_found(exc) from exc
     except ResourceNotFoundError as exc:
         raise _not_found(exc) from exc
+    await audit.record(
+        company_id=current_user.company_id,
+        actor=current_user,
+        action="machine.updated",
+        resource_type="machine",
+        resource_id=machine.id,
+        result="success",
+        metadata={"fields": ",".join(sorted(payload.model_fields_set))},
+    )
     return MachineResponse.model_validate(machine)
 
 
@@ -162,12 +197,22 @@ async def update_machine(
 )
 async def delete_machine(
     machine_id: UUID,
-    _current_user: Annotated[User, Depends(require_roles(UserRole.ADMIN))],
+    current_user: Annotated[User, Depends(require_roles(UserRole.ADMIN))],
     service: Annotated[ManufacturingService, Depends(get_manufacturing_service)],
+    audit: Annotated[AuditService, Depends(get_audit_service)],
 ) -> Response:
     """Soft delete a machine."""
     try:
+        await service.get_machine_for_company(machine_id, current_user.company_id)
         await service.delete_machine(machine_id)
     except ResourceNotFoundError as exc:
         raise _not_found(exc) from exc
+    await audit.record(
+        company_id=current_user.company_id,
+        actor=current_user,
+        action="machine.deleted",
+        resource_type="machine",
+        resource_id=machine_id,
+        result="success",
+    )
     return Response(status_code=status.HTTP_204_NO_CONTENT)

@@ -31,6 +31,7 @@ from app.dependencies.rate_limit import enforce_mutation_rate_limit
 from app.dependencies.services import (
     get_ai_model_registry,
     get_ai_registered_model_loader,
+    get_audit_service,
     get_model_promotion_service,
     get_training_job_service,
 )
@@ -96,6 +97,7 @@ from app.schemas.ai_governance import (
     TrainingJobResponse,
     TrainingJobSubmissionResponse,
 )
+from app.services.audit import AuditService
 
 router = APIRouter(prefix="/ai", tags=["ai"])
 
@@ -169,6 +171,7 @@ async def submit_generic_training_job(
     service: Annotated[TrainingJobService, Depends(get_training_job_service)],
     dataset_service: Annotated[DatasetService, Depends(get_dataset_service)],
     settings: Annotated[Settings, Depends(get_settings)],
+    audit: Annotated[AuditService, Depends(get_audit_service)],
     idempotency_key: Annotated[
         str | None,
         Header(alias="Idempotency-Key", max_length=128),
@@ -180,9 +183,7 @@ async def submit_generic_training_job(
         try:
             dataset_snapshot = await dataset_service.resolve_training_snapshot(
                 payload.dataset_version_id,
-                owner_id=(
-                    None if current_user.role is UserRole.ADMIN else current_user.id
-                ),
+                owner_id=current_user.company_id,
             )
         except DatasetNotFoundError as exc:
             raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
@@ -316,6 +317,19 @@ async def submit_generic_training_job(
     )
     if not submission.created:
         response.status_code = status.HTTP_200_OK
+    else:
+        await audit.record(
+            company_id=current_user.company_id,
+            actor=current_user,
+            action="training.submitted",
+            resource_type="training_job",
+            resource_id=submission.job.id,
+            result="success",
+            metadata={
+                "algorithm": submission.job.key.algorithm.value,
+                "task_type": submission.job.key.task_type.value,
+            },
+        )
     return _submission_response(submission.job)
 
 
@@ -344,6 +358,7 @@ async def submit_random_forest_regression_job(
     ],
     service: Annotated[TrainingJobService, Depends(get_training_job_service)],
     settings: Annotated[Settings, Depends(get_settings)],
+    audit: Annotated[AuditService, Depends(get_audit_service)],
     idempotency_key: Annotated[
         str | None,
         Header(alias="Idempotency-Key", max_length=128),
@@ -378,6 +393,16 @@ async def submit_random_forest_regression_job(
     )
     if not submission.created:
         response.status_code = status.HTTP_200_OK
+    else:
+        await audit.record(
+            company_id=current_user.company_id,
+            actor=current_user,
+            action="training.submitted",
+            resource_type="training_job",
+            resource_id=submission.job.id,
+            result="success",
+            metadata={"algorithm": "random_forest", "task_type": "regression"},
+        )
     return _submission_response(submission.job)
 
 
@@ -405,6 +430,7 @@ async def submit_random_forest_classification_job(
     ],
     service: Annotated[TrainingJobService, Depends(get_training_job_service)],
     settings: Annotated[Settings, Depends(get_settings)],
+    audit: Annotated[AuditService, Depends(get_audit_service)],
     idempotency_key: Annotated[
         str | None,
         Header(alias="Idempotency-Key", max_length=128),
@@ -439,6 +465,16 @@ async def submit_random_forest_classification_job(
     )
     if not submission.created:
         response.status_code = status.HTTP_200_OK
+    else:
+        await audit.record(
+            company_id=current_user.company_id,
+            actor=current_user,
+            action="training.submitted",
+            resource_type="training_job",
+            resource_id=submission.job.id,
+            result="success",
+            metadata={"algorithm": "random_forest", "task_type": "classification"},
+        )
     return _submission_response(submission.job)
 
 
@@ -605,20 +641,28 @@ async def cancel_training_job(
         Depends(require_roles(UserRole.ADMIN, UserRole.ENGINEER)),
     ],
     service: Annotated[TrainingJobService, Depends(get_training_job_service)],
+    audit: Annotated[AuditService, Depends(get_audit_service)],
 ) -> TrainingJobResponse:
     """Persist cancellation only before a worker claims the job."""
     try:
-        return _job_response(
-            await service.cancel(
-                job_id=job_id,
-                current_user_id=current_user.id,
-                is_admin=current_user.role is UserRole.ADMIN,
-            ),
+        cancelled = await service.cancel(
+            job_id=job_id,
+            current_user_id=current_user.id,
+            is_admin=current_user.role is UserRole.ADMIN,
         )
     except TrainingJobNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except TrainingJobConflictError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    await audit.record(
+        company_id=current_user.company_id,
+        actor=current_user,
+        action="training.cancelled",
+        resource_type="training_job",
+        resource_id=job_id,
+        result="success",
+    )
+    return _job_response(cancelled)
 
 
 @router.post(
@@ -643,10 +687,11 @@ async def promote_challenger(
         ModelPromotionService,
         Depends(get_model_promotion_service),
     ],
+    audit: Annotated[AuditService, Depends(get_audit_service)],
     payload: Annotated[ModelPromotionBody, Body()],
 ) -> ModelPromotionResponse:
     """Assign challenger after task policy evaluation."""
-    return await _promote(
+    response = await _promote(
         registered_model_name=registered_model_name,
         version=version,
         target_alias=ModelAlias.CHALLENGER,
@@ -654,6 +699,16 @@ async def promote_challenger(
         current_user=current_user,
         service=service,
     )
+    await audit.record(
+        company_id=current_user.company_id,
+        actor=current_user,
+        action="model.alias_changed",
+        resource_type="model_version",
+        resource_id=f"{registered_model_name}:{version}",
+        result="success",
+        metadata={"alias": "challenger"},
+    )
+    return response
 
 
 @router.post(
@@ -678,10 +733,11 @@ async def promote_champion(
         ModelPromotionService,
         Depends(get_model_promotion_service),
     ],
+    audit: Annotated[AuditService, Depends(get_audit_service)],
     payload: Annotated[ModelPromotionBody, Body()],
 ) -> ModelPromotionResponse:
     """Assign champion only through an explicit admin request."""
-    return await _promote(
+    response = await _promote(
         registered_model_name=registered_model_name,
         version=version,
         target_alias=ModelAlias.CHAMPION,
@@ -689,6 +745,16 @@ async def promote_champion(
         current_user=current_user,
         service=service,
     )
+    await audit.record(
+        company_id=current_user.company_id,
+        actor=current_user,
+        action="model.alias_changed",
+        resource_type="model_version",
+        resource_id=f"{registered_model_name}:{version}",
+        result="success",
+        metadata={"alias": "champion"},
+    )
+    return response
 
 
 @router.get(

@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from app.dependencies.auth import require_roles
 from app.dependencies.operational import require_training_worker_available
 from app.dependencies.rate_limit import enforce_mutation_rate_limit
-from app.dependencies.services import get_retraining_service
+from app.dependencies.services import get_audit_service, get_retraining_service
 from app.ml.retraining import (
     CandidateComparison,
     RetrainingAuditRecord,
@@ -43,6 +43,7 @@ from app.schemas.ai_retraining import (
     RetrainingRequestResponse,
     RetrainingStatusResponse,
 )
+from app.services.audit import AuditService
 
 router = APIRouter(prefix="/ai/retraining", tags=["ai-retraining"])
 
@@ -65,6 +66,30 @@ _MODEL_NAME = Path(
     pattern=r"^[a-z][a-z0-9_]{2,127}$",
 )
 _VERSION = Path(min_length=1, max_length=128)
+
+
+async def _audit_retraining_decision(
+    audit: AuditService,
+    actor: User,
+    result: RetrainingEvaluationResult,
+) -> None:
+    approved = result.decision.eligible
+    await audit.record(
+        company_id=actor.company_id,
+        actor=actor,
+        action="retraining.approved" if approved else "retraining.rejected",
+        resource_type="retraining_request",
+        resource_id=(
+            result.request.id
+            if result.request is not None
+            else result.decision.existing_request_id
+        ),
+        result="success",
+        metadata={
+            "decision": result.decision.status.value,
+            "request_created": result.request is not None,
+        },
+    )
 
 
 @router.get(
@@ -120,6 +145,7 @@ async def put_policy(
     body: RetrainingPolicyBody,
     current_user: Annotated[User, Depends(require_roles(UserRole.ADMIN))],
     service: Annotated[RetrainingService, Depends(get_retraining_service)],
+    audit: Annotated[AuditService, Depends(get_audit_service)],
 ) -> RetrainingPolicyResponse:
     try:
         policy = await service.put_policy(
@@ -138,6 +164,15 @@ async def put_policy(
         )
     except RetrainingError as exc:
         _translate(exc)
+    await audit.record(
+        company_id=current_user.company_id,
+        actor=current_user,
+        action="retraining.policy_changed",
+        resource_type="retraining_policy",
+        resource_id=policy.id,
+        result="success",
+        metadata={"enabled": policy.enabled},
+    )
     return _policy(policy)
 
 
@@ -160,6 +195,7 @@ async def evaluate_retraining(
         User, Depends(require_roles(UserRole.ADMIN, UserRole.ENGINEER))
     ],
     service: Annotated[RetrainingService, Depends(get_retraining_service)],
+    audit: Annotated[AuditService, Depends(get_audit_service)],
 ) -> RetrainingEvaluationResponse:
     try:
         result = await service.evaluate_automatic(
@@ -174,6 +210,7 @@ async def evaluate_retraining(
         )
     except RetrainingError as exc:
         _translate(exc)
+    await _audit_retraining_decision(audit, current_user, result)
     return _evaluation(result)
 
 
@@ -195,6 +232,7 @@ async def request_manual_retraining(
         User, Depends(require_roles(UserRole.ADMIN, UserRole.ENGINEER))
     ],
     service: Annotated[RetrainingService, Depends(get_retraining_service)],
+    audit: Annotated[AuditService, Depends(get_audit_service)],
 ) -> RetrainingEvaluationResponse:
     if body.override_cooldown and current_user.role is not UserRole.ADMIN:
         raise HTTPException(
@@ -212,6 +250,7 @@ async def request_manual_retraining(
         )
     except RetrainingError as exc:
         _translate(exc)
+    await _audit_retraining_decision(audit, current_user, result)
     return _evaluation(result)
 
 
