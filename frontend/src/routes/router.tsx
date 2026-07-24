@@ -2,6 +2,7 @@ import { lazy } from "react";
 import { createBrowserRouter } from "react-router-dom";
 
 import {
+  DemoFeatureRoute,
   ExpertModeRoute,
   OperationsFeatureRoute,
   ProtectedRoute,
@@ -269,6 +270,51 @@ const ConversationPage = lazy(() =>
     default: ConversationPage,
   })),
 );
+const DataOnboardingPage = lazy(() =>
+  import("../pages/demo/DemoExperiencePages").then(({ DataOnboardingPage }) => ({
+    default: DataOnboardingPage,
+  })),
+);
+const DataQualityPage = lazy(() =>
+  import("../pages/demo/DemoExperiencePages").then(({ DataQualityPage }) => ({
+    default: DataQualityPage,
+  })),
+);
+const GuidedAiPage = lazy(() =>
+  import("../pages/demo/DemoExperiencePages").then(({ GuidedAiPage }) => ({
+    default: GuidedAiPage,
+  })),
+);
+const DemoControlPage = lazy(() =>
+  import("../pages/demo/DemoExperiencePages").then(({ DemoControlPage }) => ({
+    default: DemoControlPage,
+  })),
+);
+const FactoryMapPage = lazy(() =>
+  import("../pages/demo/DemoExperiencePages").then(({ FactoryMapPage }) => ({
+    default: FactoryMapPage,
+  })),
+);
+const TvModePage = lazy(() =>
+  import("../pages/demo/DemoExperiencePages").then(({ TvModePage }) => ({
+    default: TvModePage,
+  })),
+);
+const ExecutiveDashboardPage = lazy(() =>
+  import("../pages/demo/DemoExperiencePages").then(({ ExecutiveDashboardPage }) => ({
+    default: ExecutiveDashboardPage,
+  })),
+);
+const ReportsPage = lazy(() =>
+  import("../pages/demo/DemoExperiencePages").then(({ ReportsPage }) => ({
+    default: ReportsPage,
+  })),
+);
+const ReportDetailPage = lazy(() =>
+  import("../pages/demo/DemoExperiencePages").then(({ ReportDetailPage }) => ({
+    default: ReportDetailPage,
+  })),
+);
 
 export const router = createBrowserRouter([
   {
@@ -283,6 +329,20 @@ export const router = createBrowserRouter([
         children: [
           { element: <HomePage />, index: true },
           { element: <FactoriesPage />, path: "factories" },
+          {
+            children: [
+              {
+                element: <FactoryMapPage />,
+                path: "factories/:factoryId/map",
+              },
+              { element: <TvModePage />, path: "factories/:factoryId/tv" },
+              {
+                element: <RoleRoute roles={["admin", "engineer"]} />,
+                children: [{ element: <DemoControlPage />, path: "demo/control" }],
+              },
+            ],
+            element: <DemoFeatureRoute />,
+          },
           {
             children: [
               { element: <MachinesPage />, path: "machines" },
@@ -324,6 +384,12 @@ export const router = createBrowserRouter([
           {
             children: [
               { element: <SensorDataPage />, path: "sensor-data" },
+              {
+                element: <DataOnboardingPage />,
+                path: "sensor-data/onboarding",
+              },
+              { element: <DataQualityPage />, path: "sensor-data/quality" },
+              { element: <GuidedAiPage />, path: "guided-ai" },
               { element: <UploadJobsPage />, path: "sensor-data/uploads" },
               {
                 element: <UploadJobDetailPage />,
@@ -434,6 +500,17 @@ export const router = createBrowserRouter([
             element: <ExpertModeRoute />,
           },
           { element: <SettingsPage />, path: "settings" },
+          {
+            children: [
+              {
+                element: <ExecutiveDashboardPage />,
+                path: "executive",
+              },
+              { element: <ReportsPage />, path: "reports" },
+              { element: <ReportDetailPage />, path: "reports/:reportId" },
+            ],
+            element: <RoleRoute roles={["admin"]} />,
+          },
           {
             children: [{ element: <UsersPage />, index: true }],
             element: <RoleRoute roles={["admin"]} />,

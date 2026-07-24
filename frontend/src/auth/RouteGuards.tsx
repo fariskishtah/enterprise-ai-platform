@@ -94,6 +94,25 @@ export function OperationsFeatureRoute(): ReactElement {
   return <Outlet />;
 }
 
+export function DemoFeatureRoute(): ReactElement {
+  const { features, featuresLoading } = useProductExperience();
+  if (featuresLoading) return <AuthLoadingScreen />;
+  if (!features.demo_tools_enabled) {
+    return (
+      <main className="rounded-lg border border-border bg-card p-8 shadow-panel">
+        <h2 className="text-xl font-semibold text-foreground">
+          Demo tools are unavailable
+        </h2>
+        <p className="mt-2 text-sm text-secondary-foreground">
+          The controlled simulator and factory presentation tools are disabled in this
+          environment.
+        </p>
+      </main>
+    );
+  }
+  return <Outlet />;
+}
+
 export function ExpertModeRoute(): ReactElement {
   const { role } = useAuth();
   const { canSwitchMode, mode, setMode } = useProductExperience();

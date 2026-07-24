@@ -34,6 +34,7 @@ import {
   recordRecentResource,
   toggleFavoriteResource,
 } from "../../product/resourcePreferences";
+import { useProductExperience } from "../../product/productExperience";
 import { displayValue, formatDate, hierarchyError } from "./shared";
 
 const PAGE_SIZE = 20;
@@ -42,6 +43,7 @@ export function FactoryDetailPage(): ReactElement {
   const { factoryId = "" } = useParams();
   const navigate = useNavigate();
   const { role, user } = useAuth();
+  const { features } = useProductExperience();
   const canWrite = role === "admin" || role === "engineer";
   const canDelete = role === "admin";
   const [factory, setFactory] = useState<Factory | null>(null);
@@ -145,6 +147,22 @@ export function FactoryDetailPage(): ReactElement {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          {features.demo_tools_enabled ? (
+            <>
+              <Link
+                className={secondaryButtonClassName}
+                to={`/factories/${factory.id}/map`}
+              >
+                Factory map
+              </Link>
+              <Link
+                className={secondaryButtonClassName}
+                to={`/factories/${factory.id}/tv`}
+              >
+                TV mode
+              </Link>
+            </>
+          ) : null}
           <button
             aria-pressed={favorite}
             className={secondaryButtonClassName}
