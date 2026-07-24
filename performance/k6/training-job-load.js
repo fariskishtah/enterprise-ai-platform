@@ -113,9 +113,15 @@ export default function trainingJobLoad(data) {
         ['queued', 'running', 'succeeded', 'failed', 'cancelled'].includes(value),
     });
     if (['succeeded', 'failed', 'cancelled'].includes(jobStatus)) {
+      check(jobStatus, {
+        'training reached succeeded terminal state': (value) => value === 'succeeded',
+      });
       return;
     }
   }
+  fail(
+    `Training job did not reach a terminal state after ${maxPolls} bounded polls.`,
+  );
 }
 
 export function teardown(data) {
