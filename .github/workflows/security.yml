@@ -114,6 +114,7 @@ jobs:
           scanners: vuln,misconfig
           cache-dir: /tmp/trivy-cache
           skip-dirs: .cache,trivy-cache,artifacts,frontend/node_modules,frontend/dist
+          trivyignores: .trivyignore.yaml
 
       - name: Generate Trivy filesystem SARIF
         if: always()
@@ -131,6 +132,7 @@ jobs:
           exit-code: 0
           cache-dir: /tmp/trivy-cache
           skip-dirs: .cache,trivy-cache,artifacts,frontend/node_modules,frontend/dist
+          # Intentionally unfiltered so the accepted finding remains in retained evidence.
 
       - name: Upload Trivy filesystem SARIF
         if: always()
