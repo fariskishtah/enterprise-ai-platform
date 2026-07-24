@@ -231,18 +231,43 @@ test.describe("role-aware navigation", () => {
         }
         return json(route, { items: [], limit: 20, offset: 0, total: 0 });
       });
+      const identityReady = page.waitForResponse(
+        (response) => response.url().endsWith("/users/me") && response.status() === 200,
+      );
       await page.goto("/settings");
+      await identityReady;
 
-      await expect(page.getByRole("link", { name: "Settings" })).toBeVisible();
+      const navigation = page.getByRole("navigation", {
+        name: "Primary navigation",
+      });
+      await expect(navigation.getByRole("link", { name: "Settings" })).toBeVisible();
       if (role === "operator") {
-        await expect(page.getByRole("link", { name: "Training Jobs" })).toHaveCount(0);
-        await expect(page.getByRole("link", { name: "Audit Logs" })).toHaveCount(0);
+        await expect(navigation.getByRole("link", { name: "Dashboard" })).toBeVisible();
+        await expect(navigation.getByRole("link", { name: "Models" })).toBeVisible();
+        await expect(
+          navigation.getByRole("link", { name: "Training Jobs" }),
+        ).toHaveCount(0);
+        await expect(navigation.getByRole("link", { name: "Audit Logs" })).toHaveCount(
+          0,
+        );
+        const directRouteIdentityReady = page.waitForResponse(
+          (response) =>
+            response.url().endsWith("/users/me") && response.status() === 200,
+        );
         await page.goto("/audit-log");
-        await expect(page.getByText("Restricted audit data")).toBeVisible();
+        await directRouteIdentityReady;
+        await expect(page).toHaveURL(/\/audit-log$/);
+        await expect(
+          page.getByRole("heading", { name: "Administrator access required" }),
+        ).toBeVisible();
         expect(restrictedAuditRequests).toBe(0);
       } else {
-        await expect(page.getByRole("link", { name: "Training Jobs" })).toBeVisible();
-        await expect(page.getByRole("link", { name: "Audit Logs" })).toBeVisible();
+        await expect(
+          navigation.getByRole("link", { name: "Training Jobs" }),
+        ).toBeVisible();
+        await expect(
+          navigation.getByRole("link", { name: "Audit Logs" }),
+        ).toBeVisible();
       }
       expect(failures).toEqual([]);
     });
