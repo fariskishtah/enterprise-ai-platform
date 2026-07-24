@@ -45,6 +45,22 @@ This exception does not hide the findings: the unfiltered Trivy report remains a
 artifact. `--ignore-unfixed` is used only by the blocking second pass so newly actionable
 high/critical findings fail immediately.
 
+### SEC-2026-003 — React Router RSC-only advisory
+
+| Field | Value |
+| --- | --- |
+| Advisory | `GHSA-qwww-vcr4-c8h2` |
+| Affected packages | `react-router==7.18.1`, `react-router-dom==7.18.1` |
+| Fixed version | `react-router==8.3.0`, which requires React 19.2.7 and removal of the compatibility `react-router-dom` package |
+| Scope | Static Vite browser SPA only; no React Server Components, server actions, React Router framework server, or RSC request handler is deployed |
+| Risk assessment | The vulnerable RSC action-execution path is absent from the built and deployed architecture. The dependency finding remains high severity and must drive a bounded React 19/Router 8 migration. |
+| Reason | No secure React 18-compatible release exists: 7.18.1 fixes the earlier router advisory but is covered by this RSC-only advisory, while 8.3.0 requires a coordinated React/runtime migration unsuitable for an unreviewed production-hardening patch. |
+| Compensating controls | The frontend is built to static files and served by unprivileged Nginx; all mutations go through authenticated FastAPI endpoints with server-side authorization and CSRF-independent bearer-token validation. The audit wrapper accepts only advisory source `1124282` for these exact package versions, preserves unfiltered JSON, and fails on every other HIGH/CRITICAL finding or after expiry. |
+| Owner | Frontend platform and security owners |
+| Recorded | 2026-07-24 |
+| Expires | 2026-08-15 |
+| Removal condition | Migrate to React 19.2.7 and React Router 8.3.0 or a later compatible fixed release, rerun browser/security validation, and remove the narrow audit exception in the same reviewed change. |
+
 ## Closed exceptions
 
 None.

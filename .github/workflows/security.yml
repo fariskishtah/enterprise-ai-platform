@@ -93,7 +93,7 @@ jobs:
 
       - name: Audit frontend dependencies
         working-directory: frontend
-        run: npm audit --audit-level=high --json > ../artifacts/release/npm-audit.json
+        run: npm run audit:security -- ../artifacts/release/npm-audit.json
 
       - name: Inventory frontend dependency licenses
         working-directory: frontend
