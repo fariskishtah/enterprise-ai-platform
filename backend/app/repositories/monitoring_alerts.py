@@ -20,6 +20,10 @@ from app.models.monitoring_orchestration import (
     MonitoringAlertEntity,
     MonitoringJobLockEntity,
 )
+from app.repositories.tenant import (
+    company_for_monitoring_evaluation,
+    company_for_registered_model,
+)
 from app.utils.security import as_utc
 
 
@@ -42,8 +46,18 @@ class MonitoringAlertRepository:
         return _record(entity) if entity is not None else None
 
     async def create(self, alert: MonitoringAlert) -> MonitoringAlert:
+        company_id = (
+            await company_for_monitoring_evaluation(
+                self._session, alert.monitoring_evaluation_id
+            )
+            if alert.monitoring_evaluation_id is not None
+            else await company_for_registered_model(
+                self._session, alert.registered_model_name
+            )
+        )
         entity = MonitoringAlertEntity(
             id=alert.id,
+            company_id=company_id,
             alert_type=alert.alert_type,
             severity=alert.severity,
             registered_model_name=alert.registered_model_name,
@@ -143,7 +157,12 @@ class MonitoringAlertRepository:
         )
 
     async def acknowledge(
-        self, *, alert_id: UUID, actor_id: UUID, acknowledged_at: datetime
+        self,
+        *,
+        alert_id: UUID,
+        actor_id: UUID,
+        acknowledged_at: datetime,
+        operator_note: str | None = None,
     ) -> MonitoringAlert | None:
         entity = (
             await self._session.execute(
@@ -156,6 +175,7 @@ class MonitoringAlertRepository:
                     status=MonitoringAlertStatus.ACKNOWLEDGED,
                     acknowledged_at=acknowledged_at,
                     acknowledged_by_user_id=actor_id,
+                    operator_note=operator_note,
                     updated_at=acknowledged_at,
                 )
                 .returning(MonitoringAlertEntity)
@@ -164,7 +184,11 @@ class MonitoringAlertRepository:
         return _record(entity) if entity is not None else None
 
     async def resolve(
-        self, *, alert_id: UUID, resolved_at: datetime
+        self,
+        *,
+        alert_id: UUID,
+        resolved_at: datetime,
+        engineer_note: str | None = None,
     ) -> MonitoringAlert | None:
         entity = (
             await self._session.execute(
@@ -176,6 +200,7 @@ class MonitoringAlertRepository:
                 .values(
                     status=MonitoringAlertStatus.RESOLVED,
                     resolved_at=resolved_at,
+                    engineer_note=engineer_note,
                     updated_at=resolved_at,
                 )
                 .returning(MonitoringAlertEntity)
@@ -302,4 +327,11 @@ def _record(entity: MonitoringAlertEntity) -> MonitoringAlert:
         resolved_at=as_utc(entity.resolved_at) if entity.resolved_at else None,
         created_at=as_utc(entity.created_at),
         updated_at=as_utc(entity.updated_at),
+        factory_id=entity.factory_id,
+        machine_id=entity.machine_id,
+        operator_note=entity.operator_note,
+        engineer_note=entity.engineer_note,
+        cooldown_until=(
+            as_utc(entity.cooldown_until) if entity.cooldown_until else None
+        ),
     )

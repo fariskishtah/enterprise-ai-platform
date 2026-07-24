@@ -25,6 +25,7 @@ from app.api.routes.mlops import (
     training_run_artifacts_router,
     training_runs_router,
 )
+from app.api.routes.pilot import router as pilot_router
 from app.api.routes.rag import router as rag_router
 from app.api.routes.sensor_data import (
     sensor_readings_nested_router,
@@ -56,6 +57,7 @@ api_router.include_router(training_runs_router)
 api_router.include_router(training_run_artifacts_router)
 api_router.include_router(model_artifacts_router)
 api_router.include_router(rag_router)
+api_router.include_router(pilot_router)
 api_router.include_router(sensors_router)
 api_router.include_router(machine_sensor_router)
 api_router.include_router(upload_jobs_router)

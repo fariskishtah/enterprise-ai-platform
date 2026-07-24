@@ -44,6 +44,7 @@ class MonitoringAlertType(StrEnum):
     EVALUATION_FAILURE = "monitoring_evaluation_failure"
     PERSISTENCE_FAILURE = "prediction_event_persistence_failure"
     NO_RECENT_PREDICTIONS = "no_recent_predictions"
+    MACHINE_RISK = "machine_risk_indication"
 
 
 class MonitoringAlertSeverity(StrEnum):
@@ -139,6 +140,11 @@ class MonitoringAlert:
     resolved_at: datetime | None
     created_at: datetime
     updated_at: datetime
+    factory_id: UUID | None = None
+    machine_id: UUID | None = None
+    operator_note: str | None = None
+    engineer_note: str | None = None
+    cooldown_until: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)

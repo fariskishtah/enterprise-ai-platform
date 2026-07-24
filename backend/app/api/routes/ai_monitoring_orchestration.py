@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query
 from app.dependencies.auth import require_roles
 from app.dependencies.rate_limit import enforce_mutation_rate_limit
 from app.dependencies.services import (
+    get_audit_service,
     get_monitoring_alert_service,
     get_monitoring_evaluation_service,
     get_prediction_outcome_service,
@@ -44,6 +45,8 @@ from app.ml.registry import (
 )
 from app.models.user import User, UserRole
 from app.schemas.ai_monitoring_orchestration import (
+    AlertAcknowledgeBody,
+    AlertResolveBody,
     ClassificationPerformanceResponse,
     ManualMonitoringEvaluationBody,
     MonitoringAlertPageResponse,
@@ -55,6 +58,7 @@ from app.schemas.ai_monitoring_orchestration import (
     PredictionOutcomeResponse,
     RegressionPerformanceResponse,
 )
+from app.services.audit import AuditService
 
 router = APIRouter(prefix="/ai/monitoring", tags=["ai-monitoring"])
 _MODEL_NAME = Path(min_length=3, max_length=128, pattern=r"^[a-z][a-z0-9_]{2,127}$")
@@ -303,12 +307,31 @@ async def get_monitoring_alert(
 async def acknowledge_monitoring_alert(
     alert_id: UUID,
     current_user: Annotated[
-        User, Depends(require_roles(UserRole.ADMIN, UserRole.ENGINEER))
+        User,
+        Depends(require_roles(UserRole.ADMIN, UserRole.ENGINEER, UserRole.OPERATOR)),
     ],
     service: Annotated[MonitoringAlertService, Depends(get_monitoring_alert_service)],
+    audit: Annotated[AuditService, Depends(get_audit_service)],
+    body: AlertAcknowledgeBody | None = None,
 ) -> MonitoringAlertResponse:
     try:
-        return _alert(await service.acknowledge(alert_id, current_user.id))
+        # Resolve through the request-scoped SELECT guard before issuing the
+        # lifecycle UPDATE so a guessed cross-company identifier stays hidden.
+        await service.get(alert_id)
+        alert = await service.acknowledge(
+            alert_id,
+            current_user.id,
+            operator_note=body.operator_note if body else None,
+        )
+        await audit.record(
+            company_id=current_user.company_id,
+            actor=current_user,
+            action="alert.acknowledged",
+            resource_type="monitoring_alert",
+            resource_id=alert_id,
+            result="success",
+        )
+        return _alert(alert)
     except PredictionMonitoringError as exc:
         _translate(exc)
 
@@ -322,11 +345,28 @@ async def acknowledge_monitoring_alert(
 )
 async def resolve_monitoring_alert(
     alert_id: UUID,
-    _current_user: Annotated[User, Depends(require_roles(UserRole.ADMIN))],
+    current_user: Annotated[User, Depends(require_roles(UserRole.ADMIN))],
     service: Annotated[MonitoringAlertService, Depends(get_monitoring_alert_service)],
+    audit: Annotated[AuditService, Depends(get_audit_service)],
+    body: AlertResolveBody | None = None,
 ) -> MonitoringAlertResponse:
     try:
-        return _alert(await service.resolve(alert_id))
+        # Resolve through the request-scoped SELECT guard before issuing the
+        # lifecycle UPDATE so a guessed cross-company identifier stays hidden.
+        await service.get(alert_id)
+        alert = await service.resolve(
+            alert_id,
+            engineer_note=body.engineer_note if body else None,
+        )
+        await audit.record(
+            company_id=current_user.company_id,
+            actor=current_user,
+            action="alert.resolved",
+            resource_type="monitoring_alert",
+            resource_id=alert_id,
+            result="success",
+        )
+        return _alert(alert)
     except PredictionMonitoringError as exc:
         _translate(exc)
 
@@ -461,6 +501,11 @@ def _alert(value: MonitoringAlert) -> MonitoringAlertResponse:
         resolved_at=value.resolved_at,
         created_at=value.created_at,
         updated_at=value.updated_at,
+        factory_id=value.factory_id,
+        machine_id=value.machine_id,
+        operator_note=value.operator_note,
+        engineer_note=value.engineer_note,
+        cooldown_until=value.cooldown_until,
     )
 
 
