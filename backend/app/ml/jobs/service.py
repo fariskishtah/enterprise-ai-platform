@@ -283,7 +283,13 @@ class StaleTrainingJobRecoveryService:
         for job in await self._repository.list_orphaned_queued(
             queued_before=orphaned_before,
         ):
-            jobs_by_id[job.id] = job
+            reset = await self._repository.reset_orphaned_queued(
+                job_id=job.id,
+                expected_version=job.state_version,
+                queued_at=now,
+            )
+            if reset is not None:
+                jobs_by_id[reset.id] = reset
         await self._repository.commit()
         for job in jobs_by_id.values():
             try:
