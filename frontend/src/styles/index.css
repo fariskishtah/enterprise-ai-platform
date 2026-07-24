@@ -72,9 +72,9 @@
   --text-primary: #171a2b;
   --text-secondary: #4c5065;
   --text-muted: #62667b;
-  --text-disabled: #8e8ba0;
-  --text-link: #6d4aff;
-  --text-link-hover: #5941c6;
+  --text-disabled: #62667b;
+  --text-link: #5941c6;
+  --text-link-hover: #45329e;
   --text-eyebrow: #5941c6;
   --text-inverse: #ffffff;
   --text-placeholder: #8e8ba0;
@@ -255,6 +255,7 @@ a {
 
   :disabled {
     color: var(--text-disabled);
+    opacity: 1;
   }
 
   :root[data-theme="dark"] input:not([type="checkbox"]):not([type="radio"]),

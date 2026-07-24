@@ -118,6 +118,13 @@ export const navigationItems: readonly NavigationItem[] = [
     roles: ["admin", "engineer"],
   },
   {
+    description: "Company-scoped roles and account lifecycle.",
+    icon: "users",
+    label: "Users",
+    path: "/users",
+    roles: ["admin"],
+  },
+  {
     description: "Platform and workspace preferences.",
     icon: "settings",
     label: "Settings",

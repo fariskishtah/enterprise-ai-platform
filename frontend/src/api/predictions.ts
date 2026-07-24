@@ -27,6 +27,58 @@ export interface PredictionResponse {
   readonly probability_unavailable_reason?: string | null;
 }
 
+export interface FeatureDefinition {
+  readonly categorical_encoding: string | null;
+  readonly data_type: "float" | "integer";
+  readonly maximum: number | null;
+  readonly minimum: number | null;
+  readonly missing_value_behavior: "reject" | "use_training_imputer";
+  readonly name: string;
+  readonly required: boolean;
+  readonly unit: string | null;
+}
+
+export interface ModelFeatureSchema {
+  readonly algorithm: string;
+  readonly features: readonly FeatureDefinition[];
+  readonly model_version: string;
+  readonly registered_model_name: string;
+  readonly target_name: string | null;
+  readonly target_unit: string | null;
+  readonly task_type: TrainingTask;
+}
+
+export interface StructuredPredictionResult {
+  readonly assessment_id: string | null;
+  readonly feature_order: readonly string[];
+  readonly model_name: string;
+  readonly model_version: string;
+  readonly prediction: number;
+  readonly risk_state: string | null;
+}
+
+export function getFeatureSchema(
+  modelName: string,
+  version: string,
+  signal?: AbortSignal,
+): Promise<ModelFeatureSchema> {
+  return apiRequest(
+    `/ai/models/${encodeURIComponent(modelName)}/versions/${encodeURIComponent(version)}/feature-schema`,
+    { signal },
+  );
+}
+
+export function executeStructuredPrediction(
+  modelName: string,
+  version: string,
+  values: Readonly<Record<string, number>>,
+): Promise<StructuredPredictionResult> {
+  return apiRequest(
+    `/ai/models/${encodeURIComponent(modelName)}/versions/${encodeURIComponent(version)}/structured-prediction`,
+    { body: JSON.stringify({ values }), method: "POST" },
+  );
+}
+
 export interface NumericSummary {
   readonly count: number;
   readonly missing_count: number;
