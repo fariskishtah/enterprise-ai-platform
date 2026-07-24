@@ -215,6 +215,29 @@ export E2E_PASSWORD
 STAGING_STARTED=true
 "$REPO_ROOT/scripts/staging-local.sh" start
 "$REPO_ROOT/scripts/staging-local.sh" seed
+"$REPO_ROOT/scripts/staging-local.sh" seed
+
+section "Encrypted backup and disposable recovery"
+BACKUP_COMPOSE_PROJECT_NAME=ai-manufacturing-staging-validation \
+  BACKUP_COMPOSE_ENV_FILE="$REPO_ROOT/.staging-validation/environment" \
+  BACKUP_COMPOSE_FILES="$REPO_ROOT/docker-compose.yml:$REPO_ROOT/docker-compose.prod.yml:$REPO_ROOT/docker-compose.staging.yml" \
+  BACKUP_TARGET=local \
+  BACKUP_DIR="$EVIDENCE_DIR/backups" \
+  BACKUP_ENCRYPTION_PASSPHRASE="$E2E_PASSWORD" \
+  "$REPO_ROOT/scripts/backup-production.sh"
+latest_backup="$(find "$EVIDENCE_DIR/backups" -maxdepth 1 -type f \
+  -name 'pilot-*.tar.gz.enc' -print | sort | tail -1)"
+[[ -n "$latest_backup" ]] || {
+  echo "The encrypted backup was not produced." >&2
+  exit 1
+}
+BACKUP_COMPOSE_PROJECT_NAME=ai-manufacturing-staging-validation \
+  BACKUP_COMPOSE_ENV_FILE="$REPO_ROOT/.staging-validation/environment" \
+  BACKUP_COMPOSE_FILES="$REPO_ROOT/docker-compose.yml:$REPO_ROOT/docker-compose.prod.yml:$REPO_ROOT/docker-compose.staging.yml" \
+  BACKUP_ENCRYPTION_PASSPHRASE="$E2E_PASSWORD" \
+  RESTORE_EVIDENCE_DIR="$EVIDENCE_DIR" \
+  "$REPO_ROOT/scripts/restore-validation.sh" "$latest_backup"
+
 (
   cd "$FRONTEND_DIR"
   E2E_BASE_URL=http://127.0.0.1:18080 \
