@@ -46,9 +46,12 @@ class ManufacturingRepository:
         company_id: UUID,
         *,
         include_deleted: bool = False,
+        tenant_company_id: UUID | None = None,
     ) -> Company | None:
         """Return a company by ID."""
         statement = select(Company).where(Company.id == company_id)
+        if tenant_company_id is not None:
+            statement = statement.where(Company.id == tenant_company_id)
         if not include_deleted:
             statement = statement.where(Company.deleted_at.is_(None))
         result = await self._session.execute(statement)
@@ -75,9 +78,12 @@ class ManufacturingRepository:
         search: str | None,
         sort_by: CompanySortField,
         sort_order: SortOrder,
+        company_id: UUID | None = None,
     ) -> Page[Company]:
         """Return paginated active companies."""
         statement = select(Company).where(Company.deleted_at.is_(None))
+        if company_id is not None:
+            statement = statement.where(Company.id == company_id)
         if search:
             pattern = f"%{search.strip()}%"
             statement = statement.where(
@@ -118,9 +124,12 @@ class ManufacturingRepository:
         factory_id: UUID,
         *,
         include_deleted: bool = False,
+        company_id: UUID | None = None,
     ) -> Factory | None:
         """Return a factory by ID."""
         statement = select(Factory).where(Factory.id == factory_id)
+        if company_id is not None:
+            statement = statement.where(Factory.company_id == company_id)
         if not include_deleted:
             statement = statement.where(Factory.deleted_at.is_(None))
         result = await self._session.execute(statement)
@@ -183,9 +192,12 @@ class ManufacturingRepository:
         machine_id: UUID,
         *,
         include_deleted: bool = False,
+        company_id: UUID | None = None,
     ) -> Machine | None:
         """Return a machine by ID."""
         statement = select(Machine).where(Machine.id == machine_id)
+        if company_id is not None:
+            statement = statement.join(Factory).where(Factory.company_id == company_id)
         if not include_deleted:
             statement = statement.where(Machine.deleted_at.is_(None))
         result = await self._session.execute(statement)

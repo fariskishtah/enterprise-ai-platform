@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import ColumnElement
 
 from app.models.mlops import Experiment, ModelArtifact, TrainingRun, TrainingRunStatus
+from app.repositories.tenant import company_for_user
 from app.schemas.common import SortOrder
 from app.schemas.mlops import (
     ExperimentSortField,
@@ -48,6 +49,7 @@ class MLOpsRepository:
             name=name,
             description=description,
             created_by=created_by,
+            company_id=await company_for_user(self._session, created_by),
         )
         self._session.add(experiment)
         await self._session.flush()

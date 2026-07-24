@@ -10,7 +10,7 @@ from sqlalchemy import Select, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import ColumnElement
 
-from app.models.manufacturing import Machine
+from app.models.manufacturing import Factory, Machine
 from app.models.sensor import Sensor
 from app.schemas.common import SortOrder
 from app.schemas.sensors import SensorSortField
@@ -36,12 +36,16 @@ class SensorRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def get_machine_by_id(self, machine_id: UUID) -> Machine | None:
+    async def get_machine_by_id(
+        self, machine_id: UUID, *, company_id: UUID | None = None
+    ) -> Machine | None:
         """Return an active machine by ID."""
         statement = select(Machine).where(
             Machine.id == machine_id,
             Machine.deleted_at.is_(None),
         )
+        if company_id is not None:
+            statement = statement.join(Factory).where(Factory.company_id == company_id)
         result = await self._session.execute(statement)
         return result.scalar_one_or_none()
 
@@ -50,9 +54,16 @@ class SensorRepository:
         sensor_id: UUID,
         *,
         include_deleted: bool = False,
+        company_id: UUID | None = None,
     ) -> Sensor | None:
         """Return a sensor by ID."""
         statement = select(Sensor).where(Sensor.id == sensor_id)
+        if company_id is not None:
+            statement = (
+                statement.join(Machine, Machine.id == Sensor.machine_id)
+                .join(Factory, Factory.id == Machine.factory_id)
+                .where(Factory.company_id == company_id)
+            )
         if not include_deleted:
             statement = statement.where(Sensor.deleted_at.is_(None))
         result = await self._session.execute(statement)
@@ -84,9 +95,16 @@ class SensorRepository:
         machine_id: UUID | None,
         sort_by: SensorSortField,
         sort_order: SortOrder,
+        company_id: UUID | None = None,
     ) -> SensorPage:
         """Return paginated active sensors."""
         statement = select(Sensor).where(Sensor.deleted_at.is_(None))
+        if company_id is not None:
+            statement = (
+                statement.join(Machine, Machine.id == Sensor.machine_id)
+                .join(Factory, Factory.id == Machine.factory_id)
+                .where(Factory.company_id == company_id)
+            )
         if machine_id is not None:
             statement = statement.where(Sensor.machine_id == machine_id)
         if search:

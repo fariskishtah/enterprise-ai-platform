@@ -49,6 +49,7 @@ class SensorService:
         machine_id: UUID | None,
         sort_by: SensorSortField,
         sort_order: SortOrder,
+        company_id: UUID | None = None,
     ) -> SensorPage:
         """Return paginated sensors."""
         return await self._repository.list_sensors(
@@ -58,6 +59,7 @@ class SensorService:
             machine_id=machine_id,
             sort_by=sort_by,
             sort_order=sort_order,
+            company_id=company_id,
         )
 
     async def list_machine_sensors(
@@ -69,9 +71,12 @@ class SensorService:
         search: str | None,
         sort_by: SensorSortField,
         sort_order: SortOrder,
+        company_id: UUID | None = None,
     ) -> SensorPage:
         """Return paginated sensors for an active machine."""
-        machine = await self._repository.get_machine_by_id(machine_id)
+        machine = await self._repository.get_machine_by_id(
+            machine_id, company_id=company_id
+        )
         if machine is None:
             raise ResourceNotFoundError("Machine not found.")
         return await self.list_sensors(
@@ -81,11 +86,20 @@ class SensorService:
             machine_id=machine_id,
             sort_by=sort_by,
             sort_order=sort_order,
+            company_id=company_id,
         )
 
     async def get_sensor(self, sensor_id: UUID) -> Sensor:
         """Return a sensor by ID."""
         sensor = await self._repository.get_sensor_by_id(sensor_id)
+        if sensor is None:
+            raise ResourceNotFoundError("Sensor not found.")
+        return sensor
+
+    async def get_sensor_for_company(self, sensor_id: UUID, company_id: UUID) -> Sensor:
+        sensor = await self._repository.get_sensor_by_id(
+            sensor_id, company_id=company_id
+        )
         if sensor is None:
             raise ResourceNotFoundError("Sensor not found.")
         return sensor

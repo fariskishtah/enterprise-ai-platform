@@ -78,7 +78,7 @@ class DatasetRepository:
     ) -> Dataset | None:
         statement = select(Dataset).where(Dataset.id == dataset_id)
         if owner_id is not None:
-            statement = statement.where(Dataset.owner_user_id == owner_id)
+            statement = statement.where(Dataset.company_id == owner_id)
         return (await self._session.execute(statement)).scalar_one_or_none()
 
     async def get_dataset_by_name(
@@ -87,7 +87,7 @@ class DatasetRepository:
         return (
             await self._session.execute(
                 select(Dataset).where(
-                    Dataset.owner_user_id == owner_id,
+                    Dataset.company_id == owner_id,
                     Dataset.normalized_name == normalized_name,
                 )
             )
@@ -104,7 +104,7 @@ class DatasetRepository:
     ) -> DatasetPage:
         statement = select(Dataset)
         if owner_id is not None:
-            statement = statement.where(Dataset.owner_user_id == owner_id)
+            statement = statement.where(Dataset.company_id == owner_id)
         if kind is not None:
             statement = statement.where(Dataset.kind == kind)
         if status is not None:
@@ -173,7 +173,7 @@ class DatasetRepository:
             )
         )
         if owner_id is not None:
-            statement = statement.where(Dataset.owner_user_id == owner_id)
+            statement = statement.where(Dataset.company_id == owner_id)
         return (await self._session.execute(statement)).scalar_one_or_none()
 
     async def get_version_by_id(self, version_id: UUID) -> DatasetVersion | None:
@@ -193,7 +193,7 @@ class DatasetRepository:
             )
         )
         if owner_id is not None:
-            statement = statement.where(Dataset.owner_user_id == owner_id)
+            statement = statement.where(Dataset.company_id == owner_id)
         return (await self._session.execute(statement)).scalar_one_or_none()
 
     async def get_version_reference(
@@ -205,7 +205,7 @@ class DatasetRepository:
             .where(DatasetVersion.id == version_id)
         )
         if owner_id is not None:
-            statement = statement.where(Dataset.owner_user_id == owner_id)
+            statement = statement.where(Dataset.company_id == owner_id)
         return (await self._session.execute(statement)).scalar_one_or_none()
 
     async def get_document(
@@ -229,7 +229,7 @@ class DatasetRepository:
             )
         )
         if owner_id is not None:
-            statement = statement.where(Dataset.owner_user_id == owner_id)
+            statement = statement.where(Dataset.company_id == owner_id)
         return (await self._session.execute(statement)).scalar_one_or_none()
 
     async def list_documents(

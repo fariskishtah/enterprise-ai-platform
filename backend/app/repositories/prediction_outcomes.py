@@ -13,6 +13,7 @@ from app.ml.monitoring.models import PredictionEvent
 from app.models.ai_monitoring import PredictionEventEntity
 from app.models.monitoring_orchestration import PredictionOutcomeEntity
 from app.repositories.ai_monitoring import _event_record
+from app.repositories.tenant import company_for_prediction_event
 from app.utils.security import as_utc
 
 
@@ -43,6 +44,9 @@ class PredictionOutcomeRepository:
     async def create(self, outcome: PredictionOutcome) -> PredictionOutcome:
         entity = PredictionOutcomeEntity(
             id=outcome.id,
+            company_id=await company_for_prediction_event(
+                self._session, outcome.prediction_event_id
+            ),
             prediction_event_id=outcome.prediction_event_id,
             outcome_type=outcome.outcome_type,
             actual_value={"value": outcome.actual_value},

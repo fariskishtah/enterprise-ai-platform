@@ -10,6 +10,7 @@ from app.api.router import api_router
 from app.config.settings import Settings, get_settings
 from app.core.request_limits import RequestBodyLimitMiddleware
 from app.core.security_headers import SecurityHeadersMiddleware
+from app.db.tenant_scope import install_tenant_guard
 from app.observability import (
     FastAPITracingMiddleware,
     PrometheusMetricsMiddleware,
@@ -86,6 +87,7 @@ OPENAPI_TAGS = [
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     """Create and configure a FastAPI application instance."""
+    install_tenant_guard()
     resolved_settings = settings if settings is not None else get_settings()
     docs_url = "/docs" if resolved_settings.enable_api_docs else None
     redoc_url = "/redoc" if resolved_settings.enable_api_docs else None

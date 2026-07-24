@@ -35,6 +35,7 @@ from app.models.ai_retraining import (
     ModelRetrainingRequest,
 )
 from app.repositories.ai_governance import _job_record
+from app.repositories.tenant import company_for_user
 
 _ACTIVE_STATUSES = (
     RetrainingRequestStatus.PENDING,
@@ -110,6 +111,9 @@ class RetrainingRepository:
         if entity is None:
             entity = ModelRetrainingPolicy(
                 id=policy.id,
+                company_id=await company_for_user(
+                    self._session, policy.created_by_user_id
+                ),
                 registered_model_name=policy.registered_model_name,
                 created_by_user_id=policy.created_by_user_id,
                 created_at=policy.created_at,
@@ -224,6 +228,9 @@ class RetrainingRepository:
     async def create_request(self, request: RetrainingRequest) -> RetrainingRequest:
         entity = ModelRetrainingRequest(
             id=request.id,
+            company_id=await company_for_user(
+                self._session, request.requested_by_user_id
+            ),
             registered_model_name=request.registered_model_name,
             source_model_version=request.source_model_version,
             source_training_job_id=request.source_training_job_id,
@@ -392,6 +399,7 @@ class RetrainingRepository:
     ) -> RetrainingAuditRecord:
         trigger = decision.trigger
         entity = ModelRetrainingAudit(
+            company_id=await company_for_user(self._session, evaluated_by_user_id),
             registered_model_name=decision.registered_model_name,
             source_model_version=decision.source_model_version,
             requested_alias=decision.requested_alias,
