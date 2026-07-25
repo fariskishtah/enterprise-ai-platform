@@ -676,11 +676,12 @@ class RAGRepository:
             embedding_column = cast(Any, RAGChunkEmbedding.embedding)
             distance = embedding_column.cosine_distance(list(query_embedding))
             score = (1.0 - distance).label("similarity_score")
+            candidate_limit = min(maximum_candidates, max(top_k, top_k * 4))
             statement = (
                 base_statement.add_columns(score)
                 .where(distance <= 1.0 - min_score)
                 .order_by(distance.asc(), RAGChunkEmbedding.chunk_id.asc())
-                .limit(top_k)
+                .limit(candidate_limit)
             )
             rows = (await self._session.execute(statement)).all()
             return tuple(

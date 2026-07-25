@@ -79,6 +79,13 @@ export function confirmImport(
   });
 }
 
+export function downloadImportQuality(
+  id: string,
+  format: "csv" | "json" = "csv",
+): Promise<Blob> {
+  return apiDownload(`/data-onboarding/imports/${id}/quality.${format}`);
+}
+
 export interface ReadinessResult {
   readonly blocking_issues: readonly string[];
   readonly dataset_size: number;

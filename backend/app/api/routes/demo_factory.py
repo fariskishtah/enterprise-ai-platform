@@ -29,9 +29,11 @@ from app.models.demo_experience import (
 from app.models.manufacturing import Factory, Machine
 from app.models.monitoring_orchestration import MonitoringAlertEntity
 from app.models.operations import (
+    MaintenanceFeedback,
     OperationalAction,
     OperationalActionPriority,
     OperationalActionStatus,
+    OperationalNote,
     OperationalTimelineEvent,
 )
 from app.models.pilot import MachineRiskAssessment
@@ -434,7 +436,30 @@ async def reset_scenario(
         ("sensor_reading", SensorReading),
     ):
         if ids.get(key):
-            result = await session.execute(delete(model).where(model.id.in_(ids[key])))
+            conditions = [model.id.in_(ids[key])]
+            if key == "action":
+                conditions.append(
+                    ~select(OperationalNote.id)
+                    .where(OperationalNote.action_id == model.id)
+                    .exists()
+                )
+                conditions.append(
+                    ~select(MaintenanceFeedback.id)
+                    .where(MaintenanceFeedback.action_id == model.id)
+                    .exists()
+                )
+            elif key == "alert":
+                conditions.append(
+                    ~select(OperationalNote.id)
+                    .where(OperationalNote.alert_id == model.id)
+                    .exists()
+                )
+                conditions.append(
+                    ~select(MaintenanceFeedback.id)
+                    .where(MaintenanceFeedback.alert_id == model.id)
+                    .exists()
+                )
+            result = await session.execute(delete(model).where(*conditions))
             deleted += int(getattr(result, "rowcount", 0) or 0)
     await session.delete(run)
     await session.commit()

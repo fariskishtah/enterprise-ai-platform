@@ -153,7 +153,7 @@ test.describe("Sprints 3-5 real-backend acceptance", () => {
     await page.getByRole("button", { name: "Upload for preview" }).click();
     expect((await upload).status()).toBe(201);
     await expect(page.getByText("e2e-guided-valid.csv")).toBeVisible();
-    await page.getByRole("button", { name: "Confirm suggested mapping" }).click();
+    await page.getByRole("button", { name: "Confirm column mapping" }).click();
     await page.getByRole("button", { name: "Validate data" }).click();
     await page.getByRole("button", { name: "Confirm and import" }).click();
     await expect(page.getByText("completed", { exact: true })).toBeVisible();
@@ -167,7 +167,7 @@ test.describe("Sprints 3-5 real-backend acceptance", () => {
       name: "e2e-guided-invalid.csv",
     });
     await page.getByRole("button", { name: "Upload for preview" }).click();
-    await page.getByRole("button", { name: "Confirm suggested mapping" }).click();
+    await page.getByRole("button", { name: "Confirm column mapping" }).click();
     await page.getByRole("button", { name: "Validate data" }).click();
     await expect(page.getByText(/Blocking · formula_like_values/)).toBeVisible();
     await expect(

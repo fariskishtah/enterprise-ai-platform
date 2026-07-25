@@ -8,6 +8,7 @@ import {
   confirmImport,
   controlDemoRun,
   createReport,
+  downloadImportQuality,
   downloadReport,
   getDemoRun,
   getExecutiveDashboard,
@@ -34,8 +35,10 @@ import {
 import {
   listFactories,
   listMachines,
+  listSensors,
   type Factory,
   type Machine,
+  type Sensor,
 } from "../../api/hierarchy";
 import { useAuth } from "../../auth/useAuth";
 import {
@@ -59,6 +62,12 @@ function message(error: unknown): string {
 export function DataOnboardingPage(): ReactElement {
   const [item, setItem] = useState<DataImport | null>(null);
   const [file, setFile] = useState<File | null>(null);
+  const [recognizedAssets, setRecognizedAssets] = useState<
+    readonly {
+      readonly machine: Machine;
+      readonly sensors: readonly Sensor[];
+    }[]
+  >([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const headers = useMemo(
@@ -75,6 +84,42 @@ export function DataOnboardingPage(): ReactElement {
         issue !== null &&
         (issue as Record<string, unknown>).severity === "Blocking",
     );
+
+  useEffect(() => {
+    const controller = new AbortController();
+    let active = true;
+    void listFactories({ limit: 20, signal: controller.signal })
+      .then(async (factories) => {
+        const machinePages = await Promise.all(
+          factories.items.map((factory) =>
+            listMachines(factory.id, { limit: 100, signal: controller.signal }),
+          ),
+        );
+        const machines = machinePages.flatMap((page) => [...page.items]);
+        const sensorPages = await Promise.all(
+          machines.map((machine) =>
+            listSensors(machine.id, { limit: 100, signal: controller.signal }),
+          ),
+        );
+        if (active) {
+          setRecognizedAssets(
+            machines.map((machine, index) => ({
+              machine,
+              sensors: sensorPages[index]?.items ?? [],
+            })),
+          );
+        }
+      })
+      .catch((caught: unknown) => {
+        if (!isRequestCancelled(caught, controller.signal)) {
+          setRecognizedAssets([]);
+        }
+      });
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, []);
 
   const execute = async (operation: () => Promise<DataImport>): Promise<void> => {
     setBusy(true);
@@ -110,6 +155,46 @@ export function DataOnboardingPage(): ReactElement {
         CSV selection does not import data. Files are limited by the server, parsed as
         UTF-8, and only imported after mapping and quality confirmation.
       </InlineNotice>
+      <div className={`${panel} mt-4`}>
+        <h3 className="font-semibold text-foreground">Expected long-format CSV</h3>
+        <p className="mt-2 text-sm text-secondary-foreground">
+          Map columns containing timestamp, machine name, sensor name, and numeric
+          value. Names must match registered resources exactly.
+        </p>
+        <pre className="mt-3 overflow-x-auto rounded-md bg-muted p-3 text-xs text-foreground">
+          timestamp,machine,sensor,value,unit{"\n"}
+          2026-07-25T08:00:00Z,CNC-01,temperature_c,61.2,°C
+        </pre>
+        <div className="mt-3">
+          <p className="text-sm font-medium text-foreground">
+            Recognized machines and sensors
+          </p>
+          {recognizedAssets.length === 0 ? (
+            <p className="mt-1 text-sm text-secondary-foreground">
+              No registered assets are available yet.{" "}
+              <Link className="font-semibold text-link hover:underline" to="/factories">
+                Open factory assets
+              </Link>
+              .
+            </p>
+          ) : (
+            <ul className="mt-2 grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-3">
+              {recognizedAssets.map(({ machine, sensors }) => (
+                <li
+                  className="rounded-md border border-border bg-elevated p-3"
+                  key={machine.id}
+                >
+                  <strong className="text-foreground">{machine.name}</strong>
+                  <p className="mt-1 text-xs text-secondary-foreground">
+                    {sensors.map((sensor) => sensor.name).join(", ") ||
+                      "No sensors registered"}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
       {error ? (
         <div className="mt-4">
           <InlineError message={error} onRetry={() => setError(null)} />
@@ -183,25 +268,51 @@ export function DataOnboardingPage(): ReactElement {
             Suggestions are not applied until you confirm. This quick mapping supports
             the common long shape: timestamp, machine, sensor, value.
           </p>
-          <button
-            className={`mt-4 ${secondaryButtonClassName}`}
-            disabled={busy || item === null}
-            onClick={() => {
-              if (item)
-                void execute(() =>
-                  saveImportMapping(item.id, {
-                    machine: guessed("machine"),
-                    sensor: guessed("sensor"),
-                    shape: "long",
-                    timestamp: guessed("time"),
-                    value: guessed("value"),
-                  }),
-                );
+          <form
+            className="mt-4 grid gap-3 sm:grid-cols-2"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (item === null) return;
+              const data = new FormData(event.currentTarget);
+              void execute(() =>
+                saveImportMapping(item.id, {
+                  machine: String(data.get("machine")),
+                  sensor: String(data.get("sensor")),
+                  shape: "long",
+                  timestamp: String(data.get("timestamp")),
+                  value: String(data.get("value")),
+                }),
+              );
             }}
-            type="button"
           >
-            Confirm suggested mapping
-          </button>
+            {(["timestamp", "machine", "sensor", "value"] as const).map((field) => (
+              <label className="text-sm font-medium text-foreground" key={field}>
+                {field[0].toUpperCase() + field.slice(1)}
+                <select
+                  className={`${input} mt-1`}
+                  defaultValue={guessed(field === "timestamp" ? "time" : field)}
+                  disabled={busy || item === null}
+                  key={`${item?.id ?? "empty"}-${field}`}
+                  name={field}
+                  required
+                >
+                  <option value="">Select a column</option>
+                  {headers.map((header) => (
+                    <option key={header} value={header}>
+                      {header}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ))}
+            <button
+              className={`${secondaryButtonClassName} sm:col-span-2`}
+              disabled={busy || item === null}
+              type="submit"
+            >
+              Confirm column mapping
+            </button>
+          </form>
         </div>
         <div className={panel}>
           <h3 className="font-semibold text-foreground">4. Quality report</h3>
@@ -219,11 +330,53 @@ export function DataOnboardingPage(): ReactElement {
             <ul className="mt-4 space-y-2 text-sm">
               {item.quality_report.issues.map((issue, index) => (
                 <li className="rounded-md bg-muted p-3" key={index}>
-                  {String((issue as Record<string, unknown>).severity)} ·{" "}
-                  {String((issue as Record<string, unknown>).code)}
+                  <strong>
+                    {String((issue as Record<string, unknown>).severity)} ·{" "}
+                    {String((issue as Record<string, unknown>).code)}
+                  </strong>
+                  <p className="mt-1 text-secondary-foreground">
+                    {String((issue as Record<string, unknown>).meaning)}{" "}
+                    {String((issue as Record<string, unknown>).correction)}
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Count: {String((issue as Record<string, unknown>).count)}
+                  </p>
                 </li>
               ))}
             </ul>
+          ) : null}
+          {item?.quality_report.issues instanceof Array ? (
+            <button
+              className={`mt-3 ${secondaryButtonClassName}`}
+              onClick={() => {
+                void downloadImportQuality(item.id).then((blob) => {
+                  const url = URL.createObjectURL(blob);
+                  const anchor = document.createElement("a");
+                  anchor.href = url;
+                  anchor.download = `quality-${item.id}.csv`;
+                  anchor.click();
+                  URL.revokeObjectURL(url);
+                });
+              }}
+              type="button"
+            >
+              Download quality issue summary
+            </button>
+          ) : null}
+          {item?.error_samples.length ? (
+            <details className="mt-3 text-sm">
+              <summary className="cursor-pointer font-semibold text-link">
+                Review bounded row examples
+              </summary>
+              <ul className="mt-2 space-y-2">
+                {item.error_samples.map((sample, index) => (
+                  <li className="rounded-md border border-border p-2" key={index}>
+                    Row {String(sample.row)} · {String(sample.code)} ·{" "}
+                    {String(sample.detail)}
+                  </li>
+                ))}
+              </ul>
+            </details>
           ) : null}
         </div>
         <div className={panel}>
@@ -315,8 +468,25 @@ export function DataQualityPage(): ReactElement {
                         {item.status} · {new Date(item.created_at).toLocaleString()}
                       </p>
                     </div>
-                    <strong>{rate.toFixed(1)}% invalid</strong>
+                    <strong>
+                      {invalid} invalid · {rate.toFixed(1)}%
+                    </strong>
                   </div>
+                  {item.quality_report.issues instanceof Array ? (
+                    <ul className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
+                      {item.quality_report.issues.map((issue, index) => (
+                        <li className="rounded-md bg-muted p-3" key={index}>
+                          <strong>
+                            {String((issue as Record<string, unknown>).severity)} ·{" "}
+                            {String((issue as Record<string, unknown>).code)}
+                          </strong>
+                          <p className="mt-1 text-secondary-foreground">
+                            {String((issue as Record<string, unknown>).meaning)}
+                          </p>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
                 </article>
               );
             })}

@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent, type ReactElement } from "react";
+import { Link } from "react-router-dom";
 
 import {
   changePassword,
@@ -7,6 +8,7 @@ import {
   revokeOtherSessions,
   type ActiveSession,
 } from "../api/account";
+import { preparePublicDemoWorkspace } from "../auth/authApi";
 import { isRequestCancelled } from "../api/client";
 import { readStoredTokens } from "../api/sessionStorage";
 import { useAuth } from "../auth/useAuth";
@@ -33,7 +35,14 @@ export function SettingsPage(): ReactElement {
   const [message, setMessage] = useState<string | null>(null);
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [demoSetupBusy, setDemoSetupBusy] = useState(false);
+  const [demoSetupCompleted, setDemoSetupCompleted] = useState(false);
+  const [demoSetupError, setDemoSetupError] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
+  const demoSetupPending =
+    !demoSetupCompleted &&
+    user !== null &&
+    sessionStorage.getItem(`fk-demo-setup-retry:${user.id}`) === "pending";
 
   useEffect(() => {
     const controller = new AbortController();
@@ -276,6 +285,63 @@ export function SettingsPage(): ReactElement {
           </ul>
         </section>
       </div>
+      <section className={`${panelClassName} mt-6`}>
+        <h3 className="text-lg font-semibold text-foreground">Demo onboarding</h3>
+        <p className="mt-2 text-sm text-secondary-foreground">
+          Restart the guided path through the factory, data, model, prediction, and
+          monitoring workflow.
+        </p>
+        <Link
+          className={`${secondaryButtonClassName} mt-4 inline-flex`}
+          onClick={() => {
+            if (user !== null) {
+              sessionStorage.setItem(`fk-demo-onboarding:${user.id}`, "start");
+            }
+          }}
+          to="/"
+        >
+          Restart onboarding
+        </Link>
+        {demoSetupPending && user !== null ? (
+          <div className="mt-4 rounded-md border border-purple-200 bg-info p-4">
+            <p className="text-sm text-secondary-foreground">
+              Your private synthetic workspace still needs preparation.
+            </p>
+            <button
+              className={`${primaryButtonClassName} mt-3`}
+              disabled={demoSetupBusy}
+              onClick={() => {
+                setDemoSetupBusy(true);
+                setDemoSetupError(null);
+                void preparePublicDemoWorkspace()
+                  .then(() => {
+                    sessionStorage.removeItem(`fk-demo-setup-retry:${user.id}`);
+                    sessionStorage.setItem(`fk-demo-onboarding:${user.id}`, "start");
+                    setDemoSetupCompleted(true);
+                    setDemoSetupError(null);
+                    setMessage("Demo workspace prepared. Restart onboarding to begin.");
+                  })
+                  .catch((caught: unknown) =>
+                    setDemoSetupError(
+                      caught instanceof Error
+                        ? caught.message
+                        : "Demo workspace preparation could not be completed.",
+                    ),
+                  )
+                  .finally(() => setDemoSetupBusy(false));
+              }}
+              type="button"
+            >
+              {demoSetupBusy ? "Preparing…" : "Prepare demo workspace"}
+            </button>
+            {demoSetupError ? (
+              <p className="mt-3 text-sm text-danger" role="alert">
+                {demoSetupError}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+      </section>
       <section className={`${panelClassName} mt-6`}>
         <h3 className="text-lg font-semibold text-foreground">
           Enterprise identity limitations

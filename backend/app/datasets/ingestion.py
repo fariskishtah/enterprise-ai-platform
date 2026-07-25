@@ -116,8 +116,16 @@ def ingest_csv(
             raise DatasetIngestionError(
                 "Explicit splits require at least two training and evaluation rows."
             )
+    schema_snapshot = schema.model_dump(mode="json")
+    schema_snapshot["training_readiness"] = _training_readiness(
+        column_names=normalized,
+        column_values=columns,
+        inferred_columns=inferred,
+        target_column=target_column,
+        split_column=split_column,
+    )
     return DatasetIngestionResult(
-        schema_snapshot=schema.model_dump(mode="json"),
+        schema_snapshot=schema_snapshot,
         row_count=row_count,
         column_count=len(normalized),
     )
@@ -263,3 +271,86 @@ def _finite_number(value: str | None) -> float | int:
     if not math.isfinite(number):
         raise ValueError("Non-finite numeric value.")
     return int(number) if number.is_integer() else number
+
+
+def _training_readiness(
+    *,
+    column_names: list[str],
+    column_values: list[list[str]],
+    inferred_columns: tuple[TabularColumn, ...],
+    target_column: str | None,
+    split_column: str | None,
+) -> dict[str, object]:
+    """Describe compatibility with the existing numeric training contracts."""
+    types = {column.name: column.data_type for column in inferred_columns}
+    feature_names = [
+        name for name in column_names if name not in {target_column, split_column}
+    ]
+    numeric_features = [
+        name for name in feature_names if types[name] in {"integer", "float"}
+    ]
+    non_numeric_features = [
+        name for name in feature_names if name not in numeric_features
+    ]
+    blockers: list[str] = []
+    warnings: list[str] = []
+    if target_column is None:
+        blockers.append(
+            "Choose a target column before using this dataset for training."
+        )
+    if not feature_names:
+        blockers.append("At least one feature column is required for training.")
+    if non_numeric_features:
+        blockers.append(
+            "The current training algorithms require numeric feature columns; "
+            "transform or exclude the listed non-numeric columns."
+        )
+
+    target_type = types.get(target_column) if target_column is not None else None
+    target_values = (
+        column_values[column_names.index(target_column)]
+        if target_column is not None and target_column in column_names
+        else []
+    )
+    present_targets = [value for value in target_values if value != ""]
+    distribution: dict[str, int] = {}
+    for value in present_targets:
+        distribution[value] = distribution.get(value, 0) + 1
+    distinct_targets = len(distribution)
+    numeric_target = target_type in {"integer", "float"}
+    if target_column is not None and not numeric_target:
+        blockers.append(
+            "The current training workflows require a numeric target column."
+        )
+    if target_column is not None and distinct_targets < 2:
+        warnings.append(
+            "The target contains only one class/value; classification training "
+            "requires at least two classes."
+        )
+    if numeric_target and present_targets:
+        numeric_values = [float(value) for value in present_targets]
+        if not any(value > 0 for value in numeric_values):
+            warnings.append("No positive target examples were detected.")
+
+    common_ready = not blockers and numeric_target and bool(numeric_features)
+    classification_candidate = (
+        common_ready
+        and target_type == "integer"
+        and 2 <= distinct_targets <= min(20, max(2, len(present_targets) // 2))
+    )
+    regression_candidate = common_ready and distinct_targets >= 2
+    return {
+        "numeric_feature_columns": numeric_features,
+        "non_numeric_feature_columns": non_numeric_features,
+        "target_column": target_column,
+        "target_data_type": target_type,
+        "target_distinct_count": distinct_targets,
+        "class_distribution": (
+            dict(sorted(distribution.items())) if distinct_targets <= 20 else {}
+        ),
+        "classification_candidate": classification_candidate,
+        "regression_candidate": regression_candidate,
+        "ready_for_numeric_training": common_ready and distinct_targets >= 2,
+        "blocking_reasons": blockers,
+        "warnings": warnings,
+    }

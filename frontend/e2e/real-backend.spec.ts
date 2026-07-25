@@ -186,7 +186,7 @@ async function apiGetAllPages<T>(
   const limit = 100;
   const items: T[] = [];
   let offset = 0;
-  let total = 0;
+  let total: number;
   do {
     const response = await apiGet<ApiPage<T>>(page, path(limit, offset));
     total = response.total;

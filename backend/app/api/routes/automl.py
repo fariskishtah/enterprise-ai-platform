@@ -18,6 +18,7 @@ from app.datasets.service import (
 from app.dependencies.auth import require_roles
 from app.dependencies.database import get_db_session
 from app.dependencies.datasets import get_dataset_service
+from app.dependencies.public_demo import require_non_public_demo_account
 from app.dependencies.rate_limit import enforce_mutation_rate_limit
 from app.dependencies.services import get_audit_service
 from app.ml.automl.champion import ChampionCandidate, rank_champions
@@ -114,7 +115,10 @@ def algorithms(
     "/studies",
     response_model=AutoMLStudySubmissionResponse,
     status_code=status.HTTP_202_ACCEPTED,
-    dependencies=[Depends(enforce_mutation_rate_limit)],
+    dependencies=[
+        Depends(enforce_mutation_rate_limit),
+        Depends(require_non_public_demo_account),
+    ],
     responses={**_AUTH, 409: {"description": "Idempotency conflict."}},
 )
 async def create_study(

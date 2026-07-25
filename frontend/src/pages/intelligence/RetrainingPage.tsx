@@ -42,6 +42,7 @@ export function RetrainingPage(): ReactElement {
   const [policies, setPolicies] = useState<readonly RetrainingPolicy[]>([]);
   const [audits, setAudits] = useState<RetrainingAuditPage | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [model, setModel] = useState("");
   const [version, setVersion] = useState("");
@@ -141,6 +142,7 @@ export function RetrainingPage(): ReactElement {
               className={panelClassName}
               onSubmit={(e) => {
                 e.preventDefault();
+                setActionError(null);
                 void evaluateRetraining(model, version, {
                   trigger_type: trigger,
                   start_at: null,
@@ -153,7 +155,7 @@ export function RetrainingPage(): ReactElement {
                     if (r.request) navigate(`/retraining/requests/${r.request.id}`);
                   })
                   .catch((caught: unknown) =>
-                    setError(
+                    setActionError(
                       caught instanceof Error ? caught.message : "Evaluation failed.",
                     ),
                   );
@@ -203,6 +205,7 @@ export function RetrainingPage(): ReactElement {
               onSubmit={(e) => {
                 e.preventDefault();
                 if (!confirm("Submit this manual retraining request?")) return;
+                setActionError(null);
                 void requestRetraining(model, version, {
                   reason,
                   override_cooldown: false,
@@ -212,7 +215,7 @@ export function RetrainingPage(): ReactElement {
                     if (r.request) navigate(`/retraining/requests/${r.request.id}`);
                   })
                   .catch((caught: unknown) =>
-                    setError(
+                    setActionError(
                       caught instanceof Error ? caught.message : "Request failed.",
                     ),
                   );
@@ -247,6 +250,14 @@ export function RetrainingPage(): ReactElement {
                 </span>
               </div>
             </div>
+          ) : null}
+          {actionError ? (
+            <p
+              className="mt-6 rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-800"
+              role="alert"
+            >
+              {actionError}
+            </p>
           ) : null}
           <div className="mt-6">
             <h2 className="text-lg font-semibold">Recent requests</h2>
@@ -297,53 +308,69 @@ export function RetrainingPage(): ReactElement {
           </div>
           <div className="mt-6">
             <h2 className="text-lg font-semibold">Policies</h2>
-            <div className="mt-3 grid gap-4 lg:grid-cols-2">
-              {policies.map((p) => (
-                <article className={panelClassName} key={p.id}>
-                  <div className="flex justify-between">
-                    <h3 className="font-semibold">{p.registered_model_name}</h3>
-                    <IntelligenceStatus value={p.enabled ? "healthy" : "disabled"} />
-                  </div>
-                  <p className="mt-2 text-sm text-secondary-foreground">
-                    Minimum {p.minimum_current_sample_count} samples ·{" "}
-                    {p.cooldown_seconds}s cooldown · {p.maximum_active_requests} active
-                    maximum
-                  </p>
-                  {role === "admin" ? (
-                    <button
-                      className={`${secondaryButtonClassName} mt-3`}
-                      type="button"
-                      onClick={() => {
-                        if (!confirm(`Toggle policy for ${p.registered_model_name}?`))
-                          return;
-                        void updatePolicy(p.registered_model_name, {
-                          enabled: !p.enabled,
-                          allowed_trigger_types: p.allowed_trigger_types,
-                          minimum_drift_status: p.minimum_drift_status,
-                          minimum_current_sample_count: p.minimum_current_sample_count,
-                          cooldown_seconds: p.cooldown_seconds,
-                          maximum_requests_per_day: p.maximum_requests_per_day,
-                          maximum_requests_per_week: p.maximum_requests_per_week,
-                          maximum_active_requests: p.maximum_active_requests,
-                          require_champion_source: p.require_champion_source,
-                          allow_truncated_drift: p.allow_truncated_drift,
-                        })
-                          .then(() => setRevision((v) => v + 1))
-                          .catch((caught: unknown) =>
-                            setError(
-                              caught instanceof Error
-                                ? caught.message
-                                : "Policy update failed.",
-                            ),
-                          );
-                      }}
-                    >
-                      Toggle enabled state
-                    </button>
-                  ) : null}
-                </article>
-              ))}
-            </div>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Eligibility checks require a policy, a trusted registered source version,
+              monitoring evidence, minimum samples, available quota, and an expired
+              cooldown. Public demo workspaces receive a conservative default policy
+              when their first eligible model is evaluated.
+            </p>
+            {policies.length === 0 ? (
+              <div className="mt-3">
+                <EmptyState
+                  title="No retraining policies yet"
+                  description="Enter a model and version above to evaluate it. An isolated public demo model receives bounded defaults; enterprise policies remain administrator-managed."
+                />
+              </div>
+            ) : (
+              <div className="mt-3 grid gap-4 lg:grid-cols-2">
+                {policies.map((p) => (
+                  <article className={panelClassName} key={p.id}>
+                    <div className="flex justify-between">
+                      <h3 className="font-semibold">{p.registered_model_name}</h3>
+                      <IntelligenceStatus value={p.enabled ? "healthy" : "disabled"} />
+                    </div>
+                    <p className="mt-2 text-sm text-secondary-foreground">
+                      Minimum {p.minimum_current_sample_count} samples ·{" "}
+                      {p.cooldown_seconds}s cooldown · {p.maximum_active_requests}{" "}
+                      active maximum
+                    </p>
+                    {role === "admin" ? (
+                      <button
+                        className={`${secondaryButtonClassName} mt-3`}
+                        type="button"
+                        onClick={() => {
+                          if (!confirm(`Toggle policy for ${p.registered_model_name}?`))
+                            return;
+                          void updatePolicy(p.registered_model_name, {
+                            enabled: !p.enabled,
+                            allowed_trigger_types: p.allowed_trigger_types,
+                            minimum_drift_status: p.minimum_drift_status,
+                            minimum_current_sample_count:
+                              p.minimum_current_sample_count,
+                            cooldown_seconds: p.cooldown_seconds,
+                            maximum_requests_per_day: p.maximum_requests_per_day,
+                            maximum_requests_per_week: p.maximum_requests_per_week,
+                            maximum_active_requests: p.maximum_active_requests,
+                            require_champion_source: p.require_champion_source,
+                            allow_truncated_drift: p.allow_truncated_drift,
+                          })
+                            .then(() => setRevision((v) => v + 1))
+                            .catch((caught: unknown) =>
+                              setError(
+                                caught instanceof Error
+                                  ? caught.message
+                                  : "Policy update failed.",
+                              ),
+                            );
+                        }}
+                      >
+                        Toggle enabled state
+                      </button>
+                    ) : null}
+                  </article>
+                ))}
+              </div>
+            )}
             <p className="mt-2 text-xs text-muted-foreground">
               Policy listing is bounded and the backend does not expose a total count.
             </p>

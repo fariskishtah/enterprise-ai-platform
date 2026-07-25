@@ -894,10 +894,17 @@ class RAGService:
                 ranked.append((score, str(candidate.chunk.id), candidate))
         ranked.sort(key=lambda item: (-item[0], item[1]))
         results: list[RetrievalResult] = []
-        for rank, (score, _chunk_key, candidate) in enumerate(ranked[:top_k], start=1):
-            excerpt = " ".join(candidate.chunk.content.split())[
-                :_MAX_EXCERPT_CHARACTERS
-            ]
+        accepted_content: list[str] = []
+        for score, _chunk_key, candidate in ranked:
+            normalized_content = _normalized_retrieval_content(candidate.chunk.content)
+            if any(
+                _retrieval_content_is_duplicate(normalized_content, existing)
+                for existing in accepted_content
+            ):
+                continue
+            accepted_content.append(normalized_content)
+            excerpt = normalized_content[:_MAX_EXCERPT_CHARACTERS]
+            rank = len(results) + 1
             results.append(
                 RetrievalResult(
                     chunk_id=candidate.chunk.id,
@@ -911,6 +918,8 @@ class RAGService:
                     section=candidate.chunk.section,
                 )
             )
+            if len(results) >= top_k:
+                break
         return RetrievalResponse(
             knowledge_base_id=knowledge_base.id,
             results=tuple(results),
@@ -1530,3 +1539,21 @@ def _configuration_integer(value: object) -> int:
             "The knowledge-base chunking configuration is invalid."
         )
     return value
+
+
+def _normalized_retrieval_content(value: str) -> str:
+    return " ".join(value.split())
+
+
+def _retrieval_content_is_duplicate(candidate: str, existing: str) -> bool:
+    """Suppress exact and near-identical evidence without hiding short facts."""
+    candidate_folded = candidate.casefold()
+    existing_folded = existing.casefold()
+    if candidate_folded == existing_folded:
+        return True
+    candidate_tokens = set(candidate_folded.split())
+    existing_tokens = set(existing_folded.split())
+    if min(len(candidate_tokens), len(existing_tokens)) < 8:
+        return False
+    union = candidate_tokens | existing_tokens
+    return bool(union) and len(candidate_tokens & existing_tokens) / len(union) >= 0.92

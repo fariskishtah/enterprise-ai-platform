@@ -14,6 +14,7 @@ from pydantic import (
     model_validator,
 )
 
+from app.datasets.naming import validate_dataset_display_name
 from app.utils.safe_text import ensure_safe_multiline
 
 SafeText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
@@ -58,9 +59,7 @@ class DocumentProcessingStatus(StrEnum):
 class DatasetMetadata(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    name: str = Field(
-        min_length=3, max_length=128, pattern=r"^[A-Za-z0-9][A-Za-z0-9 _.-]*$"
-    )
+    name: str = Field(min_length=3, max_length=128)
     description: str | None = Field(default=None, min_length=1, max_length=2000)
     kind: DatasetKind
 
@@ -68,6 +67,11 @@ class DatasetMetadata(BaseModel):
     @classmethod
     def validate_description(cls, value: str | None) -> str | None:
         return ensure_safe_multiline(value) if value is not None else None
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str) -> str:
+        return validate_dataset_display_name(value)
 
 
 class TabularColumn(BaseModel):
@@ -138,8 +142,8 @@ class IngestionOptions(BaseModel):
 class ChunkingOptions(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    chunk_size: int = Field(default=1000, ge=200, le=4000)
-    overlap: int = Field(default=100, ge=0, le=1000)
+    chunk_size: int = Field(default=350, ge=200, le=4000)
+    overlap: int = Field(default=50, ge=0, le=1000)
     maximum_chunks: int = Field(default=2000, ge=1, le=10_000)
 
     @model_validator(mode="after")

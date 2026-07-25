@@ -118,6 +118,7 @@ async def test_guided_csv_preview_mapping_quality_import_and_isolation(
             "timestamp,machine,sensor,value\n"
             "2026-07-24T10:00:00Z,CNC-01,temperature,72.5\n"
             "2026-07-24T10:01:00Z,CNC-01,temperature,73.0\n"
+            "2026-07-24T10:02:00Z,CNC-01,temperature,+5.0\n"
         )
         uploaded = await client.post(
             "/data-onboarding/imports",
@@ -127,7 +128,7 @@ async def test_guided_csv_preview_mapping_quality_import_and_isolation(
         assert uploaded.status_code == 201, uploaded.text
         import_id = uploaded.json()["id"]
         assert uploaded.json()["imported_rows"] == 0
-        assert len(uploaded.json()["preview"]) == 2
+        assert len(uploaded.json()["preview"]) == 3
 
         repeated = await client.post(
             "/data-onboarding/imports",
@@ -165,7 +166,7 @@ async def test_guided_csv_preview_mapping_quality_import_and_isolation(
         )
         assert imported.status_code == 200, imported.text
         assert imported.json()["status"] == "completed"
-        assert imported.json()["imported_rows"] == 2
+        assert imported.json()["imported_rows"] == 3
         assert (
             await client.get("/data-onboarding/imports", headers=operator)
         ).status_code == 403
@@ -214,7 +215,12 @@ async def test_demo_scenario_layout_tv_and_tagged_reset(
     session_factory: async_sessionmaker[AsyncSession],
     tmp_path: Path,
 ) -> None:
-    enabled = settings.model_copy(update={"demo_tools_enabled": True})
+    enabled = settings.model_copy(
+        update={
+            "demo_tools_enabled": True,
+            "operations_workflow_enabled": True,
+        }
+    )
     async with ai_api_client(enabled, session_factory, tmp_path=tmp_path) as (
         client,
         _application,
@@ -263,6 +269,19 @@ async def test_demo_scenario_layout_tv_and_tagged_reset(
             advanced = await client.post(f"/demo/runs/{run_id}/advance", headers=admin)
             assert advanced.status_code == 200, advanced.text
         assert advanced.json()["state_snapshot"]["risk_state"] == "warning"
+        alert_id = advanced.json()["state_snapshot"]["alert_id"]
+        alert = await client.get(f"/operations/alerts/{alert_id}", headers=admin)
+        assert alert.status_code == 200, alert.text
+        acknowledged = await client.post(
+            f"/operations/alerts/{alert_id}/lifecycle",
+            headers=admin,
+            json={
+                "expected_version": alert.json()["lifecycle_version"],
+                "transition": "acknowledge",
+                "note": "Preserve this append-only note when the demo run is reset.",
+            },
+        )
+        assert acknowledged.status_code == 200, acknowledged.text
 
         layout = await client.put(
             f"/demo/factories/{factory.id}/layout",
@@ -283,6 +302,19 @@ async def test_demo_scenario_layout_tv_and_tagged_reset(
         reset = await client.delete(f"/demo/runs/{run_id}/reset", headers=admin)
         assert reset.status_code == 200, reset.text
         assert reset.json()["deleted_records"] > 0
+        assert (
+            await client.get(f"/operations/alerts/{alert_id}", headers=admin)
+        ).status_code == 200
+        notes = await client.get(
+            "/operations/notes",
+            headers=admin,
+            params={"alert_id": alert_id, "limit": 100},
+        )
+        assert notes.status_code == 200, notes.text
+        assert any(
+            item["body"] == "Preserve this append-only note when the demo run is reset."
+            for item in notes.json()
+        )
 
 
 @pytest.mark.anyio

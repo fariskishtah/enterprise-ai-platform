@@ -197,7 +197,7 @@ export async function listAllDatasetVersions(
   const maximumItems = options.maximumItems ?? MAX_DISCOVERED_VERSIONS;
   const items: DatasetVersionSummary[] = [];
   let offset = 0;
-  let total = 0;
+  let total: number;
   do {
     const page = await listDatasetVersions(datasetId, {
       limit: DISCOVERY_PAGE_SIZE,

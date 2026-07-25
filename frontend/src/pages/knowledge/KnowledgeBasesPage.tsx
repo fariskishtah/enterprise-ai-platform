@@ -11,9 +11,11 @@ import { LifecycleStatus } from "../../components/dataRag/DataRagUi";
 import {
   EmptyState,
   InlineError,
+  InlineNotice,
   LoadingSkeleton,
   PaginationControls,
   primaryButtonClassName,
+  secondaryButtonClassName,
 } from "../../components/hierarchy/ResourceStates";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { formatDate, hierarchyError } from "../hierarchy/shared";
@@ -55,15 +57,30 @@ export function KnowledgeBasesPage(): ReactElement {
     <section aria-labelledby="knowledge-heading">
       <PageHeader
         actions={
-          <Link className={primaryButtonClassName} to="/knowledge/new">
-            Create knowledge base
-          </Link>
+          <div className="flex flex-wrap gap-2">
+            <Link
+              className={secondaryButtonClassName}
+              to="/datasets/new?kind=document_collection"
+            >
+              Register document
+            </Link>
+            <Link className={primaryButtonClassName} to="/knowledge/new">
+              Create knowledge base
+            </Link>
+          </div>
         }
         description="Build authorization-aware indexes from ready registered document versions."
         eyebrow="Grounded AI"
         headingId="knowledge-heading"
         title="Knowledge Bases"
       />
+      <div className="mt-5 max-w-3xl">
+        <InlineNotice>
+          First register a supported TXT document in Dataset Registry and wait for its
+          version to show Ready. Then create a knowledge base and select that exact
+          version for indexing.
+        </InlineNotice>
+      </div>
       <label className="mt-6 block max-w-xs text-sm font-medium text-foreground">
         Status
         <select
@@ -94,9 +111,17 @@ export function KnowledgeBasesPage(): ReactElement {
         ) : page === null || page.items.length === 0 ? (
           <EmptyState
             action={
-              <Link className={primaryButtonClassName} to="/knowledge/new">
-                Create knowledge base
-              </Link>
+              <div className="flex flex-wrap justify-center gap-2">
+                <Link
+                  className={secondaryButtonClassName}
+                  to="/datasets/new?kind=document_collection"
+                >
+                  Register TXT document
+                </Link>
+                <Link className={primaryButtonClassName} to="/knowledge/new">
+                  Create knowledge base
+                </Link>
+              </div>
             }
             description="Create a knowledge base and attach one or more ready document dataset versions."
             title="No knowledge bases"

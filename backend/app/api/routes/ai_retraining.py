@@ -9,8 +9,23 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query
 
 from app.dependencies.auth import require_roles
 from app.dependencies.operational import require_training_worker_available
+from app.dependencies.public_demo import (
+    is_public_demo_account,
+    require_public_demo_model_scope,
+)
 from app.dependencies.rate_limit import enforce_mutation_rate_limit
-from app.dependencies.services import get_audit_service, get_retraining_service
+from app.dependencies.services import (
+    get_ai_model_registry,
+    get_audit_service,
+    get_retraining_service,
+)
+from app.ml.registry import (
+    BaseModelRegistry,
+    ModelRegistryError,
+    ModelRegistryValidationError,
+    RegisteredModelVersionNotFoundError,
+    RegistryMetadataError,
+)
 from app.ml.retraining import (
     CandidateComparison,
     RetrainingAuditRecord,
@@ -22,6 +37,7 @@ from app.ml.retraining import (
     RetrainingPolicy,
     RetrainingRegistryError,
     RetrainingRequest,
+    RetrainingTriggerType,
     RetrainingValidationError,
 )
 from app.ml.retraining.service import RetrainingEvaluationResult, RetrainingService
@@ -115,6 +131,7 @@ async def list_policies(
 
 @router.get(
     "/policies/{registered_model_name}",
+    dependencies=[Depends(require_public_demo_model_scope)],
     response_model=RetrainingPolicyResponse,
     responses=_RESPONSES,
     summary="Get one model retraining policy",
@@ -178,7 +195,10 @@ async def put_policy(
 
 @router.post(
     "/models/{registered_model_name}/versions/{version_or_alias}/evaluate",
-    dependencies=[Depends(enforce_mutation_rate_limit)],
+    dependencies=[
+        Depends(enforce_mutation_rate_limit),
+        Depends(require_public_demo_model_scope),
+    ],
     response_model=RetrainingEvaluationResponse,
     responses=_RESPONSES,
     summary="Evaluate an explicit drift window for controlled retraining",
@@ -196,8 +216,19 @@ async def evaluate_retraining(
     ],
     service: Annotated[RetrainingService, Depends(get_retraining_service)],
     audit: Annotated[AuditService, Depends(get_audit_service)],
+    registry: Annotated[BaseModelRegistry, Depends(get_ai_model_registry)],
+    public_demo: Annotated[bool, Depends(is_public_demo_account)],
 ) -> RetrainingEvaluationResponse:
     try:
+        await _ensure_public_demo_policy(
+            service=service,
+            audit=audit,
+            actor=current_user,
+            registered_model_name=registered_model_name,
+            version_or_alias=version_or_alias,
+            registry=registry,
+            public_demo=public_demo,
+        )
         result = await service.evaluate_automatic(
             registered_model_name=registered_model_name,
             version_or_alias=version_or_alias,
@@ -219,6 +250,7 @@ async def evaluate_retraining(
     dependencies=[
         Depends(enforce_mutation_rate_limit),
         Depends(require_training_worker_available),
+        Depends(require_public_demo_model_scope),
     ],
     response_model=RetrainingEvaluationResponse,
     responses=_RESPONSES,
@@ -233,6 +265,8 @@ async def request_manual_retraining(
     ],
     service: Annotated[RetrainingService, Depends(get_retraining_service)],
     audit: Annotated[AuditService, Depends(get_audit_service)],
+    registry: Annotated[BaseModelRegistry, Depends(get_ai_model_registry)],
+    public_demo: Annotated[bool, Depends(is_public_demo_account)],
 ) -> RetrainingEvaluationResponse:
     if body.override_cooldown and current_user.role is not UserRole.ADMIN:
         raise HTTPException(
@@ -240,6 +274,15 @@ async def request_manual_retraining(
             detail="Only an administrator may override retraining cooldown.",
         )
     try:
+        await _ensure_public_demo_policy(
+            service=service,
+            audit=audit,
+            actor=current_user,
+            registered_model_name=registered_model_name,
+            version_or_alias=version_or_alias,
+            registry=registry,
+            public_demo=public_demo,
+        )
         result = await service.request_manual(
             registered_model_name=registered_model_name,
             version_or_alias=version_or_alias,
@@ -252,6 +295,65 @@ async def request_manual_retraining(
         _translate(exc)
     await _audit_retraining_decision(audit, current_user, result)
     return _evaluation(result)
+
+
+async def _ensure_public_demo_policy(
+    *,
+    service: RetrainingService,
+    audit: AuditService,
+    actor: User,
+    registered_model_name: str,
+    version_or_alias: str,
+    registry: BaseModelRegistry,
+    public_demo: bool,
+) -> None:
+    """Create only the conservative default policy for isolated public tenants."""
+    if not public_demo:
+        return
+    try:
+        await service.get_policy(registered_model_name)
+        return
+    except RetrainingNotFoundError:
+        pass
+    try:
+        registry.resolve(registered_model_name, version_or_alias)
+    except RegisteredModelVersionNotFoundError as exc:
+        raise RetrainingNotFoundError("Source model version not found.") from exc
+    except ModelRegistryValidationError as exc:
+        raise RetrainingValidationError("The model reference is invalid.") from exc
+    except (RegistryMetadataError, ModelRegistryError) as exc:
+        raise RetrainingRegistryError(
+            "The model registry could not resolve the source version."
+        ) from exc
+    await service.put_policy(
+        registered_model_name=registered_model_name,
+        created_by_user_id=actor.id,
+        enabled=True,
+        allowed_trigger_types=frozenset(
+            {
+                RetrainingTriggerType.FEATURE_DRIFT,
+                RetrainingTriggerType.PREDICTION_DRIFT,
+                RetrainingTriggerType.DATA_QUALITY,
+                RetrainingTriggerType.MANUAL,
+            }
+        ),
+        minimum_drift_status=None,
+        minimum_current_sample_count=20,
+        cooldown_seconds=None,
+        maximum_requests_per_day=None,
+        maximum_requests_per_week=None,
+        maximum_active_requests=None,
+        require_champion_source=True,
+        allow_truncated_drift=None,
+    )
+    await audit.record(
+        company_id=actor.company_id,
+        actor=actor,
+        action="retraining.demo_policy_created",
+        resource_type="retraining_policy",
+        resource_id=registered_model_name,
+        result="success",
+    )
 
 
 @router.get(

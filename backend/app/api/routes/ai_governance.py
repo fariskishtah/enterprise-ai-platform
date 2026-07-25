@@ -27,6 +27,11 @@ from app.datasets.service import (
 from app.dependencies.auth import require_roles
 from app.dependencies.datasets import get_dataset_service
 from app.dependencies.operational import require_training_worker_available
+from app.dependencies.public_demo import (
+    is_public_demo_account,
+    registered_model_name_for_request,
+    require_public_demo_model_scope,
+)
 from app.dependencies.rate_limit import enforce_mutation_rate_limit
 from app.dependencies.services import (
     get_ai_model_registry,
@@ -48,6 +53,7 @@ from app.ml.jobs import (
     TrainingJobEnqueueError,
     TrainingJobNotFoundError,
     TrainingJobQueuePersistenceError,
+    TrainingJobQuotaError,
     TrainingJobRecord,
     TrainingJobSpec,
     TrainingJobStatus,
@@ -73,7 +79,6 @@ from app.ml.registry import (
     ModelRegistryError,
     ModelRegistryValidationError,
     RegisteredModelVersionNotFoundError,
-    build_registered_model_name,
 )
 from app.ml.services import BaseRegisteredModelLoader, RegisteredModelLoadError
 from app.models.user import User, UserRole
@@ -172,6 +177,7 @@ async def submit_generic_training_job(
     dataset_service: Annotated[DatasetService, Depends(get_dataset_service)],
     settings: Annotated[Settings, Depends(get_settings)],
     audit: Annotated[AuditService, Depends(get_audit_service)],
+    public_demo: Annotated[bool, Depends(is_public_demo_account)],
     idempotency_key: Annotated[
         str | None,
         Header(alias="Idempotency-Key", max_length=128),
@@ -213,11 +219,12 @@ async def submit_generic_training_job(
                 "Classification datasets require integer target labels."
             )
         parameters = dict(plugin.validate_parameters(payload.hyperparameters))
-        registered_model_name = (
-            payload.registered_model_name
-            or build_registered_model_name(
-                plugin.key, prefix=settings.ai_default_registered_model_prefix
-            )
+        registered_model_name = registered_model_name_for_request(
+            current_user=current_user,
+            public_demo=public_demo,
+            requested_name=payload.registered_model_name,
+            key=plugin.key,
+            default_prefix=settings.ai_default_registered_model_prefix,
         )
         common: dict[str, object] = {
             "training_features": training_features,
@@ -314,6 +321,7 @@ async def submit_generic_training_job(
         current_user=current_user,
         specification=specification,
         idempotency_key=idempotency_key,
+        enforce_public_demo_quota=public_demo,
     )
     if not submission.created:
         response.status_code = status.HTTP_200_OK
@@ -359,18 +367,19 @@ async def submit_random_forest_regression_job(
     service: Annotated[TrainingJobService, Depends(get_training_job_service)],
     settings: Annotated[Settings, Depends(get_settings)],
     audit: Annotated[AuditService, Depends(get_audit_service)],
+    public_demo: Annotated[bool, Depends(is_public_demo_account)],
     idempotency_key: Annotated[
         str | None,
         Header(alias="Idempotency-Key", max_length=128),
     ] = None,
 ) -> TrainingJobSubmissionResponse:
     """Persist and enqueue a JSON-validated regression job."""
-    registered_model_name = (
-        payload.registered_model_name
-        or build_registered_model_name(
-            random_forest_key(TaskType.REGRESSION),
-            prefix=settings.ai_default_registered_model_prefix,
-        )
+    registered_model_name = registered_model_name_for_request(
+        current_user=current_user,
+        public_demo=public_demo,
+        requested_name=payload.registered_model_name,
+        key=random_forest_key(TaskType.REGRESSION),
+        default_prefix=settings.ai_default_registered_model_prefix,
     )
     specification = RandomForestRegressionJobSpec(
         training_features=tuple(tuple(row) for row in payload.training_features),
@@ -390,6 +399,7 @@ async def submit_random_forest_regression_job(
         current_user=current_user,
         specification=specification,
         idempotency_key=idempotency_key,
+        enforce_public_demo_quota=public_demo,
     )
     if not submission.created:
         response.status_code = status.HTTP_200_OK
@@ -431,18 +441,19 @@ async def submit_random_forest_classification_job(
     service: Annotated[TrainingJobService, Depends(get_training_job_service)],
     settings: Annotated[Settings, Depends(get_settings)],
     audit: Annotated[AuditService, Depends(get_audit_service)],
+    public_demo: Annotated[bool, Depends(is_public_demo_account)],
     idempotency_key: Annotated[
         str | None,
         Header(alias="Idempotency-Key", max_length=128),
     ] = None,
 ) -> TrainingJobSubmissionResponse:
     """Persist and enqueue a JSON-validated classification job."""
-    registered_model_name = (
-        payload.registered_model_name
-        or build_registered_model_name(
-            random_forest_key(TaskType.CLASSIFICATION),
-            prefix=settings.ai_default_registered_model_prefix,
-        )
+    registered_model_name = registered_model_name_for_request(
+        current_user=current_user,
+        public_demo=public_demo,
+        requested_name=payload.registered_model_name,
+        key=random_forest_key(TaskType.CLASSIFICATION),
+        default_prefix=settings.ai_default_registered_model_prefix,
     )
     specification = RandomForestClassificationJobSpec(
         training_features=tuple(tuple(row) for row in payload.training_features),
@@ -462,6 +473,7 @@ async def submit_random_forest_classification_job(
         current_user=current_user,
         specification=specification,
         idempotency_key=idempotency_key,
+        enforce_public_demo_quota=public_demo,
     )
     if not submission.created:
         response.status_code = status.HTTP_200_OK
@@ -667,7 +679,10 @@ async def cancel_training_job(
 
 @router.post(
     "/models/{registered_model_name}/versions/{version}/promotions/challenger",
-    dependencies=[Depends(enforce_mutation_rate_limit)],
+    dependencies=[
+        Depends(enforce_mutation_rate_limit),
+        Depends(require_public_demo_model_scope),
+    ],
     response_model=ModelPromotionResponse,
     summary="Promote a model version to challenger",
     description=(
@@ -713,7 +728,10 @@ async def promote_challenger(
 
 @router.post(
     "/models/{registered_model_name}/versions/{version}/promotions/champion",
-    dependencies=[Depends(enforce_mutation_rate_limit)],
+    dependencies=[
+        Depends(enforce_mutation_rate_limit),
+        Depends(require_public_demo_model_scope),
+    ],
     response_model=ModelPromotionResponse,
     summary="Promote a challenger model version to champion",
     description=(
@@ -759,6 +777,7 @@ async def promote_champion(
 
 @router.get(
     "/models/{registered_model_name}/promotions",
+    dependencies=[Depends(require_public_demo_model_scope)],
     response_model=PromotionAuditPageResponse,
     summary="List model promotion history",
     responses=_AUTH_RESPONSES,
@@ -790,6 +809,7 @@ async def list_model_promotions(
 
 @router.get(
     "/models/{registered_model_name}/aliases",
+    dependencies=[Depends(require_public_demo_model_scope)],
     response_model=ModelAliasesResponse,
     summary="List governed model aliases",
     responses={
@@ -836,6 +856,7 @@ async def _submit(
     current_user: User,
     specification: TrainingJobSpec,
     idempotency_key: str | None,
+    enforce_public_demo_quota: bool,
 ) -> TrainingJobSubmission:
     if isinstance(
         specification,
@@ -854,9 +875,12 @@ async def _submit(
             key=key,
             specification=specification,
             idempotency_key=idempotency_key,
+            enforce_public_demo_quota=enforce_public_demo_quota,
         )
     except TrainingJobConflictError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except TrainingJobQuotaError as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
     except TrainingJobEnqueueError as exc:
         raise HTTPException(
             status_code=503,

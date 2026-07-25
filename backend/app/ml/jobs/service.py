@@ -15,6 +15,7 @@ from app.ml.jobs.exceptions import (
     TrainingJobEnqueueError,
     TrainingJobNotFoundError,
     TrainingJobQueuePersistenceError,
+    TrainingJobQuotaError,
 )
 from app.ml.jobs.models import (
     TrainingJobRecord,
@@ -42,6 +43,8 @@ class TrainingJobService:
         repository: TrainingJobRepository,
         queue: TrainingJobQueue,
         max_attempts: int,
+        public_demo_max_active: int = 1,
+        public_demo_max_per_day: int = 3,
         job_id_factory: JobIdFactory = uuid4,
     ) -> None:
         if max_attempts <= 0:
@@ -49,6 +52,8 @@ class TrainingJobService:
         self._repository = repository
         self._queue = queue
         self._max_attempts = max_attempts
+        self._public_demo_max_active = public_demo_max_active
+        self._public_demo_max_per_day = public_demo_max_per_day
         self._job_id_factory = job_id_factory
 
     @traced_async_operation(
@@ -62,6 +67,7 @@ class TrainingJobService:
         key: TrainerKey,
         specification: TrainingJobSpec,
         idempotency_key: str | None,
+        enforce_public_demo_quota: bool = False,
     ) -> TrainingJobSubmission:
         """Persist before enqueue and expose no false success on broker failure."""
         normalized_key = _normalize_idempotency_key(idempotency_key)
@@ -81,6 +87,20 @@ class TrainingJobService:
                 )
 
         now = utc_now()
+        if enforce_public_demo_quota:
+            active, recent = await self._repository.quota_usage(
+                requested_by_user_id=requested_by_user_id,
+                created_since=now - timedelta(days=1),
+            )
+            if active >= self._public_demo_max_active:
+                raise TrainingJobQuotaError(
+                    "Finish the active training job before starting another."
+                )
+            if recent >= self._public_demo_max_per_day:
+                raise TrainingJobQuotaError(
+                    "The public demo training quota has been reached for this "
+                    "24-hour period."
+                )
         try:
             job = await self._repository.create(
                 job_id=self._job_id_factory(),

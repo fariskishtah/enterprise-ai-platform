@@ -264,6 +264,84 @@ async def test_build_search_and_chat_are_grounded_and_idempotent(
 
 
 @pytest.mark.anyio
+async def test_distinct_maintenance_questions_retrieve_distinct_sections(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """Question-specific semantic retrieval does not collapse to the first chunk."""
+    press_section = (
+        "PRESS-02 maintenance section. Inspect the hydraulic ram alignment, safety "
+        "interlock, and die lubrication every Monday. "
+    ) * 5
+    pump_section = (
+        "PUMP-03 maintenance section. Inspect the impeller, mechanical seal, "
+        "cavitation noise, and suction pressure every Wednesday. "
+    ) * 5
+    schedule_section = (
+        "Preventive maintenance schedule. Monday covers press hydraulics, Wednesday "
+        "covers pump seals, and Friday covers CNC spindle lubrication. "
+    ) * 5
+    async with session_factory() as session:
+        seeded = await _seed_document(
+            session,
+            email="rag-maintenance-sections@example.com",
+            dataset_name="Maintenance sections",
+            text="\n\n".join((press_section, pump_section, schedule_section)),
+        )
+        service = RAGService(RAGRepository(session))
+        detail = await service.create_knowledge_base(
+            owner_user_id=seeded.owner_id,
+            name="Maintenance knowledge",
+            description="Distinct asset procedures",
+            chunk_size=350,
+            chunk_overlap=50,
+        )
+        await service.attach_dataset_version(
+            knowledge_base_id=detail.knowledge_base.id,
+            dataset_version_id=seeded.dataset_version_id,
+            user_id=seeded.owner_id,
+            is_admin=False,
+        )
+        await service.create_and_process_build(
+            knowledge_base_id=detail.knowledge_base.id,
+            user_id=seeded.owner_id,
+            is_admin=False,
+        )
+
+        press = await service.search(
+            knowledge_base_id=detail.knowledge_base.id,
+            user_id=seeded.owner_id,
+            is_admin=False,
+            query="What maintenance is required for PRESS-02 hydraulic ram?",
+            top_k=3,
+            min_score=0.01,
+        )
+        pump = await service.search(
+            knowledge_base_id=detail.knowledge_base.id,
+            user_id=seeded.owner_id,
+            is_admin=False,
+            query="What should be inspected on the PUMP-03 mechanical seal?",
+            top_k=3,
+            min_score=0.01,
+        )
+        schedule = await service.search(
+            knowledge_base_id=detail.knowledge_base.id,
+            user_id=seeded.owner_id,
+            is_admin=False,
+            query="What is the preventive maintenance schedule by weekday?",
+            top_k=3,
+            min_score=0.01,
+        )
+
+    assert "PRESS-02" in press.results[0].excerpt
+    assert "PUMP-03" in pump.results[0].excerpt
+    assert "Preventive maintenance schedule" in schedule.results[0].excerpt
+    assert len({result.results[0].chunk_id for result in (press, pump, schedule)}) == 3
+    for result in (press, pump, schedule):
+        excerpts = [item.excerpt.casefold() for item in result.results]
+        assert len(excerpts) == len(set(excerpts))
+
+
+@pytest.mark.anyio
 async def test_owner_filters_hide_resources_and_reject_cross_owner_attachment(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:

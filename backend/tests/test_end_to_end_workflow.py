@@ -17,15 +17,12 @@ from app.ml.jobs.worker import (
     WorkerExecutionState,
     execute_tracked_training_specification,
 )
-from app.models.user import UserRole
-from app.repositories.users import UserRepository
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from tests.ai_api_support import ai_api_client, regression_training_payload
 
 PASSWORD = "ValidPassword1!"
-MODEL_NAME = "e2e_random_forest_regression"
 POLL_TIMEOUT_SECONDS = 90.0
 POLL_INTERVAL_SECONDS = 0.25
 
@@ -154,14 +151,14 @@ async def test_primary_platform_workflow_end_to_end(
 
         registered = await client.post(
             "/auth/register",
-            json={"email": email, "password": PASSWORD},
+            json={
+                "email": email,
+                "name": "E2E Engineer",
+                "password": PASSWORD,
+                "role": "engineer",
+            },
         )
         assert registered.status_code == 201, registered.text
-        async with session_factory() as session:
-            user = await UserRepository(session).get_by_email(email)
-            assert user is not None
-            user.role = UserRole.ENGINEER
-            await session.commit()
 
         logged_in = await client.post(
             "/auth/login",
@@ -189,12 +186,10 @@ async def test_primary_platform_workflow_end_to_end(
             assert reading.status_code == 201, reading.text
             assert reading.headers["X-Request-ID"] == "e2e-workflow-request"
 
-        training_payload = regression_training_payload()
-        training_payload["registered_model_name"] = MODEL_NAME
         submitted = await client.post(
             "/ai/training-jobs/random-forest/regression",
             headers={**headers, "Idempotency-Key": "e2e-single-training-job"},
-            json=training_payload,
+            json=regression_training_payload(),
         )
         assert submitted.status_code == 202, submitted.text
         submission = submitted.json()
@@ -223,8 +218,12 @@ async def test_primary_platform_workflow_end_to_end(
         assert await worker_task is WorkerExecutionState.SUCCEEDED
 
         version = str(completed["registered_model_version"])
+        model_name = str(completed["registered_model_name"])
+        assert model_name.startswith(
+            f"public_demo_{UUID(registered.json()['company_id']).hex}_"
+        )
         model = await client.get(
-            f"/ai/models/{MODEL_NAME}/versions/{version}",
+            f"/ai/models/{model_name}/versions/{version}",
             headers=headers,
         )
         assert model.status_code == 200, model.text
@@ -235,14 +234,14 @@ async def test_primary_platform_workflow_end_to_end(
             "/ai/predictions/random-forest/regression",
             headers={**headers, "X-Correlation-ID": correlation_id},
             json={
-                "registered_model_name": MODEL_NAME,
+                "registered_model_name": model_name,
                 "version_or_alias": version,
                 "features": [[2.25]],
             },
         )
         assert prediction.status_code == 200, prediction.text
         prediction_body = prediction.json()
-        assert prediction_body["model_name"] == MODEL_NAME
+        assert prediction_body["model_name"] == model_name
         assert prediction_body["model_version"] == version
         assert prediction_body["trainer_key"] == {
             "algorithm": "random_forest",
@@ -255,7 +254,7 @@ async def test_primary_platform_workflow_end_to_end(
             "/ai/monitoring/prediction-events",
             headers=headers,
             params={
-                "registered_model_name": MODEL_NAME,
+                "registered_model_name": model_name,
                 "resolved_model_version": version,
                 "limit": 1,
             },

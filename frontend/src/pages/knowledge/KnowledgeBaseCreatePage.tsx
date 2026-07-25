@@ -27,8 +27,8 @@ export function KnowledgeBaseCreatePage(): ReactElement {
   const navigate = useNavigate();
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const [chunkSize, setChunkSize] = useState(800);
-  const [chunkOverlap, setChunkOverlap] = useState(100);
+  const [chunkSize, setChunkSize] = useState(350);
+  const [chunkOverlap, setChunkOverlap] = useState(50);
   const [available, setAvailable] = useState<readonly ReadyVersion[]>([]);
   const [selected, setSelected] = useState<readonly string[]>([]);
   const [datasetOffset, setDatasetOffset] = useState(0);
@@ -204,10 +204,18 @@ export function KnowledgeBaseCreatePage(): ReactElement {
                 Loading authorized document versions…
               </p>
             ) : discoveryError !== null ? null : available.length === 0 ? (
-              <p className="mt-3 text-sm text-muted-foreground">
-                No ready document versions are available. Register and process a
-                document dataset first.
-              </p>
+              <div className="mt-3 rounded-md border border-border bg-elevated p-4">
+                <p className="text-sm text-muted-foreground">
+                  No ready document versions are available. Register a TXT document and
+                  wait for processing to finish before creating this knowledge base.
+                </p>
+                <Link
+                  className={`${secondaryButtonClassName} mt-3 inline-flex`}
+                  to="/datasets/new?kind=document_collection"
+                >
+                  Register TXT document
+                </Link>
+              </div>
             ) : (
               <div className="mt-3 grid gap-2 sm:grid-cols-2">
                 {available.map((version) => (
@@ -324,7 +332,13 @@ export function KnowledgeBaseCreatePage(): ReactElement {
             </Link>
             <button
               className={primaryButtonClassName}
-              disabled={submitting || loadingVersions || discoveryError !== null}
+              disabled={
+                submitting ||
+                loadingVersions ||
+                discoveryError !== null ||
+                available.length === 0 ||
+                selected.length === 0
+              }
               type="submit"
             >
               {submitting ? "Creating…" : "Create knowledge base"}

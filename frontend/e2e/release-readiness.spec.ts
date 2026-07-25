@@ -67,6 +67,88 @@ async function expectNoSeriousA11yViolations(page: Page): Promise<void> {
 }
 
 test.describe("authentication", () => {
+  test("public registration provisions the selected safe role and private demo workspace", async ({
+    page,
+  }) => {
+    const failures = observeBrowserFailures(page);
+    let registrationPayload: unknown;
+    let workspacePreparations = 0;
+    await page.route(API_PATTERN, (route) =>
+      json(route, { items: [], limit: 20, offset: 0, total: 0 }),
+    );
+    await page.route("**/auth/register", async (route) => {
+      registrationPayload = route.request().postDataJSON();
+      await json(route, {
+        company_id: "e2e-private-company",
+        created_at: NOW,
+        email: "engineer.demo@example.local",
+        full_name: "Demo Engineer",
+        id: "e2e-public-engineer",
+        is_active: true,
+        role: "engineer",
+        updated_at: NOW,
+      });
+    });
+    await page.route("**/auth/login", (route) =>
+      json(route, {
+        access_token: "browser-test-access-token",
+        expires_in: 3600,
+        refresh_token: "browser-test-refresh-token",
+        token_type: "bearer",
+      }),
+    );
+    await page.route("**/users/me", (route) =>
+      json(route, {
+        company_id: "e2e-private-company",
+        created_at: NOW,
+        email: "engineer.demo@example.local",
+        full_name: "Demo Engineer",
+        id: "e2e-public-engineer",
+        is_active: true,
+        role: "engineer",
+        updated_at: NOW,
+      }),
+    );
+    await page.route("**/product/public-demo-workspace/prepare", async (route) => {
+      workspacePreparations += 1;
+      await json(route, {
+        factory_count: 1,
+        machine_count: 3,
+        reading_count: 126,
+        sensor_count: 21,
+        status: "ready",
+      });
+    });
+    await page.route("**/product/features", (route) =>
+      json(route, {
+        demo_tools_enabled: false,
+        operations_workflow_enabled: true,
+        simplified_experience_enabled: true,
+      }),
+    );
+
+    await page.goto("/register");
+    await page.getByLabel("Name").fill("Demo Engineer");
+    await page.getByLabel("Email address").fill("engineer.demo@example.local");
+    await page.getByLabel("Maintenance & Data Engineer").check();
+    await page.getByLabel("Password", { exact: true }).fill("LocalDemo!12345");
+    await page.getByLabel("Confirm password").fill("LocalDemo!12345");
+    await page.getByRole("button", { name: "Create Account" }).click();
+
+    await expect(page).toHaveURL(/\/$/);
+    await expect(
+      page.getByRole("heading", { name: "Start with Cairo Smart Plant" }),
+    ).toBeVisible();
+    expect(registrationPayload).toEqual({
+      email: "engineer.demo@example.local",
+      name: "Demo Engineer",
+      password: "LocalDemo!12345",
+      role: "engineer",
+    });
+    expect(workspacePreparations).toBe(1);
+    expect(failures).toEqual([]);
+  });
+
   test("anonymous users are redirected and invalid login feedback is safe", async ({
     page,
   }) => {

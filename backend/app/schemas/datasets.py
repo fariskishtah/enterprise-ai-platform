@@ -15,6 +15,7 @@ from app.datasets.domain import (
     DocumentProcessingStatus,
     IngestionOptions,
 )
+from app.datasets.naming import validate_dataset_display_name
 from app.utils.safe_text import ensure_safe_multiline
 
 
@@ -24,7 +25,6 @@ class DatasetCreateRequest(BaseModel):
     name: str = Field(
         min_length=3,
         max_length=128,
-        pattern=r"^[A-Za-z0-9][A-Za-z0-9 _.-]*$",
     )
     description: str | None = Field(default=None, min_length=1, max_length=2000)
     kind: DatasetKind
@@ -33,6 +33,11 @@ class DatasetCreateRequest(BaseModel):
     @classmethod
     def validate_description(cls, value: str | None) -> str | None:
         return ensure_safe_multiline(value) if value is not None else None
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str) -> str:
+        return validate_dataset_display_name(value)
 
 
 class DatasetSummaryResponse(BaseModel):

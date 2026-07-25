@@ -26,7 +26,7 @@ from app.utils.security import utc_now
 MAX_PREVIEW_ROWS = 20
 MAX_ERROR_SAMPLES = 20
 ALLOWED_MEDIA_TYPES = {"text/csv", "application/csv", "application/vnd.ms-excel"}
-FORMULA_PREFIXES = ("=", "+", "-", "@")
+FORMULA_PREFIXES = ("=", "@")
 
 
 class GuidedDataError(ValueError):
@@ -54,6 +54,19 @@ def _detect_delimiter(text: str) -> str:
         return csv.Sniffer().sniff(text[:8192], delimiters=",;\t|").delimiter
     except csv.Error:
         return ","
+
+
+def _looks_like_formula(value: str) -> bool:
+    if not value:
+        return False
+    if value.startswith(FORMULA_PREFIXES):
+        return True
+    if value[0] not in {"+", "-"}:
+        return False
+    try:
+        return not math.isfinite(float(value))
+    except ValueError:
+        return True
 
 
 def _rows(
@@ -439,7 +452,8 @@ class GuidedDataService:
                 else [(feature, feature) for feature in mapping.features]
             )
             for sensor_name, value_column in columns:
-                if (machine_name.casefold(), sensor_name.casefold()) not in sensors:
+                sensor = sensors.get((machine_name.casefold(), sensor_name.casefold()))
+                if sensor is None:
                     mark(
                         "unknown_sensors",
                         number,
@@ -449,7 +463,7 @@ class GuidedDataService:
                 if not raw_value:
                     mark("missing_values", number, f"{value_column} is empty.")
                     continue
-                if raw_value.startswith(FORMULA_PREFIXES):
+                if _looks_like_formula(raw_value):
                     mark(
                         "formula_like_values",
                         number,
@@ -465,6 +479,18 @@ class GuidedDataService:
                     continue
                 if not math.isfinite(value):
                     mark("infinite_values", number, f"{value_column} is not finite.")
+                    continue
+                if sensor is not None and not (
+                    sensor.min_value <= value <= sensor.max_value
+                ):
+                    mark(
+                        "range_violations",
+                        number,
+                        (
+                            f"{value_column} is outside the registered sensor range "
+                            f"{sensor.min_value:g} to {sensor.max_value:g}."
+                        ),
+                    )
                     continue
                 values.append(value)
             if mapping.target:
@@ -503,6 +529,7 @@ class GuidedDataService:
             "non_numeric_values",
             "infinite_values",
             "unknown_sensors",
+            "range_violations",
             "formula_like_values",
         }
         descriptions = {
@@ -537,6 +564,10 @@ class GuidedDataService:
             "unknown_sensors": (
                 "The machine or sensor is not registered.",
                 "Correct names or register the resource.",
+            ),
+            "range_violations": (
+                "A value exceeds the registered sensor range.",
+                "Correct the value or review the sensor limits before importing.",
             ),
             "outliers": (
                 "Values exceed the documented median/MAD rule.",
@@ -623,6 +654,8 @@ class GuidedDataService:
                     if not math.isfinite(value):
                         raise ValueError("non-finite value")
                     sensor = sensors[(machine_name, sensor_name.casefold())]
+                    if not sensor.min_value <= value <= sensor.max_value:
+                        raise ValueError("value outside configured sensor range")
                     records.append(
                         SensorReading(
                             sensor_id=sensor.id,

@@ -1,6 +1,6 @@
 import { createContext, useContext } from "react";
 
-import type { CurrentUser, LoginRequest, UserRole } from "./authApi";
+import type { CurrentUser, LoginRequest, RegisterRequest, UserRole } from "./authApi";
 
 export type AuthStatus = "authenticated" | "loading" | "unauthenticated";
 
@@ -10,6 +10,7 @@ export interface AuthContextValue {
   readonly login: (credentials: LoginRequest) => Promise<void>;
   readonly logout: () => Promise<void>;
   readonly notice: string | null;
+  readonly register: (details: RegisterRequest) => Promise<void>;
   readonly role: UserRole | null;
   readonly status: AuthStatus;
   readonly user: CurrentUser | null;

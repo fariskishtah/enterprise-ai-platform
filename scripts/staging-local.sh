@@ -84,6 +84,10 @@ case "$action" in
     [[ -f "$ENV_FILE" ]] || generate_environment
     compose config --quiet
     compose up --detach --build postgres redis migrate backend training-worker frontend reverse-proxy
+    # Nginx resolves Compose service addresses when it starts. Recreate only the
+    # proxy after application containers so a retained staging project cannot
+    # keep a stale backend or frontend address across image rebuilds.
+    compose up --detach --no-build --no-deps --force-recreate reverse-proxy
     wait_for_runtime
     docs_status="$(curl --silent --output /dev/null --write-out '%{http_code}' \
       http://127.0.0.1:18080/api/docs)"
