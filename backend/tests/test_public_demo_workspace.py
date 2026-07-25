@@ -100,9 +100,8 @@ async def test_public_demo_workspace_is_bounded_idempotent_and_isolated(
     assert [item["name"] for item in other_factories.json()["items"]] == [
         "Cairo Smart Plant"
     ]
-    assert (
-        owner_factories.json()["items"][0]["id"]
-        != (other_factories.json()["items"][0]["id"])
+    assert owner_factories.json()["items"][0]["id"] != (
+        other_factories.json()["items"][0]["id"]
     )
 
     owner_company_id = UUID(str(owner["company_id"]))

@@ -756,9 +756,9 @@ def _tracking_parameters(
     return dict(normalize_tracking_parameters(supplied))
 
 
-def _training_response[ModelT, ReportT: MetricsReport](
-    result: TrackedTrainingResult[ModelT, ReportT],
-) -> AITrainingResponse:
+def _training_response[
+    ModelT, ReportT: MetricsReport
+](result: TrackedTrainingResult[ModelT, ReportT],) -> AITrainingResponse:
     return AITrainingResponse(
         run_id=result.execution.run_id,
         trainer_key=_trainer_key_response(result.execution.key),
