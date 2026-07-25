@@ -138,12 +138,12 @@ export function LoginPage(): ReactElement {
             </button>
           </form>
           <p className="mt-6 text-center text-sm text-neutral-600">
-            Want to explore the public demo?{" "}
+            New to FK Solutions?{" "}
             <Link
               className="font-semibold text-purple-800 underline-offset-4 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-purple-700"
               to="/register"
             >
-              Create Account
+              Create your workspace
             </Link>
           </p>
         </div>

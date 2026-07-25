@@ -67,7 +67,7 @@ async function expectNoSeriousA11yViolations(page: Page): Promise<void> {
 }
 
 test.describe("authentication", () => {
-  test("public registration provisions the selected safe role and private demo workspace", async ({
+  test("SaaS registration provisions a company administrator and signs in", async ({
     page,
   }) => {
     const failures = observeBrowserFailures(page);
@@ -85,7 +85,7 @@ test.describe("authentication", () => {
         full_name: "Demo Engineer",
         id: "e2e-public-engineer",
         is_active: true,
-        role: "engineer",
+        role: "admin",
         updated_at: NOW,
       });
     });
@@ -105,7 +105,7 @@ test.describe("authentication", () => {
         full_name: "Demo Engineer",
         id: "e2e-public-engineer",
         is_active: true,
-        role: "engineer",
+        role: "admin",
         updated_at: NOW,
       }),
     );
@@ -128,24 +128,24 @@ test.describe("authentication", () => {
     );
 
     await page.goto("/register");
-    await page.getByLabel("Name").fill("Demo Engineer");
-    await page.getByLabel("Email address").fill("engineer.demo@example.local");
-    await page.getByLabel("Maintenance & Data Engineer").check();
+    await page.getByLabel("Full name").fill("Demo Engineer");
+    await page.getByLabel("Company name").fill("Northstar Manufacturing");
+    await page.getByLabel("Work email").fill("engineer.demo@example.local");
     await page.getByLabel("Password", { exact: true }).fill("LocalDemo!12345");
     await page.getByLabel("Confirm password").fill("LocalDemo!12345");
-    await page.getByRole("button", { name: "Create Account" }).click();
+    await page.getByRole("button", { name: "Create your workspace" }).click();
 
     await expect(page).toHaveURL(/\/$/);
     await expect(
-      page.getByRole("heading", { name: "Start with Cairo Smart Plant" }),
+      page.getByRole("navigation", { name: "Primary navigation" }),
     ).toBeVisible();
     expect(registrationPayload).toEqual({
+      company_name: "Northstar Manufacturing",
       email: "engineer.demo@example.local",
       name: "Demo Engineer",
       password: "LocalDemo!12345",
-      role: "engineer",
     });
-    expect(workspacePreparations).toBe(1);
+    expect(workspacePreparations).toBe(0);
     expect(failures).toEqual([]);
   });
 

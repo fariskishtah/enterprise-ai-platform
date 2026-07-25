@@ -58,18 +58,16 @@ class AuthenticationService:
         *,
         email: str,
         password: str,
-        full_name: str | None = None,
-        role: UserRole = UserRole.OPERATOR,
+        full_name: str,
+        company_name: str,
     ) -> User:
-        """Register a user in a new isolated public-demo company."""
-        if role not in {UserRole.OPERATOR, UserRole.ENGINEER}:
-            raise ValueError("The selected public role is not allowed.")
+        """Create a tenant and its first administrator from public signup."""
         return await self._user_service.create_user(
             email=email,
             password=password,
             full_name=full_name,
-            role=role,
-            public_demo=True,
+            role=UserRole.ADMIN,
+            company_name=company_name,
         )
 
     async def login(

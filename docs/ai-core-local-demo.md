@@ -130,12 +130,13 @@ From `backend/`, the default direct-execution stores resolve to `../mlruns`,
 
 ## Authentication setup
 
-Public registration creates only an operator:
+Public registration creates an isolated company and its first administrator.
+The role is assigned by the server and cannot be selected in the request:
 
 ```bash
 curl -X POST http://localhost:8000/auth/register \
   -H "Content-Type: application/json" \
-  -d '{"email":"<email>","password":"<strong-password>"}'
+  -d '{"name":"<full-name>","company_name":"<company-name>","email":"<work-email>","password":"<strong-password>"}'
 ```
 
 Login returns an access and refresh token pair:

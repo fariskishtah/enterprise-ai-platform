@@ -478,7 +478,12 @@ test.describe("demo operations with real staging backend", () => {
     const externalEmail =
       `external-${namespace}-${runIdentity}@example.com`.toLowerCase();
     const registration = await page.request.post("/api/auth/register", {
-      data: { email: externalEmail, password },
+      data: {
+        company_name: `External Workspace ${namespace} ${runIdentity}`,
+        email: externalEmail,
+        name: "External Tenant Owner",
+        password,
+      },
     });
     expect([201, 409]).toContain(registration.status());
     await login(page, externalEmail);

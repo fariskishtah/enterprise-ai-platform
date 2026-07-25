@@ -19,13 +19,11 @@ export interface LoginRequest {
   readonly password: string;
 }
 
-export type PublicRegistrationRole = "engineer" | "operator";
-
 export interface RegisterRequest {
+  readonly company_name: string;
   readonly email: string;
   readonly name: string;
   readonly password: string;
-  readonly role: PublicRegistrationRole;
 }
 
 export interface PublicDemoWorkspaceResult {

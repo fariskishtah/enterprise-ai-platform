@@ -44,13 +44,15 @@ All AI Core endpoints require a JWT access token:
 Authorization: Bearer <token>
 ```
 
-To create an operator account, call the public registration endpoint with an
-email and a password that satisfies the documented password policy:
+To create a company workspace, call the public registration endpoint with the
+owner identity, company name, and a password that satisfies the documented
+password policy. The server assigns the first user as the company administrator;
+the public client cannot select a role:
 
 ```bash
 curl -X POST http://localhost:8000/auth/register \
   -H "Content-Type: application/json" \
-  -d '{"email":"<email>","password":"<strong-password>"}'
+  -d '{"name":"<full-name>","company_name":"<company-name>","email":"<work-email>","password":"<strong-password>"}'
 ```
 
 Then obtain an access and refresh token pair:

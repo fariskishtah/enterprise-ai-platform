@@ -19,19 +19,25 @@ from tests.ai_api_support import ai_api_client, regression_training_payload
 from tests.test_auth_api import VALID_PASSWORD
 
 
-async def _register_and_login(
-    client: AsyncClient, *, email: str
+async def _create_demo_and_login(
+    client: AsyncClient,
+    session_factory: async_sessionmaker[AsyncSession],
+    *,
+    email: str,
 ) -> tuple[dict[str, str], dict[str, object]]:
-    registered = await client.post(
-        "/auth/register",
-        json={
-            "email": email,
-            "name": "Public Demo User",
-            "password": VALID_PASSWORD,
-            "role": "engineer",
-        },
-    )
-    assert registered.status_code == 201, registered.text
+    async with session_factory() as session:
+        user = await UserService(
+            repository=UserRepository(session),
+            password_hasher=PasswordHasher(),
+        ).create_user(
+            email=email,
+            password=VALID_PASSWORD,
+            full_name="Public Demo User",
+            role=UserRole.ENGINEER,
+            company_name=f"Public Demo {email}",
+            public_demo=True,
+        )
+        company_id = str(user.company_id)
     login = await client.post(
         "/auth/login",
         json={"email": email, "password": VALID_PASSWORD},
@@ -39,7 +45,7 @@ async def _register_and_login(
     assert login.status_code == 200, login.text
     return (
         {"Authorization": f"Bearer {login.json()['access_token']}"},
-        registered.json(),
+        {"company_id": company_id},
     )
 
 
@@ -57,12 +63,16 @@ async def test_public_demo_workspace_is_bounded_idempotent_and_isolated(
     api_client: AsyncClient,
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """Each signup gets one tenant and repeat preparation creates no duplicates."""
-    owner_headers, owner = await _register_and_login(
-        api_client, email="workspace-owner@example.com"
+    """Each marked demo tenant remains bounded, idempotent, and isolated."""
+    owner_headers, owner = await _create_demo_and_login(
+        api_client,
+        session_factory,
+        email="workspace-owner@example.com",
     )
-    other_headers, other = await _register_and_login(
-        api_client, email="workspace-other@example.com"
+    other_headers, other = await _create_demo_and_login(
+        api_client,
+        session_factory,
+        email="workspace-other@example.com",
     )
 
     first = await api_client.post(
@@ -164,8 +174,10 @@ async def test_public_demo_compute_uses_quota_path_and_company_model_namespace(
         application,
     ):
         application.dependency_overrides[get_training_job_queue] = lambda: queue
-        headers, user = await _register_and_login(
-            client, email="demo-model-scope@example.com"
+        headers, user = await _create_demo_and_login(
+            client,
+            session_factory,
+            email="demo-model-scope@example.com",
         )
         payload = regression_training_payload()
         bounded = await client.post(

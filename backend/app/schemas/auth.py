@@ -1,23 +1,9 @@
 """Authentication API schemas."""
 
-from enum import StrEnum
-
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
-from app.models.user import UserRole
 from app.utils.passwords import validate_password_strength
 from app.utils.safe_text import ensure_safe_single_line
-
-
-class PublicRegistrationRole(StrEnum):
-    """Roles that may be selected without administrator approval."""
-
-    OPERATOR = UserRole.OPERATOR.value
-    ENGINEER = UserRole.ENGINEER.value
-
-    @property
-    def user_role(self) -> UserRole:
-        return UserRole(self.value)
 
 
 class RegisterRequest(BaseModel):
@@ -26,9 +12,9 @@ class RegisterRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     email: EmailStr
-    name: str | None = Field(default=None, min_length=2, max_length=160)
+    name: str = Field(min_length=2, max_length=160)
+    company_name: str = Field(min_length=2, max_length=255)
     password: str = Field(min_length=12, max_length=128)
-    role: PublicRegistrationRole = PublicRegistrationRole.OPERATOR
 
     @field_validator("email", mode="after")
     @classmethod
@@ -43,12 +29,12 @@ class RegisterRequest(BaseModel):
         validate_password_strength(value)
         return value
 
-    @field_validator("name", mode="after")
+    @field_validator("name", "company_name", mode="after")
     @classmethod
-    def validate_name(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
+    def validate_name(cls, value: str) -> str:
         normalized = " ".join(value.split())
+        if len(normalized) < 2:
+            raise ValueError("Value must contain at least 2 non-whitespace characters.")
         ensure_safe_single_line(normalized)
         return normalized
 

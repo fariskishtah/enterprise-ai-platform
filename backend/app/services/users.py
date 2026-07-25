@@ -10,6 +10,7 @@ from app.models.user import RefreshToken, User, UserRole
 from app.repositories.users import UserRepository
 from app.services.exceptions import (
     AccountLifecycleError,
+    DuplicateCompanyNameError,
     DuplicateEmailError,
     InvalidPasswordResetTokenError,
 )
@@ -46,6 +47,12 @@ class UserService:
         existing_user = await self._repository.get_by_email(normalized_email)
         if existing_user is not None:
             raise DuplicateEmailError("Email is already registered.")
+        if (
+            company_id is None
+            and company_name is not None
+            and await self._repository.get_company_by_name(company_name) is not None
+        ):
+            raise DuplicateCompanyNameError("Company name is already registered.")
 
         try:
             user = await self._repository.create_user(
@@ -60,7 +67,17 @@ class UserService:
             await self._repository.commit()
         except IntegrityError as exc:
             await self._repository.rollback()
-            raise DuplicateEmailError("Email is already registered.") from exc
+            if await self._repository.get_by_email(normalized_email) is not None:
+                raise DuplicateEmailError("Email is already registered.") from exc
+            if (
+                company_id is None
+                and company_name is not None
+                and await self._repository.get_company_by_name(company_name) is not None
+            ):
+                raise DuplicateCompanyNameError(
+                    "Company name is already registered."
+                ) from exc
+            raise
 
         return user
 

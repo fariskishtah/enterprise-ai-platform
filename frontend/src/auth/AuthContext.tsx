@@ -16,7 +16,6 @@ import {
 import {
   getCurrentUser,
   login as requestLogin,
-  preparePublicDemoWorkspace,
   registerAccount,
   revokeSession,
   type CurrentUser,
@@ -104,16 +103,6 @@ export function AuthProvider({
       setUser(currentUser);
       setNotice(null);
       setStatus("authenticated");
-      try {
-        await preparePublicDemoWorkspace();
-        sessionStorage.removeItem(`fk-demo-setup-retry:${currentUser.id}`);
-        sessionStorage.setItem(`fk-demo-onboarding:${currentUser.id}`, "start");
-      } catch {
-        sessionStorage.setItem(`fk-demo-setup-retry:${currentUser.id}`, "pending");
-        setNotice(
-          "Your account is ready, but the demo workspace could not be prepared. Please retry from Settings.",
-        );
-      }
     } catch (error) {
       clearStoredTokens();
       setUser(null);

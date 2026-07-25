@@ -1,10 +1,12 @@
 """Authentication API tests."""
 
 import logging
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
+from app.models.manufacturing import Company
 from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 VALID_PASSWORD = "ValidPassword1!"
 
@@ -14,11 +16,18 @@ async def register_user(
     *,
     email: str = "user@example.com",
     password: str = VALID_PASSWORD,
+    name: str = "Example User",
+    company_name: str = "Example Manufacturing",
 ) -> dict[str, object]:
     """Register a user through the public API."""
     response = await api_client.post(
         "/auth/register",
-        json={"email": email, "password": password},
+        json={
+            "company_name": company_name,
+            "email": email,
+            "name": name,
+            "password": password,
+        },
     )
     assert response.status_code == 201
     return response.json()
@@ -40,33 +49,40 @@ async def login_user(
 
 
 @pytest.mark.anyio
-async def test_register_creates_operator_user(api_client: AsyncClient) -> None:
-    """Registration creates a user with the default operator role."""
-    payload = await register_user(api_client, email="USER@Example.com")
+async def test_register_creates_company_administrator(
+    api_client: AsyncClient,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """Registration creates a real tenant and its first administrator."""
+    payload = await register_user(
+        api_client,
+        email="USER@Example.com",
+        name="Workspace Owner",
+        company_name="Northstar Manufacturing",
+    )
 
     assert payload["email"] == "user@example.com"
-    assert payload["role"] == "operator"
+    assert payload["full_name"] == "Workspace Owner"
+    assert payload["role"] == "admin"
     assert payload["is_active"] is True
     assert "hashed_password" not in payload
 
+    async with session_factory() as session:
+        company = await session.get(Company, UUID(str(payload["company_id"])))
+    assert company is not None
+    assert company.name == "Northstar Manufacturing"
+    assert company.is_public_demo is False
+
 
 @pytest.mark.anyio
-async def test_register_accepts_only_supported_public_roles(
+async def test_register_rejects_all_client_selected_roles(
     api_client: AsyncClient,
 ) -> None:
-    """Public registration permits engineer but rejects privileged role payloads."""
-    allowed = await api_client.post(
-        "/auth/register",
-        json={
-            "email": "engineer@example.com",
-            "name": "Demo Engineer",
-            "password": VALID_PASSWORD,
-            "role": "engineer",
-        },
-    )
+    """The server, never the public client, assigns the initial admin role."""
     admin = await api_client.post(
         "/auth/register",
         json={
+            "company_name": "Admin Attempt Company",
             "email": "admin-attempt@example.com",
             "name": "Admin Attempt",
             "password": VALID_PASSWORD,
@@ -76,6 +92,7 @@ async def test_register_accepts_only_supported_public_roles(
     invented = await api_client.post(
         "/auth/register",
         json={
+            "company_name": "Viewer Attempt Company",
             "email": "viewer-attempt@example.com",
             "name": "Viewer Attempt",
             "password": VALID_PASSWORD,
@@ -85,6 +102,7 @@ async def test_register_accepts_only_supported_public_roles(
     smuggled = await api_client.post(
         "/auth/register",
         json={
+            "company_name": "Operator Attempt Company",
             "email": "extra-field@example.com",
             "name": "Extra Field",
             "password": VALID_PASSWORD,
@@ -93,10 +111,30 @@ async def test_register_accepts_only_supported_public_roles(
         },
     )
 
-    assert allowed.status_code == 201
-    assert allowed.json()["full_name"] == "Demo Engineer"
-    assert allowed.json()["role"] == "engineer"
     assert admin.status_code == invented.status_code == smuggled.status_code == 422
+
+
+@pytest.mark.anyio
+async def test_register_requires_identity_and_company(api_client: AsyncClient) -> None:
+    """SaaS signup requires both an owner identity and company name."""
+    missing_name = await api_client.post(
+        "/auth/register",
+        json={
+            "company_name": "Missing Owner Company",
+            "email": "missing-owner@example.com",
+            "password": VALID_PASSWORD,
+        },
+    )
+    missing_company = await api_client.post(
+        "/auth/register",
+        json={
+            "email": "missing-company@example.com",
+            "name": "Missing Company",
+            "password": VALID_PASSWORD,
+        },
+    )
+
+    assert missing_name.status_code == missing_company.status_code == 422
 
 
 @pytest.mark.anyio
@@ -106,7 +144,12 @@ async def test_register_rejects_duplicate_email(api_client: AsyncClient) -> None
 
     response = await api_client.post(
         "/auth/register",
-        json={"email": "USER@example.com", "password": VALID_PASSWORD},
+        json={
+            "company_name": "Another Manufacturing Company",
+            "email": "USER@example.com",
+            "name": "Duplicate User",
+            "password": VALID_PASSWORD,
+        },
     )
 
     assert response.status_code == 409
@@ -114,11 +157,41 @@ async def test_register_rejects_duplicate_email(api_client: AsyncClient) -> None
 
 
 @pytest.mark.anyio
+async def test_register_rejects_duplicate_company_name(
+    api_client: AsyncClient,
+) -> None:
+    """Workspace names respect the existing global company-name constraint."""
+    await register_user(
+        api_client,
+        email="first-owner@example.com",
+        company_name="Existing Manufacturing",
+    )
+
+    response = await api_client.post(
+        "/auth/register",
+        json={
+            "company_name": "  existing   manufacturing ",
+            "email": "second-owner@example.com",
+            "name": "Second Owner",
+            "password": VALID_PASSWORD,
+        },
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Company name is already registered."
+
+
+@pytest.mark.anyio
 async def test_register_rejects_invalid_email(api_client: AsyncClient) -> None:
     """Registration validates email addresses."""
     response = await api_client.post(
         "/auth/register",
-        json={"email": "invalid-email", "password": VALID_PASSWORD},
+        json={
+            "company_name": "Invalid Email Company",
+            "email": "invalid-email",
+            "name": "Invalid Email",
+            "password": VALID_PASSWORD,
+        },
     )
 
     assert response.status_code == 422
@@ -129,7 +202,12 @@ async def test_register_rejects_weak_password(api_client: AsyncClient) -> None:
     """Registration enforces the password strength policy."""
     response = await api_client.post(
         "/auth/register",
-        json={"email": "user@example.com", "password": "weak"},
+        json={
+            "company_name": "Weak Password Company",
+            "email": "user@example.com",
+            "name": "Weak Password",
+            "password": "weak",
+        },
     )
 
     assert response.status_code == 422
@@ -270,8 +348,19 @@ async def test_privileged_route_distinguishes_unauthenticated_and_forbidden(
     """Admin-only operations return 401 without auth and 403 for operators."""
     machine_id = uuid4()
     unauthenticated = await api_client.delete(f"/machines/{machine_id}")
-    await register_user(api_client)
-    tokens = await login_user(api_client)
+    await register_user(api_client, email="owner@example.com")
+    owner_tokens = await login_user(api_client, email="owner@example.com")
+    created = await api_client.post(
+        "/users",
+        headers={"Authorization": f"Bearer {owner_tokens['access_token']}"},
+        json={
+            "email": "operator@example.com",
+            "password": VALID_PASSWORD,
+            "role": "operator",
+        },
+    )
+    assert created.status_code == 201
+    tokens = await login_user(api_client, email="operator@example.com")
     forbidden = await api_client.delete(
         f"/machines/{machine_id}",
         headers={"Authorization": f"Bearer {tokens['access_token']}"},

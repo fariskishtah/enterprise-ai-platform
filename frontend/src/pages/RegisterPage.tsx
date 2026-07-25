@@ -3,36 +3,16 @@ import { Link, useNavigate } from "react-router-dom";
 
 import { ApiError } from "../api/client";
 import fkLoginBackground from "../assets/fk-login-background.webp";
-import type { PublicRegistrationRole } from "../auth/authApi";
 import { useAuth } from "../auth/useAuth";
-
-const roleOptions: readonly {
-  readonly description: string;
-  readonly label: string;
-  readonly value: PublicRegistrationRole;
-}[] = [
-  {
-    description:
-      "View factories, machines, sensors, readings, and operational dashboards.",
-    label: "Operator",
-    value: "operator",
-  },
-  {
-    description:
-      "Explore isolated assets, datasets, training, models, predictions, monitoring, and maintenance workflows.",
-    label: "Maintenance & Data Engineer",
-    value: "engineer",
-  },
-];
 
 export function RegisterPage(): ReactElement {
   const auth = useAuth();
   const navigate = useNavigate();
   const [name, setName] = useState("");
+  const [companyName, setCompanyName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [role, setRole] = useState<PublicRegistrationRole>("operator");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -45,7 +25,12 @@ export function RegisterPage(): ReactElement {
     }
     setSubmitting(true);
     try {
-      await auth.register({ email, name, password, role });
+      await auth.register({
+        company_name: companyName,
+        email,
+        name,
+        password,
+      });
       navigate("/", { replace: true });
     } catch (caught) {
       setError(
@@ -81,10 +66,11 @@ export function RegisterPage(): ReactElement {
               AI Manufacturing Platform
             </p>
           </div>
-          <h1 className="text-2xl font-semibold tracking-tight">Create Account</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">
+            Create your AI manufacturing workspace
+          </h1>
           <p className="mt-2 text-sm leading-6 text-neutral-600">
-            Your account receives a private synthetic workspace. Public roles cannot
-            administer users or infrastructure.
+            Start managing your factory intelligence platform.
           </p>
 
           {error === null ? null : (
@@ -98,7 +84,7 @@ export function RegisterPage(): ReactElement {
 
           <form className="mt-5 space-y-4" onSubmit={(event) => void submit(event)}>
             <label className="block text-sm font-medium text-neutral-800">
-              Name
+              Full name
               <input
                 autoComplete="name"
                 className="mt-1.5 block w-full rounded-md border border-neutral-300 px-3 py-2.5 text-sm"
@@ -111,7 +97,20 @@ export function RegisterPage(): ReactElement {
               />
             </label>
             <label className="block text-sm font-medium text-neutral-800">
-              Email address
+              Company name
+              <input
+                autoComplete="organization"
+                className="mt-1.5 block w-full rounded-md border border-neutral-300 px-3 py-2.5 text-sm"
+                disabled={submitting}
+                maxLength={255}
+                minLength={2}
+                onChange={(event) => setCompanyName(event.target.value)}
+                required
+                value={companyName}
+              />
+            </label>
+            <label className="block text-sm font-medium text-neutral-800">
+              Work email
               <input
                 autoComplete="email"
                 className="mt-1.5 block w-full rounded-md border border-neutral-300 px-3 py-2.5 text-sm"
@@ -122,37 +121,6 @@ export function RegisterPage(): ReactElement {
                 value={email}
               />
             </label>
-            <fieldset>
-              <legend className="text-sm font-medium text-neutral-800">
-                Demo role
-              </legend>
-              <div className="mt-2 grid gap-2">
-                {roleOptions.map((option) => (
-                  <label
-                    className="flex cursor-pointer gap-3 rounded-md border border-neutral-300 p-3 has-[:checked]:border-purple-700 has-[:checked]:bg-purple-50"
-                    key={option.value}
-                  >
-                    <input
-                      checked={role === option.value}
-                      className="mt-1"
-                      disabled={submitting}
-                      name="role"
-                      onChange={() => setRole(option.value)}
-                      type="radio"
-                      value={option.value}
-                    />
-                    <span>
-                      <span className="block text-sm font-semibold">
-                        {option.label}
-                      </span>
-                      <span className="mt-0.5 block text-xs leading-5 text-neutral-600">
-                        {option.description}
-                      </span>
-                    </span>
-                  </label>
-                ))}
-              </div>
-            </fieldset>
             <div className="grid gap-4 sm:grid-cols-2">
               <label className="block text-sm font-medium text-neutral-800">
                 Password
@@ -188,7 +156,7 @@ export function RegisterPage(): ReactElement {
             </p>
             {submitting ? (
               <p aria-live="polite" className="text-sm text-purple-800" role="status">
-                Creating your account and preparing Cairo Smart Plant…
+                Your AI manufacturing workspace is being prepared.
               </p>
             ) : null}
             <button
@@ -196,7 +164,7 @@ export function RegisterPage(): ReactElement {
               disabled={submitting}
               type="submit"
             >
-              {submitting ? "Preparing workspace…" : "Create Account"}
+              {submitting ? "Preparing workspace…" : "Create your workspace"}
             </button>
           </form>
           <p className="mt-5 text-center text-sm text-neutral-600">

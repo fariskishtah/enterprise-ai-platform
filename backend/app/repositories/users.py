@@ -35,6 +35,13 @@ class UserRepository:
         result = await self._session.execute(statement)
         return result.scalar_one_or_none()
 
+    async def get_company_by_name(self, company_name: str) -> Company | None:
+        """Return a company by its normalized display name."""
+        statement = select(Company).where(
+            Company.normalized_name == normalize_name(company_name)
+        )
+        return (await self._session.execute(statement)).scalar_one_or_none()
+
     async def create_user(
         self,
         *,

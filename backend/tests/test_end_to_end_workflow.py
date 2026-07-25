@@ -152,10 +152,10 @@ async def test_primary_platform_workflow_end_to_end(
         registered = await client.post(
             "/auth/register",
             json={
+                "company_name": "E2E Manufacturing",
                 "email": email,
                 "name": "E2E Engineer",
                 "password": PASSWORD,
-                "role": "engineer",
             },
         )
         assert registered.status_code == 201, registered.text
@@ -219,9 +219,7 @@ async def test_primary_platform_workflow_end_to_end(
 
         version = str(completed["registered_model_version"])
         model_name = str(completed["registered_model_name"])
-        assert model_name.startswith(
-            f"public_demo_{UUID(registered.json()['company_id']).hex}_"
-        )
+        assert model_name == "ai_core_random_forest_regression"
         model = await client.get(
             f"/ai/models/{model_name}/versions/{version}",
             headers=headers,

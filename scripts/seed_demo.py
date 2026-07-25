@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 API_BASE_URL = os.getenv("DEMO_API_BASE_URL", "http://backend:8000").rstrip("/")
 DEMO_EMAIL = os.getenv("DEMO_EMAIL", "demo@example.com")
 DEMO_PASSWORD = os.getenv("DEMO_PASSWORD", "")
+DEMO_OWNER_NAME = os.getenv("DEMO_OWNER_NAME", "Demo Workspace Owner")
 DEMO_OPERATOR_EMAIL = os.getenv("DEMO_OPERATOR_EMAIL", "").strip().lower()
 MODEL_NAME = "demo_predictive_maintenance_regression"
 PREDICTION_CORRELATION_ID = "local-demo-prediction-v1"
@@ -249,28 +250,6 @@ def require_response(
             f"{operation} failed with HTTP {response.status_code}: {detail}"
         )
     return response
-
-
-async def grant_demo_engineer_role() -> None:
-    """Grant the registered local demo user enough access to seed API data."""
-    settings = Settings()
-    engine = create_async_engine(settings.database_url)
-    try:
-        async with engine.begin() as connection:
-            result = await connection.execute(
-                select(User.id, User.role).where(User.email == DEMO_EMAIL.lower())
-            )
-            row = result.one_or_none()
-            if row is None:
-                raise DemoSeedError("registered demo user was not found")
-            if row.role is not UserRole.ENGINEER:
-                await connection.execute(
-                    User.__table__.update()
-                    .where(User.id == row.id)
-                    .values(role=UserRole.ENGINEER)
-                )
-    finally:
-        await engine.dispose()
 
 
 async def find_demo_operator_id() -> str | None:
@@ -1245,7 +1224,12 @@ def run() -> None:
             raise DemoSeedError("backend health response was not healthy")
         registration = anonymous.post(
             "/auth/register",
-            json={"email": DEMO_EMAIL, "password": DEMO_PASSWORD},
+            json={
+                "company_name": COMPANY_NAME,
+                "email": DEMO_EMAIL,
+                "name": DEMO_OWNER_NAME,
+                "password": DEMO_PASSWORD,
+            },
         )
         require_response(registration, {201, 409}, "register demo user")
         user_created = registration.status_code == 201
@@ -1258,7 +1242,6 @@ def run() -> None:
             "verify demo user credentials",
         )
 
-    asyncio.run(grant_demo_engineer_role())
     operator_id = asyncio.run(find_demo_operator_id())
 
     with ApiClient(base_url=API_BASE_URL, timeout=60.0) as anonymous:
