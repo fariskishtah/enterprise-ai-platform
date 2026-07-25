@@ -20,6 +20,11 @@ const HomePage = lazy(() =>
 const LoginPage = lazy(() =>
   import("../pages/LoginPage").then(({ LoginPage }) => ({ default: LoginPage })),
 );
+const RegisterPage = lazy(() =>
+  import("../pages/RegisterPage").then(({ RegisterPage }) => ({
+    default: RegisterPage,
+  })),
+);
 const AuditLogsPage = lazy(() =>
   import("../pages/AuditLogsPage").then(({ AuditLogsPage }) => ({
     default: AuditLogsPage,
@@ -328,7 +333,10 @@ const ReportDetailPage = lazy(() =>
 
 export const router = createBrowserRouter([
   {
-    children: [{ element: <LoginPage />, path: "login" }],
+    children: [
+      { element: <LoginPage />, path: "login" },
+      { element: <RegisterPage />, path: "register" },
+    ],
     element: <PublicOnlyRoute />,
     errorElement: <RouteErrorPage />,
     path: "/",

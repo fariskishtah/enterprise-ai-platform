@@ -16,9 +16,12 @@ import {
 import {
   getCurrentUser,
   login as requestLogin,
+  preparePublicDemoWorkspace,
+  registerAccount,
   revokeSession,
   type CurrentUser,
   type LoginRequest,
+  type RegisterRequest,
 } from "./authApi";
 import { AuthContext, type AuthContextValue, type AuthStatus } from "./useAuth";
 
@@ -89,6 +92,36 @@ export function AuthProvider({
     }
   }, []);
 
+  const register = useCallback(async (details: RegisterRequest): Promise<void> => {
+    await registerAccount(details);
+    const tokens = await requestLogin({
+      email: details.email,
+      password: details.password,
+    });
+    storeTokenPair(tokens);
+    try {
+      const currentUser = await getCurrentUser();
+      setUser(currentUser);
+      setNotice(null);
+      setStatus("authenticated");
+      try {
+        await preparePublicDemoWorkspace();
+        sessionStorage.removeItem(`fk-demo-setup-retry:${currentUser.id}`);
+        sessionStorage.setItem(`fk-demo-onboarding:${currentUser.id}`, "start");
+      } catch {
+        sessionStorage.setItem(`fk-demo-setup-retry:${currentUser.id}`, "pending");
+        setNotice(
+          "Your account is ready, but the demo workspace could not be prepared. Please retry from Settings.",
+        );
+      }
+    } catch (error) {
+      clearStoredTokens();
+      setUser(null);
+      setStatus("unauthenticated");
+      throw error;
+    }
+  }, []);
+
   const logout = useCallback(async (): Promise<void> => {
     const refreshToken = readStoredTokens()?.refreshToken;
     clearStoredTokens();
@@ -111,11 +144,12 @@ export function AuthProvider({
       login,
       logout,
       notice,
+      register,
       role: user?.role ?? null,
       status,
       user,
     }),
-    [login, logout, notice, status, user],
+    [login, logout, notice, register, status, user],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -44,6 +44,7 @@ class UserRepository:
         full_name: str | None = None,
         company_id: UUID | None = None,
         company_name: str | None = None,
+        public_demo: bool = False,
     ) -> User:
         """Create a user."""
         resolved_company_id = company_id
@@ -52,7 +53,12 @@ class UserRepository:
             company = Company(
                 name=name,
                 normalized_name=normalize_name(name),
-                description="Account workspace created during local registration.",
+                description=(
+                    "Isolated synthetic workspace created through public registration."
+                    if public_demo
+                    else "Account workspace created during registration."
+                ),
+                is_public_demo=public_demo,
             )
             self._session.add(company)
             await self._session.flush()

@@ -29,6 +29,7 @@ from app.datasets.ingestion import (
     ingest_plain_text,
     tabular_training_snapshot,
 )
+from app.datasets.naming import normalize_dataset_name, validate_dataset_display_name
 from app.datasets.queue import DatasetProcessingQueue
 from app.datasets.storage import (
     DatasetObjectStorage,
@@ -119,7 +120,8 @@ class DatasetService:
         description: str | None,
         kind: DatasetKind,
     ) -> Dataset:
-        normalized_name = " ".join(name.split()).casefold()
+        display_name = validate_dataset_display_name(name)
+        normalized_name = normalize_dataset_name(display_name)
         resolved_company_id = company_id or owner_user_id
         if await self._repository.get_dataset_by_name(
             resolved_company_id, normalized_name
@@ -129,7 +131,7 @@ class DatasetService:
             dataset = await self._repository.create_dataset(
                 owner_user_id=owner_user_id,
                 company_id=resolved_company_id,
-                name=" ".join(name.split()),
+                name=display_name,
                 normalized_name=normalized_name,
                 description=description.strip() if description is not None else None,
                 kind=kind,
@@ -414,15 +416,18 @@ class DatasetService:
         options = IngestionOptions.model_validate(version.ingestion_options)
         try:
             with fail_after(_DATASET_PROCESSING_TIMEOUT_SECONDS):
-                training_x, training_y, evaluation_x, evaluation_y = (
-                    await to_thread.run_sync(
-                        lambda: tabular_training_snapshot(
-                            payload,
-                            schema_snapshot=version.schema_snapshot,
-                            evaluation_fraction=options.evaluation_fraction,
-                        ),
-                        abandon_on_cancel=True,
-                    )
+                (
+                    training_x,
+                    training_y,
+                    evaluation_x,
+                    evaluation_y,
+                ) = await to_thread.run_sync(
+                    lambda: tabular_training_snapshot(
+                        payload,
+                        schema_snapshot=version.schema_snapshot,
+                        evaluation_fraction=options.evaluation_fraction,
+                    ),
+                    abandon_on_cancel=True,
                 )
         except TimeoutError as exc:
             record_process_timeout(workload="dataset_processing")

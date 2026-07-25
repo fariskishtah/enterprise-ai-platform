@@ -1,17 +1,34 @@
 """Authentication API schemas."""
 
+from enum import StrEnum
+
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
+from app.models.user import UserRole
 from app.utils.passwords import validate_password_strength
+from app.utils.safe_text import ensure_safe_single_line
+
+
+class PublicRegistrationRole(StrEnum):
+    """Roles that may be selected without administrator approval."""
+
+    OPERATOR = UserRole.OPERATOR.value
+    ENGINEER = UserRole.ENGINEER.value
+
+    @property
+    def user_role(self) -> UserRole:
+        return UserRole(self.value)
 
 
 class RegisterRequest(BaseModel):
     """Registration request body."""
 
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     email: EmailStr
+    name: str | None = Field(default=None, min_length=2, max_length=160)
     password: str = Field(min_length=12, max_length=128)
+    role: PublicRegistrationRole = PublicRegistrationRole.OPERATOR
 
     @field_validator("email", mode="after")
     @classmethod
@@ -25,6 +42,15 @@ class RegisterRequest(BaseModel):
         """Validate password strength for new users."""
         validate_password_strength(value)
         return value
+
+    @field_validator("name", mode="after")
+    @classmethod
+    def validate_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = " ".join(value.split())
+        ensure_safe_single_line(normalized)
+        return normalized
 
 
 class LoginRequest(BaseModel):

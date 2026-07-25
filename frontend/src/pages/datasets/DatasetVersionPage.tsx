@@ -199,6 +199,7 @@ export function DatasetVersionPage(): ReactElement {
                 value={schema}
               />
             </LifecycleCard>
+            <TrainingReadiness value={schema.training_readiness} />
           </div>
         </section>
       ) : (
@@ -226,6 +227,101 @@ export function DatasetVersionPage(): ReactElement {
           </LifecycleCard>
         </div>
       </section>
+    </section>
+  );
+}
+
+function TrainingReadiness({
+  value,
+}: {
+  readonly value: unknown;
+}): ReactElement | null {
+  if (typeof value !== "object" || value === null) return null;
+  const readiness = value as Record<string, unknown>;
+  const strings = (key: string): readonly string[] =>
+    Array.isArray(readiness[key])
+      ? readiness[key].filter((item): item is string => typeof item === "string")
+      : [];
+  const blockers = strings("blocking_reasons");
+  const warnings = strings("warnings");
+  const numeric = strings("numeric_feature_columns");
+  const nonNumeric = strings("non_numeric_feature_columns");
+  const ready = readiness.ready_for_numeric_training === true;
+  return (
+    <section
+      aria-labelledby="training-readiness-heading"
+      className="mt-4 rounded-lg border border-border bg-card p-5 shadow-panel"
+    >
+      <h4 className="font-semibold text-foreground" id="training-readiness-heading">
+        Training readiness
+      </h4>
+      <p
+        className={`mt-2 text-sm font-medium ${ready ? "text-emerald-700" : "text-amber-800"}`}
+      >
+        {ready
+          ? "Ready for the current numeric training workflow."
+          : "Transformation or configuration is required before numeric training."}
+      </p>
+      <dl className="mt-4 grid gap-3 sm:grid-cols-2">
+        <div>
+          <dt className="text-xs font-semibold uppercase text-muted-foreground">
+            Numeric features
+          </dt>
+          <dd className="mt-1 break-words text-sm text-foreground">
+            {numeric.length > 0 ? numeric.join(", ") : "None detected"}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-xs font-semibold uppercase text-muted-foreground">
+            Non-numeric features
+          </dt>
+          <dd className="mt-1 break-words text-sm text-foreground">
+            {nonNumeric.length > 0 ? nonNumeric.join(", ") : "None"}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-xs font-semibold uppercase text-muted-foreground">
+            Classification candidate
+          </dt>
+          <dd className="mt-1 text-sm text-foreground">
+            {readiness.classification_candidate === true ? "Yes" : "No"}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-xs font-semibold uppercase text-muted-foreground">
+            Regression candidate
+          </dt>
+          <dd className="mt-1 text-sm text-foreground">
+            {readiness.regression_candidate === true ? "Yes" : "No"}
+          </dd>
+        </div>
+      </dl>
+      {blockers.length > 0 ? (
+        <ul className="mt-4 list-disc space-y-1 pl-5 text-sm text-red-700">
+          {blockers.map((blocker) => (
+            <li key={blocker}>{blocker}</li>
+          ))}
+        </ul>
+      ) : null}
+      {warnings.length > 0 ? (
+        <ul className="mt-4 list-disc space-y-1 pl-5 text-sm text-amber-800">
+          {warnings.map((warning) => (
+            <li key={warning}>{warning}</li>
+          ))}
+        </ul>
+      ) : null}
+      {typeof readiness.class_distribution === "object" &&
+      readiness.class_distribution !== null &&
+      Object.keys(readiness.class_distribution).length > 0 ? (
+        <div className="mt-4">
+          <p className="text-xs font-semibold uppercase text-muted-foreground">
+            Target class distribution
+          </p>
+          <SafeMetadata
+            value={readiness.class_distribution as Record<string, unknown>}
+          />
+        </div>
+      ) : null}
     </section>
   );
 }

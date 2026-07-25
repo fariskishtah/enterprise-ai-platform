@@ -51,6 +51,55 @@ async def test_register_creates_operator_user(api_client: AsyncClient) -> None:
 
 
 @pytest.mark.anyio
+async def test_register_accepts_only_supported_public_roles(
+    api_client: AsyncClient,
+) -> None:
+    """Public registration permits engineer but rejects privileged role payloads."""
+    allowed = await api_client.post(
+        "/auth/register",
+        json={
+            "email": "engineer@example.com",
+            "name": "Demo Engineer",
+            "password": VALID_PASSWORD,
+            "role": "engineer",
+        },
+    )
+    admin = await api_client.post(
+        "/auth/register",
+        json={
+            "email": "admin-attempt@example.com",
+            "name": "Admin Attempt",
+            "password": VALID_PASSWORD,
+            "role": "admin",
+        },
+    )
+    invented = await api_client.post(
+        "/auth/register",
+        json={
+            "email": "viewer-attempt@example.com",
+            "name": "Viewer Attempt",
+            "password": VALID_PASSWORD,
+            "role": "viewer",
+        },
+    )
+    smuggled = await api_client.post(
+        "/auth/register",
+        json={
+            "email": "extra-field@example.com",
+            "name": "Extra Field",
+            "password": VALID_PASSWORD,
+            "role": "operator",
+            "is_admin": True,
+        },
+    )
+
+    assert allowed.status_code == 201
+    assert allowed.json()["full_name"] == "Demo Engineer"
+    assert allowed.json()["role"] == "engineer"
+    assert admin.status_code == invented.status_code == smuggled.status_code == 422
+
+
+@pytest.mark.anyio
 async def test_register_rejects_duplicate_email(api_client: AsyncClient) -> None:
     """Registration enforces unique normalized email addresses."""
     await register_user(api_client, email="user@example.com")

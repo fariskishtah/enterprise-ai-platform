@@ -7,7 +7,7 @@ from datetime import timedelta
 from uuid import UUID
 
 from app.config.settings import Settings
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.repositories.users import UserRepository
 from app.services.exceptions import (
     InactiveUserError,
@@ -53,9 +53,24 @@ class AuthenticationService:
         self._user_service = user_service
         self._password_hasher = password_hasher
 
-    async def register(self, *, email: str, password: str) -> User:
-        """Register a new operator user."""
-        return await self._user_service.create_user(email=email, password=password)
+    async def register(
+        self,
+        *,
+        email: str,
+        password: str,
+        full_name: str | None = None,
+        role: UserRole = UserRole.OPERATOR,
+    ) -> User:
+        """Register a user in a new isolated public-demo company."""
+        if role not in {UserRole.OPERATOR, UserRole.ENGINEER}:
+            raise ValueError("The selected public role is not allowed.")
+        return await self._user_service.create_user(
+            email=email,
+            password=password,
+            full_name=full_name,
+            role=role,
+            public_demo=True,
+        )
 
     async def login(
         self,

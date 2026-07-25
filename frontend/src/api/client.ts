@@ -54,6 +54,26 @@ function errorMessage(payload: unknown, fallback: string): string {
   ) {
     return payload.detail;
   }
+  if (
+    typeof payload === "object" &&
+    payload !== null &&
+    "detail" in payload &&
+    Array.isArray(payload.detail)
+  ) {
+    const issue = payload.detail.find(
+      (item): item is { readonly loc?: readonly unknown[]; readonly msg: string } =>
+        typeof item === "object" &&
+        item !== null &&
+        "msg" in item &&
+        typeof item.msg === "string",
+    );
+    if (issue !== undefined) {
+      const field = issue.loc?.at(-1);
+      return typeof field === "string"
+        ? `${field.replaceAll("_", " ")}: ${issue.msg}`
+        : issue.msg;
+    }
+  }
   return fallback;
 }
 

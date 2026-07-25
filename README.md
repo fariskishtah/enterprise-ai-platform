@@ -117,6 +117,12 @@ The demo covers a local user, manufacturing hierarchy, deterministic readings,
 one small model, prediction, and monitoring event. Dataset/RAG demonstrations
 are covered by the staging real-backend browser suite.
 
+Public deployments may also keep **Create Account** enabled. New operator or
+engineer accounts receive separate synthetic company workspaces; public role
+selection never includes administrator access. See the
+[public self-service demo guide](docs/public-self-service-demo.md) for the
+security boundary, bounded data, quotas, and known limitations.
+
 ## Developer setup and validation
 
 Create the Python 3.12 environment and install the hashed development lock:
@@ -225,6 +231,7 @@ Local volumes are not off-host backups. Follow
 - [Versioning policy](docs/release/versioning-policy.md)
 - [Performance budget](docs/release/performance-budget.md)
 - [Security exception register](docs/security/security-exception-register.md)
+- [Public self-service demo](docs/public-self-service-demo.md)
 - [Legal readiness](docs/release/legal-readiness-checklist.md)
 - [Release checklist](docs/release-checklist.md)
 - [Validation evidence](docs/release/release-validation-report.md)

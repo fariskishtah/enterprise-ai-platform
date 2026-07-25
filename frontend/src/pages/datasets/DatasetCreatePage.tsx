@@ -1,5 +1,5 @@
 import { useState, type FormEvent, type ReactElement } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 
 import {
   createDatasetRecord,
@@ -18,9 +18,14 @@ import { hierarchyError } from "../hierarchy/shared";
 
 export function DatasetCreatePage(): ReactElement {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const [kind, setKind] = useState<DatasetKind>("tabular");
+  const [kind, setKind] = useState<DatasetKind>(
+    searchParams.get("kind") === "document_collection"
+      ? "document_collection"
+      : "tabular",
+  );
   const [file, setFile] = useState<File | null>(null);
   const [targetColumn, setTargetColumn] = useState("");
   const [splitColumn, setSplitColumn] = useState("");
@@ -89,8 +94,9 @@ export function DatasetCreatePage(): ReactElement {
       />
       <div className="mt-6 max-w-3xl">
         <InlineNotice>
-          Files are validated and stored by the backend. Uploading starts processing
-          immediately; no server filesystem path is exposed.
+          {kind === "document_collection"
+            ? "Register a UTF-8 plain-text document here, wait for its version to become Ready, then attach it from Knowledge Bases. PDF is not accepted because the backend has no secure PDF parser."
+            : "CSV files are validated and stored by the backend. Choose a target column for training-readiness analysis; wide or non-numeric columns may require transformation."}
         </InlineNotice>
         <form className="mt-5" onSubmit={(event) => void submit(event)}>
           <LifecycleCard>
@@ -107,6 +113,10 @@ export function DatasetCreatePage(): ReactElement {
                   required
                   value={name}
                 />
+                <span className="mt-1 block text-xs text-muted-foreground">
+                  Unicode letters and normal punctuation, including en dashes, are
+                  supported. Names must start with a letter or number.
+                </span>
               </label>
               <label className="text-sm font-medium text-foreground sm:col-span-2">
                 Description (optional)

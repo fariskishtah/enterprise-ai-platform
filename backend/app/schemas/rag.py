@@ -60,8 +60,8 @@ class KnowledgeBaseCreateRequest(BaseModel):
 
     name: KnowledgeBaseName
     description: OptionalDescription | None = None
-    chunk_size: int = Field(default=1000, ge=200, le=4000)
-    chunk_overlap: int = Field(default=100, ge=0, le=1000)
+    chunk_size: int = Field(default=350, ge=200, le=4000)
+    chunk_overlap: int = Field(default=50, ge=0, le=1000)
 
     @field_validator("description")
     @classmethod

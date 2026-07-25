@@ -1,5 +1,5 @@
 import { useState, type FormEvent, type ReactElement } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 
 import { ApiError } from "../api/client";
 import { useAuth } from "../auth/useAuth";
@@ -137,6 +137,15 @@ export function LoginPage(): ReactElement {
               {submitting ? "Signing in…" : "Sign in"}
             </button>
           </form>
+          <p className="mt-6 text-center text-sm text-neutral-600">
+            Want to explore the public demo?{" "}
+            <Link
+              className="font-semibold text-purple-800 underline-offset-4 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-purple-700"
+              to="/register"
+            >
+              Create Account
+            </Link>
+          </p>
         </div>
       </section>
     </main>

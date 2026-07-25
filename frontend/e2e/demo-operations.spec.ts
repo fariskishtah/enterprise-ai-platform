@@ -53,6 +53,7 @@ interface Alert {
   readonly lifecycle_version: number;
   readonly machine_id: string | null;
   readonly status: string;
+  readonly title: string;
 }
 
 interface Shift {
@@ -312,7 +313,9 @@ test.describe("demo operations with real staging backend", () => {
       "GET",
       `/operations/alerts?machine_id=${action.machine_id}&limit=100&offset=0`,
     );
-    alert = alerts.items[0] ?? null;
+    alert =
+      alerts.items.find((item) => item.title === "Warning machine risk indication") ??
+      null;
     if (!alert) throw new Error("The deterministic machine alert seed is missing.");
 
     const transition = async (

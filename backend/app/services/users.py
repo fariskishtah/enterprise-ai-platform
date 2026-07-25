@@ -38,6 +38,7 @@ class UserService:
         full_name: str | None = None,
         company_id: UUID | None = None,
         company_name: str | None = None,
+        public_demo: bool = False,
     ) -> User:
         """Create a user with a unique email address."""
         normalized_email = normalize_email(email)
@@ -54,6 +55,7 @@ class UserService:
                 role=role,
                 company_id=company_id,
                 company_name=company_name,
+                public_demo=public_demo,
             )
             await self._repository.commit()
         except IntegrityError as exc:

@@ -15,6 +15,7 @@ from app.ml.jobs import (
     TrainingJobConflictError,
     TrainingJobEnqueueError,
     TrainingJobQueuePersistenceError,
+    TrainingJobQuotaError,
     TrainingJobRecord,
     TrainingJobSpec,
     TrainingJobStatus,
@@ -236,6 +237,52 @@ async def test_submission_persists_before_enqueue_and_is_idempotent(
     assert second.job.id == first.job.id
     assert second.job.queue_message_id == f"message-{first.job.id}"
     assert metric_labels == [{"task_type": "regression", "algorithm": "random_forest"}]
+    assert queue.job_ids == [first.job.id]
+
+
+@pytest.mark.anyio
+async def test_public_demo_submission_has_bounded_active_quota(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """Public-demo quota blocks a second active job but permits safe retries."""
+    requested_by = await _user_id(
+        session_factory, email="public-demo-quota@example.com"
+    )
+    queue = FakeQueue()
+    async with session_factory() as session:
+        service = TrainingJobService(
+            repository=TrainingJobRepository(session),
+            queue=queue,
+            max_attempts=3,
+            public_demo_max_active=1,
+            public_demo_max_per_day=3,
+        )
+        first = await service.submit(
+            requested_by_user_id=requested_by,
+            key=random_forest_key(TaskType.REGRESSION),
+            specification=_specification(),
+            idempotency_key="public-demo-first",
+            enforce_public_demo_quota=True,
+        )
+        replay = await service.submit(
+            requested_by_user_id=requested_by,
+            key=random_forest_key(TaskType.REGRESSION),
+            specification=_specification(),
+            idempotency_key="public-demo-first",
+            enforce_public_demo_quota=True,
+        )
+        with pytest.raises(TrainingJobQuotaError, match="active training job"):
+            await service.submit(
+                requested_by_user_id=requested_by,
+                key=random_forest_key(TaskType.REGRESSION),
+                specification=_specification(seed=12),
+                idempotency_key="public-demo-second",
+                enforce_public_demo_quota=True,
+            )
+
+    assert first.created is True
+    assert replay.created is False
+    assert replay.job.id == first.job.id
     assert queue.job_ids == [first.job.id]
 
 
@@ -722,7 +769,7 @@ async def test_cancelled_and_deterministic_failed_jobs_do_not_retry(
 
     worker = TrainingJobWorker(
         session_factory=session_factory,
-        execute_specification=lambda _specification: (_raise_invalid()),
+        execute_specification=lambda _specification: _raise_invalid(),
         assign_candidate_alias=lambda _name, _version: None,
     )
     cancelled_result = await worker.execute(cancelled.id)

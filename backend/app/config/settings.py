@@ -230,6 +230,8 @@ class Settings(BaseSettings):
     training_job_retry_base_seconds: PositiveFloat = 5.0
     training_job_stale_after_seconds: PositiveInt = 3600
     training_job_orphaned_after_seconds: PositiveInt = 60
+    public_demo_training_max_active: PositiveInt = Field(default=1, le=5)
+    public_demo_training_max_per_day: PositiveInt = Field(default=3, le=50)
     automl_global_execution_slots: PositiveInt = Field(default=1, le=4)
     automl_trial_lease_seconds: PositiveInt = Field(default=300, le=21600)
     automl_reconciliation_scheduling_enabled: bool = True

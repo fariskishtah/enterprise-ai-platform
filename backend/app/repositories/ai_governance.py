@@ -117,6 +117,35 @@ class TrainingJobRepository:
         entity = (await self._session.execute(statement)).scalar_one_or_none()
         return _job_record(entity) if entity is not None else None
 
+    async def quota_usage(
+        self,
+        *,
+        requested_by_user_id: UUID,
+        created_since: datetime,
+    ) -> tuple[int, int]:
+        """Return active and recent job counts for one requesting user."""
+        active = int(
+            await self._session.scalar(
+                select(func.count(TrainingJob.id)).where(
+                    TrainingJob.requested_by_user_id == requested_by_user_id,
+                    TrainingJob.status.in_(
+                        (TrainingJobStatus.QUEUED, TrainingJobStatus.RUNNING)
+                    ),
+                )
+            )
+            or 0
+        )
+        recent = int(
+            await self._session.scalar(
+                select(func.count(TrainingJob.id)).where(
+                    TrainingJob.requested_by_user_id == requested_by_user_id,
+                    TrainingJob.created_at >= created_since,
+                )
+            )
+            or 0
+        )
+        return active, recent
+
     async def set_queue_identifier(
         self,
         *,

@@ -7,6 +7,7 @@ from app.ml.jobs.exceptions import (
     TrainingJobError,
     TrainingJobNotFoundError,
     TrainingJobQueuePersistenceError,
+    TrainingJobQuotaError,
 )
 from app.ml.jobs.models import (
     PluginClassificationJobSpec,
@@ -35,6 +36,7 @@ __all__ = [
     "TrainingJobEnqueueError",
     "TrainingJobError",
     "TrainingJobNotFoundError",
+    "TrainingJobQuotaError",
     "TrainingJobQueuePersistenceError",
     "TrainingJobQueue",
     "TrainingJobRecord",

@@ -13,6 +13,10 @@ class TrainingJobConflictError(TrainingJobError):
     """Raised for invalid lifecycle or idempotency operations."""
 
 
+class TrainingJobQuotaError(TrainingJobError):
+    """Raised when an isolated public-demo account reaches a bounded quota."""
+
+
 class TrainingJobEnqueueError(TrainingJobError):
     """Raised after a queue submission failure is persisted safely."""
 

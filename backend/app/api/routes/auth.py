@@ -53,7 +53,7 @@ _RATE_LIMIT_RESPONSE = {
     "/register",
     response_model=UserResponse,
     status_code=status.HTTP_201_CREATED,
-    summary="Register an operator user",
+    summary="Register an allowed public-demo user",
     responses={
         status.HTTP_429_TOO_MANY_REQUESTS: _RATE_LIMIT_RESPONSE,
         status.HTTP_409_CONFLICT: {"description": "Email is already registered."},
@@ -71,11 +71,13 @@ async def register(
     ],
     audit: Annotated[AuditService, Depends(get_audit_service)],
 ) -> UserResponse:
-    """Register a new operator user."""
+    """Register a safe public-demo user in an isolated company workspace."""
     try:
         user = await authentication_service.register(
             email=payload.email,
             password=payload.password,
+            full_name=payload.name,
+            role=payload.role.user_role,
         )
     except DuplicateEmailError as exc:
         raise HTTPException(

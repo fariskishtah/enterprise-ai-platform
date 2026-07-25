@@ -70,6 +70,7 @@ from app.services.model_registry import (
 from app.services.model_registry import ModelRegistry
 from app.services.operations import OperationsService
 from app.services.optuna import OptunaStudyFactory
+from app.services.public_demo import PublicDemoWorkspaceService
 from app.services.sensor_data import SensorDataService
 from app.services.sensor_data_etl import SensorDataEtlService
 from app.services.sensors import SensorService
@@ -108,6 +109,13 @@ def get_operations_service(
 ) -> OperationsService:
     """Return company-scoped operational maintenance use cases."""
     return OperationsService(session)
+
+
+def get_public_demo_workspace_service(
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> PublicDemoWorkspaceService:
+    """Return the isolated public-demo workspace preparer."""
+    return PublicDemoWorkspaceService(session)
 
 
 def get_manufacturing_repository(
@@ -192,6 +200,8 @@ def get_training_job_service(
         repository=repository,
         queue=queue,
         max_attempts=settings.training_job_max_attempts,
+        public_demo_max_active=settings.public_demo_training_max_active,
+        public_demo_max_per_day=settings.public_demo_training_max_per_day,
     )
 
 

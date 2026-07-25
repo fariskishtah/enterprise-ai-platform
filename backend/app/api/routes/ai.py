@@ -8,6 +8,12 @@ from pydantic import ValidationError
 
 from app.config.settings import Settings, get_settings
 from app.dependencies.auth import require_roles
+from app.dependencies.public_demo import (
+    ensure_public_demo_model_scope,
+    is_public_demo_account,
+    require_non_public_demo_account,
+    require_public_demo_model_scope,
+)
 from app.dependencies.rate_limit import enforce_mutation_rate_limit
 from app.dependencies.services import (
     get_ai_model_registry,
@@ -247,6 +253,7 @@ not assign aliases, promote models, download artifacts, or change registry state
 
 @router.post(
     "/training/random-forest/regression",
+    dependencies=[Depends(require_non_public_demo_account)],
     response_model=AITrainingResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Train and register a Random Forest regressor",
@@ -341,6 +348,7 @@ def train_random_forest_regression(
 
 @router.post(
     "/training/random-forest/classification",
+    dependencies=[Depends(require_non_public_demo_account)],
     response_model=AITrainingResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Train and register a Random Forest classifier",
@@ -453,12 +461,18 @@ async def predict_registered_model(
         MonitoredPredictionService,
         Depends(get_ai_monitored_prediction_service),
     ],
+    public_demo: Annotated[bool, Depends(is_public_demo_account)],
     correlation_id: Annotated[
         str | None,
         Header(alias="X-Correlation-ID", min_length=1, max_length=128),
     ] = None,
 ) -> GenericPredictionResponse:
     """Predict through a serialized preprocessing-and-estimator pipeline."""
+    ensure_public_demo_model_scope(
+        current_user=current_user,
+        public_demo=public_demo,
+        registered_model_name=payload.registered_model_name,
+    )
     features: FeatureArray = np.asarray(payload.features, dtype=np.float64)
     try:
         plugin = PLUGIN_REGISTRY.get(payload.algorithm, payload.task_type)
@@ -560,12 +574,18 @@ async def predict_random_forest_regression(
         MonitoredPredictionService,
         Depends(get_ai_monitored_prediction_service),
     ],
+    public_demo: Annotated[bool, Depends(is_public_demo_account)],
     correlation_id: Annotated[
         str | None,
         Header(alias="X-Correlation-ID", min_length=1, max_length=128),
     ] = None,
 ) -> RegressionPredictionResponse:
     """Return float predictions from an exact registered model reference."""
+    ensure_public_demo_model_scope(
+        current_user=current_user,
+        public_demo=public_demo,
+        registered_model_name=payload.registered_model_name,
+    )
     features: FeatureArray = np.asarray(payload.features, dtype=np.float64)
     try:
         result = await service.predict(
@@ -633,12 +653,18 @@ async def predict_random_forest_classification(
         MonitoredPredictionService,
         Depends(get_ai_monitored_prediction_service),
     ],
+    public_demo: Annotated[bool, Depends(is_public_demo_account)],
     correlation_id: Annotated[
         str | None,
         Header(alias="X-Correlation-ID", min_length=1, max_length=128),
     ] = None,
 ) -> ClassificationPredictionResponse:
     """Return integer labels from an exact registered model reference."""
+    ensure_public_demo_model_scope(
+        current_user=current_user,
+        public_demo=public_demo,
+        registered_model_name=payload.registered_model_name,
+    )
     features: FeatureArray = np.asarray(payload.features, dtype=np.float64)
     try:
         result = await service.predict(
@@ -675,6 +701,7 @@ async def predict_random_forest_classification(
 
 @router.get(
     "/models/{registered_model_name}/versions/{version_or_alias}",
+    dependencies=[Depends(require_public_demo_model_scope)],
     response_model=RegisteredModelVersionResponse,
     status_code=status.HTTP_200_OK,
     summary="Resolve a registered AI model version",

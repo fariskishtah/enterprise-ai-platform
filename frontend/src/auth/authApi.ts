@@ -19,11 +19,43 @@ export interface LoginRequest {
   readonly password: string;
 }
 
+export type PublicRegistrationRole = "engineer" | "operator";
+
+export interface RegisterRequest {
+  readonly email: string;
+  readonly name: string;
+  readonly password: string;
+  readonly role: PublicRegistrationRole;
+}
+
+export interface PublicDemoWorkspaceResult {
+  readonly factory_count: number;
+  readonly machine_count: number;
+  readonly reading_count: number;
+  readonly sensor_count: number;
+  readonly status: "ready";
+}
+
+export function registerAccount(payload: RegisterRequest): Promise<CurrentUser> {
+  return apiRequest<CurrentUser>(
+    "/auth/register",
+    { body: JSON.stringify(payload), method: "POST" },
+    { authenticated: false },
+  );
+}
+
 export function login(payload: LoginRequest): Promise<TokenPair> {
   return apiRequest<TokenPair>(
     "/auth/login",
     { body: JSON.stringify(payload), method: "POST" },
     { authenticated: false },
+  );
+}
+
+export function preparePublicDemoWorkspace(): Promise<PublicDemoWorkspaceResult> {
+  return apiRequest<PublicDemoWorkspaceResult>(
+    "/product/public-demo-workspace/prepare",
+    { method: "POST" },
   );
 }
 

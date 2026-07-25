@@ -15,6 +15,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.routes.ai import predict_registered_model
 from app.dependencies.auth import require_roles
 from app.dependencies.database import get_db_session
+from app.dependencies.public_demo import (
+    is_public_demo_account,
+    require_public_demo_model_scope,
+)
 from app.dependencies.rate_limit import enforce_mutation_rate_limit
 from app.dependencies.services import (
     get_ai_monitored_prediction_service,
@@ -294,7 +298,10 @@ def _feature_matrix(
 @router.post(
     "/ai/models/{registered_model_name}/versions/{model_version}/structured-prediction",
     response_model=StructuredPredictionResponse,
-    dependencies=[Depends(enforce_mutation_rate_limit)],
+    dependencies=[
+        Depends(enforce_mutation_rate_limit),
+        Depends(require_public_demo_model_scope),
+    ],
 )
 async def run_structured_prediction(
     registered_model_name: Annotated[str, _MODEL],
@@ -309,6 +316,7 @@ async def run_structured_prediction(
         MonitoredPredictionService, Depends(get_ai_monitored_prediction_service)
     ],
     audit: Annotated[AuditService, Depends(get_audit_service)],
+    public_demo: Annotated[bool, Depends(is_public_demo_account)],
     correlation_id: Annotated[
         str | None, Header(alias="X-Correlation-ID", max_length=128)
     ] = None,
@@ -329,6 +337,7 @@ async def run_structured_prediction(
         ),
         current_user=current_user,
         service=prediction_service,
+        public_demo=public_demo,
         correlation_id=correlation_id,
     )
     prediction = result.predictions[0]

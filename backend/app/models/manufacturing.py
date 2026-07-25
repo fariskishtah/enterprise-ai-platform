@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
-from sqlalchemy import DateTime, ForeignKey, Index, String, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import Uuid
 
@@ -25,6 +25,7 @@ class Company(Base):
         Index("ix_companies_normalized_name", "normalized_name", unique=True),
         Index("ix_companies_name", "name"),
         Index("ix_companies_deleted_at", "deleted_at"),
+        Index("ix_companies_public_demo", "is_public_demo"),
     )
 
     id: Mapped[UUID] = mapped_column(
@@ -35,6 +36,9 @@ class Company(Base):
     name: Mapped[str] = mapped_column(String(length=255), nullable=False)
     normalized_name: Mapped[str] = mapped_column(String(length=255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
+    is_public_demo: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
