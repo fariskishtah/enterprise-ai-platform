@@ -10,6 +10,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql.elements import ColumnElement
 
 from app.dependencies.auth import get_current_user, require_roles
 from app.dependencies.database import get_db_session
@@ -436,7 +437,7 @@ async def reset_scenario(
         ("sensor_reading", SensorReading),
     ):
         if ids.get(key):
-            conditions = [model.id.in_(ids[key])]
+            conditions: list[ColumnElement[bool]] = [model.id.in_(ids[key])]
             if key == "action":
                 conditions.append(
                     ~select(OperationalNote.id)
