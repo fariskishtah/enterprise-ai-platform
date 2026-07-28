@@ -154,6 +154,14 @@ export function LoginPage(): ReactElement {
               Create your workspace
             </Link>
           </p>
+          <p className="mt-3 text-center text-sm">
+            <Link
+              className="font-semibold text-purple-800 underline-offset-4 hover:underline"
+              to="/pricing"
+            >
+              View plans and quotas
+            </Link>
+          </p>
         </div>
       </section>
     </main>

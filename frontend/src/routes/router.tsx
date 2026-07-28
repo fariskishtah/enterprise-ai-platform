@@ -35,6 +35,11 @@ const ResetPasswordPage = lazy(() =>
     default: ResetPasswordPage,
   })),
 );
+const PricingPage = lazy(() =>
+  import("../pages/PricingPage").then(({ PricingPage }) => ({
+    default: PricingPage,
+  })),
+);
 const AuditLogsPage = lazy(() =>
   import("../pages/AuditLogsPage").then(({ AuditLogsPage }) => ({
     default: AuditLogsPage,
@@ -342,6 +347,11 @@ const ReportDetailPage = lazy(() =>
 );
 
 export const router = createBrowserRouter([
+  {
+    element: <PricingPage />,
+    errorElement: <RouteErrorPage />,
+    path: "/pricing",
+  },
   {
     children: [
       { element: <LoginPage />, path: "login" },
