@@ -50,7 +50,7 @@ architecture, data-flow, deployment, and observability diagrams.
 
 - JWT login, refresh rotation, logout, hashed single-use password recovery,
   enforced email ownership, six-role permission-matrix RBAC, and company-scoped
-  user and session lifecycle controls. Identity emails use the durable
+  user, team-invitation, and session lifecycle controls. Identity emails use the durable
   capture/Resend/SMTP queue; see [transactional email](docs/email.md).
 - Company → factory → machine → sensor hierarchy.
 - Manual sensor readings and bounded CSV upload jobs.

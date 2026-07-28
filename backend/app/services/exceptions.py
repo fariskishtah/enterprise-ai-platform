@@ -37,6 +37,14 @@ class UsedEmailVerificationTokenError(ValueError):
     """Raised when an email verification credential was already consumed."""
 
 
+class InvitationLifecycleError(ValueError):
+    """Raised for a safe team invitation policy violation."""
+
+
+class InvalidInvitationTokenError(ValueError):
+    """Raised when a team invitation credential cannot be accepted."""
+
+
 class ResourceNotFoundError(ValueError):
     """Raised when a requested resource does not exist."""
 

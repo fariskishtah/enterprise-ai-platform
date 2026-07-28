@@ -1,10 +1,15 @@
 import { useEffect, useState, type FormEvent, type ReactElement } from "react";
 
 import {
+  createInvitation,
   createUser,
+  listInvitations,
   listUsers,
+  resendInvitation,
+  revokeInvitation,
   updateUser,
   type CompanyUser,
+  type InvitationPage,
   type UserPage,
   type UserRole,
 } from "../api/account";
@@ -25,10 +30,12 @@ import {
   panelClassName,
 } from "../components/intelligence/IntelligenceUi";
 import { PageHeader } from "../components/ui/PageHeader";
+import { useAuth } from "../auth/useAuth";
 
 const LIMIT = 50;
 
 export function UsersPage(): ReactElement {
+  const { role: currentRole } = useAuth();
   const [page, setPage] = useState<UserPage | null>(null);
   const [offset, setOffset] = useState(0);
   const [role, setRole] = useState<UserRole | "">("");
@@ -37,7 +44,9 @@ export function UsersPage(): ReactElement {
   const [message, setMessage] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
   const [createOpen, setCreateOpen] = useState(false);
+  const [inviteOpen, setInviteOpen] = useState(false);
   const [editing, setEditing] = useState<CompanyUser | null>(null);
+  const [invitations, setInvitations] = useState<InvitationPage | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -58,6 +67,19 @@ export function UsersPage(): ReactElement {
     return () => controller.abort();
   }, [offset, revision, role, status]);
 
+  useEffect(() => {
+    const controller = new AbortController();
+    void listInvitations(controller.signal)
+      .then(setInvitations)
+      .catch((caught: unknown) => {
+        if (!isRequestCancelled(caught, controller.signal))
+          setError(
+            caught instanceof Error ? caught.message : "Invitations unavailable.",
+          );
+      });
+    return () => controller.abort();
+  }, [revision]);
+
   return (
     <section>
       <PageHeader
@@ -66,13 +88,22 @@ export function UsersPage(): ReactElement {
         title="Users"
         description="Manage roles and account access for users in your company only."
         actions={
-          <button
-            className={primaryButtonClassName}
-            onClick={() => setCreateOpen(true)}
-            type="button"
-          >
-            Add user
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button
+              className={secondaryButtonClassName}
+              onClick={() => setCreateOpen(true)}
+              type="button"
+            >
+              Add user directly
+            </button>
+            <button
+              className={primaryButtonClassName}
+              onClick={() => setInviteOpen(true)}
+              type="button"
+            >
+              Invite teammate
+            </button>
+          </div>
         }
       />
       {message ? (
@@ -197,12 +228,93 @@ export function UsersPage(): ReactElement {
           </div>
         </div>
       )}
+      <section className={`${panelClassName} mt-6`}>
+        <h2 className="text-lg font-semibold text-foreground">Pending invitations</h2>
+        {!invitations ? (
+          <div className="mt-4">
+            <LoadingSkeleton label="Loading pending invitations" />
+          </div>
+        ) : invitations.items.length === 0 ? (
+          <p className="mt-3 text-sm text-muted-foreground">No pending invitations.</p>
+        ) : (
+          <ul className="mt-4 divide-y divide-border">
+            {invitations.items.map((invitation) => (
+              <li
+                className="flex flex-wrap items-center justify-between gap-3 py-3"
+                key={invitation.id}
+              >
+                <div>
+                  <p className="font-medium text-foreground">
+                    {invitation.invited_email}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {invitation.role} · expires {formatDate(invitation.expires_at)}
+                  </p>
+                </div>
+                <div className="flex gap-3">
+                  <button
+                    className="text-sm font-semibold text-link"
+                    onClick={() => {
+                      void resendInvitation(invitation.id)
+                        .then(() => {
+                          setMessage("Invitation resent.");
+                          setRevision((value) => value + 1);
+                        })
+                        .catch((caught: unknown) =>
+                          setError(
+                            caught instanceof Error
+                              ? caught.message
+                              : "Invitation could not be resent.",
+                          ),
+                        );
+                    }}
+                    type="button"
+                  >
+                    Resend
+                  </button>
+                  <button
+                    className="text-sm font-semibold text-red-700"
+                    onClick={() => {
+                      void revokeInvitation(invitation.id)
+                        .then(() => {
+                          setMessage("Invitation revoked.");
+                          setRevision((value) => value + 1);
+                        })
+                        .catch((caught: unknown) =>
+                          setError(
+                            caught instanceof Error
+                              ? caught.message
+                              : "Invitation could not be revoked.",
+                          ),
+                        );
+                    }}
+                    type="button"
+                  >
+                    Revoke
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
       {createOpen ? (
         <CreateUserDialog
           onClose={() => setCreateOpen(false)}
           onCreated={() => {
             setCreateOpen(false);
             setMessage("Company user created.");
+            setRevision((value) => value + 1);
+          }}
+        />
+      ) : null}
+      {inviteOpen ? (
+        <InviteUserDialog
+          canInviteOwner={currentRole === "owner"}
+          onClose={() => setInviteOpen(false)}
+          onCreated={() => {
+            setInviteOpen(false);
+            setMessage("Invitation queued for delivery.");
             setRevision((value) => value + 1);
           }}
         />
@@ -219,6 +331,74 @@ export function UsersPage(): ReactElement {
         />
       ) : null}
     </section>
+  );
+}
+
+function InviteUserDialog({
+  canInviteOwner,
+  onClose,
+  onCreated,
+}: {
+  readonly canInviteOwner: boolean;
+  readonly onClose: () => void;
+  readonly onCreated: () => void;
+}): ReactElement {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const submit = (event: FormEvent<HTMLFormElement>): void => {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    setBusy(true);
+    setError(null);
+    void createInvitation({
+      email: String(data.get("email")),
+      role: String(data.get("role")) as UserRole,
+    })
+      .then(onCreated)
+      .catch((caught: unknown) =>
+        setError(
+          caught instanceof Error ? caught.message : "Invitation could not be sent.",
+        ),
+      )
+      .finally(() => setBusy(false));
+  };
+  return (
+    <Dialog
+      onClose={onClose}
+      title="Invite teammate"
+      description="The recipient receives a single-use, expiring invitation link."
+    >
+      <form className="space-y-4" onSubmit={submit}>
+        <label className="block text-sm font-medium">
+          Email
+          <input className={inputClassName} name="email" required type="email" />
+        </label>
+        <label className="block text-sm font-medium">
+          Assigned role
+          <select className={inputClassName} defaultValue="viewer" name="role">
+            <option value="viewer">Viewer</option>
+            <option value="analyst">Analyst</option>
+            <option value="operator">Operator</option>
+            <option value="engineer">Engineer</option>
+            <option value="admin">Admin</option>
+            {canInviteOwner ? <option value="owner">Owner</option> : null}
+          </select>
+        </label>
+        {error ? (
+          <p className="text-sm text-red-700" role="alert">
+            {error}
+          </p>
+        ) : null}
+        <div className="flex justify-end gap-3">
+          <button className={secondaryButtonClassName} onClick={onClose} type="button">
+            Cancel
+          </button>
+          <button className={primaryButtonClassName} disabled={busy} type="submit">
+            {busy ? "Sending…" : "Send invitation"}
+          </button>
+        </div>
+      </form>
+    </Dialog>
   );
 }
 

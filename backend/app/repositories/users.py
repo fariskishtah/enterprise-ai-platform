@@ -11,6 +11,7 @@ from app.models.user import (
     EmailVerificationToken,
     PasswordResetToken,
     RefreshToken,
+    TeamInvitation,
     User,
     UserRole,
 )
@@ -120,6 +121,93 @@ class UserRepository:
             .all()
         )
         return users, total
+
+    async def create_invitation(
+        self,
+        *,
+        company_id: UUID,
+        invited_email: str,
+        role: UserRole,
+        token_hash: str,
+        inviter_user_id: UUID,
+        expires_at: datetime,
+        sent_at: datetime,
+    ) -> TeamInvitation:
+        invitation = TeamInvitation(
+            company_id=company_id,
+            invited_email=invited_email,
+            role=role,
+            token_hash=token_hash,
+            inviter_user_id=inviter_user_id,
+            expires_at=expires_at,
+            last_sent_at=sent_at,
+        )
+        self._session.add(invitation)
+        await self._session.flush()
+        await self._session.refresh(invitation)
+        return invitation
+
+    async def active_invitation_for_email(
+        self, *, company_id: UUID, invited_email: str, now: datetime
+    ) -> TeamInvitation | None:
+        statement = select(TeamInvitation).where(
+            TeamInvitation.company_id == company_id,
+            TeamInvitation.invited_email == invited_email,
+            TeamInvitation.accepted_at.is_(None),
+            TeamInvitation.revoked_at.is_(None),
+            TeamInvitation.expires_at > now,
+        )
+        return (await self._session.execute(statement)).scalar_one_or_none()
+
+    async def list_invitations(
+        self, *, company_id: UUID, limit: int, offset: int
+    ) -> tuple[list[TeamInvitation], int]:
+        statement = select(TeamInvitation).where(
+            TeamInvitation.company_id == company_id,
+            TeamInvitation.accepted_at.is_(None),
+            TeamInvitation.revoked_at.is_(None),
+        )
+        total = int(
+            await self._session.scalar(
+                select(func.count()).select_from(statement.order_by(None).subquery())
+            )
+            or 0
+        )
+        items = list(
+            (
+                await self._session.execute(
+                    statement.order_by(
+                        TeamInvitation.created_at.desc(), TeamInvitation.id.desc()
+                    )
+                    .limit(limit)
+                    .offset(offset)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        return items, total
+
+    async def get_invitation_in_company(
+        self, *, invitation_id: UUID, company_id: UUID, for_update: bool = False
+    ) -> TeamInvitation | None:
+        statement = select(TeamInvitation).where(
+            TeamInvitation.id == invitation_id,
+            TeamInvitation.company_id == company_id,
+        )
+        if for_update:
+            statement = statement.with_for_update()
+        return (await self._session.execute(statement)).scalar_one_or_none()
+
+    async def get_invitation_by_token_hash(
+        self, token_hash: str
+    ) -> TeamInvitation | None:
+        statement = (
+            select(TeamInvitation)
+            .where(TeamInvitation.token_hash == token_hash)
+            .with_for_update()
+        )
+        return (await self._session.execute(statement)).scalar_one_or_none()
 
     async def count_active_admins(self, company_id: UUID) -> int:
         """Lock active administrator rows before an access-removing mutation."""

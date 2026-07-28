@@ -9,6 +9,33 @@ function json(route: Route, body: unknown, status = 200): Promise<void> {
 }
 
 test.describe("account recovery", () => {
+  test("accepts a new-user team invitation", async ({ page }) => {
+    await page.route("**/team/invitations/accept", (route) =>
+      json(route, {
+        status: "accepted",
+        user: {
+          company_id: "invited-company",
+          created_at: "2026-07-28T12:00:00Z",
+          email: "invitee@example.com",
+          full_name: "Invited User",
+          id: "invited-user",
+          is_active: true,
+          is_email_verified: true,
+          role: "analyst",
+          updated_at: "2026-07-28T12:00:00Z",
+        },
+      }),
+    );
+    await page.goto(`/accept-invitation?token=${`invite${"a".repeat(43)}`}`);
+    await page.getByLabel("Full name").fill("Invited User");
+    await page.getByLabel("Password").fill("InvitationPassword1!");
+    await page.getByRole("button", { name: "Accept invitation" }).click();
+    await expect(
+      page.getByRole("heading", { name: "Invitation accepted" }),
+    ).toBeVisible();
+    await expect(page.getByRole("status")).toContainText("account is ready");
+  });
+
   test("shows successful and expired email verification states", async ({ page }) => {
     await page.route(
       "http://localhost:8000/auth/email-verification/verify",

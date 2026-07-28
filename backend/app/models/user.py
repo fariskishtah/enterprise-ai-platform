@@ -110,6 +110,10 @@ class User(Base):
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
+    invitations_sent: Mapped[list[TeamInvitation]] = relationship(
+        foreign_keys="TeamInvitation.inviter_user_id",
+        back_populates="inviter",
+    )
 
 
 class RefreshToken(Base):
@@ -208,6 +212,68 @@ class EmailVerificationToken(Base):
     )
 
     user: Mapped[User] = relationship(back_populates="email_verification_tokens")
+
+
+class TeamInvitation(Base):
+    """Company-bound, hashed, expiring, single-use team invitation."""
+
+    __tablename__ = "team_invitations"
+    __table_args__ = (
+        CheckConstraint(
+            "role IN ('owner', 'admin', 'engineer', 'operator', 'analyst', 'viewer')",
+            name="ck_team_invitations_role_valid",
+        ),
+        Index("ix_team_invitations_token_hash", "token_hash", unique=True),
+        Index("ix_team_invitations_company_created", "company_id", "created_at"),
+        Index("ix_team_invitations_company_email", "company_id", "invited_email"),
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), primary_key=True, default=uuid4
+    )
+    company_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("companies.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    invited_email: Mapped[str] = mapped_column(String(320), nullable=False)
+    role: Mapped[UserRole] = mapped_column(
+        SQLAlchemyEnum(
+            UserRole,
+            values_callable=_role_values,
+            native_enum=False,
+            create_constraint=False,
+            length=32,
+        ),
+        nullable=False,
+    )
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    inviter_user_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    accepted_by_user_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
+    )
+    last_sent_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    send_count: Mapped[int] = mapped_column(
+        nullable=False, default=1, server_default="1"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    inviter: Mapped[User] = relationship(
+        foreign_keys=[inviter_user_id], back_populates="invitations_sent"
+    )
 
 
 class AuditEvent(Base):

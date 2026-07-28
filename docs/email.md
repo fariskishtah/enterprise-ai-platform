@@ -94,3 +94,9 @@ same generic response for known and unknown addresses. Token-bearing queued
 bodies are encrypted using a key derived from `SECRET_KEY`; rotate that key only
 after the queue has drained, or outstanding encrypted messages will fail safely
 and require a new request.
+
+Team invitations use that same encrypted queue. Create and resend commit the
+company-bound invitation before publishing its UUID-only delivery job. Resend
+rotates the digest-only credential and observes a persisted cooldown; revocation,
+expiry, and acceptance make the link unusable. Local raw invitation links require
+`EXPOSE_LOCAL_TEAM_INVITATION_TOKEN=true`, which production rejects.

@@ -24,6 +24,9 @@ Reviewed: 2026-07-28. Status: **not approved for unrestricted production**.
 - Six roles use one server-side permission matrix. Existing Admins migrate to
   Owner; Admin cannot manage Owner, read-only roles cannot mutate through legacy
   dependencies, and the final active Owner is protected transactionally.
+- Invitation tokens are digest-only, encrypted in queued mail, expiring,
+  single-use, cooldown-rotated, company-bound, and cannot move an existing user
+  across tenant ownership boundaries.
 
 ## Open findings
 

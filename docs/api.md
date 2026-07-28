@@ -50,14 +50,20 @@ GET  /auth/email-verification/status
 POST /auth/email-verification/resend
 POST /auth/email-verification/verify
 GET  /users/me
+GET  /team/invitations
+POST /team/invitations
+POST /team/invitations/{invitation_id}/resend
+DELETE /team/invitations/{invitation_id}
+POST /team/invitations/accept
 ```
 
 Public registration creates a company owner with unverified email
 ownership. Login remains available, but production restricts product routes
 until the hashed, expiring, single-use verification credential is consumed.
 Password reset uses a privacy-safe generic request response. Owner/Admin team
-management uses the backend six-role permission matrix. Invitations and MFA are
-not yet implemented.
+management uses the backend six-role permission matrix. Invitations are hashed,
+expiring, single-use, company-bound, and asynchronously delivered. MFA is not yet
+implemented.
 
 ## Manufacturing hierarchy
 

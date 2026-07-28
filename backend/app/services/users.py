@@ -44,6 +44,7 @@ class UserService:
         company_id: UUID | None = None,
         company_name: str | None = None,
         public_demo: bool = False,
+        commit: bool = True,
     ) -> User:
         """Create a user with a unique email address."""
         normalized_email = normalize_email(email)
@@ -68,7 +69,8 @@ class UserService:
                 company_name=company_name,
                 public_demo=public_demo,
             )
-            await self._repository.commit()
+            if commit:
+                await self._repository.commit()
         except IntegrityError as exc:
             await self._repository.rollback()
             if await self._repository.get_by_email(normalized_email) is not None:

@@ -85,6 +85,7 @@ from app.models.user import (
     EmailVerificationToken,
     PasswordResetToken,
     RefreshToken,
+    TeamInvitation,
     User,
     UserRole,
 )
@@ -163,6 +164,7 @@ __all__ = [
     "TrainingRun",
     "TrainingRunStatus",
     "TrainingJob",
+    "TeamInvitation",
     "UploadJob",
     "UploadJobStatus",
     "UsageCounter",

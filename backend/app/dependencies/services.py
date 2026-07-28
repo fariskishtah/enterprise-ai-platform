@@ -63,6 +63,7 @@ from app.services.audit import AuditService
 from app.services.authentication import AuthenticationService
 from app.services.email import EmailProvider, configured_email_provider
 from app.services.feature_engineering import FeatureEngineeringService
+from app.services.invitations import InvitationService
 from app.services.manufacturing import ManufacturingService
 from app.services.mlops import MLOpsService
 from app.services.model_registry import (
@@ -552,6 +553,14 @@ def get_user_service(
 ) -> UserService:
     """Return the user service."""
     return UserService(repository=repository, password_hasher=password_hasher)
+
+
+def get_invitation_service(
+    repository: Annotated[UserRepository, Depends(get_user_repository)],
+    users: Annotated[UserService, Depends(get_user_service)],
+) -> InvitationService:
+    """Return tenant-safe invitation use cases."""
+    return InvitationService(repository=repository, users=users)
 
 
 def get_manufacturing_service(

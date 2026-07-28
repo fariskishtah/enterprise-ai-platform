@@ -36,6 +36,21 @@ Owners and administrators have company-wide access, not platform-wide access. Da
 RAG collaboration inside one company is supported where the service policy
 allows it; owner identifiers remain lineage, not a tenant boundary.
 
+## Team invitations
+
+Owner/Admin team managers can create, list, resend, and revoke invitations.
+Owner is the only role that can invite another Owner. Invitation credentials are
+cryptographically random, stored only as SHA-256 digests, company-bound,
+expiring, single-use, and rotated on resend after a persisted cooldown. Their
+queued email bodies are encrypted at rest.
+
+An invitation can create a new verified account after collecting a strong
+password, or update the assigned role of an existing active account in the same
+company. Because the current identity model permits exactly one company per
+user, acceptance never moves an existing account across tenants; that case
+returns a conflict to the token holder. Create/resend/revoke/accept actions are
+audited without the raw credential.
+
 ## Resource scope
 
 The following roots carry a non-null company identifier:
@@ -99,6 +114,6 @@ development, or test.
 ## Unsupported enterprise identity capabilities
 
 The pilot does not provide MFA, OIDC/SAML SSO, SCIM, platform
-super-administration, company switching, invitations with email delivery,
-domain claiming, or tenant self-service deletion. These
+super-administration, company switching, domain claiming, or tenant
+self-service deletion. These
 require separate threat modeling, product policy, and acceptance testing.

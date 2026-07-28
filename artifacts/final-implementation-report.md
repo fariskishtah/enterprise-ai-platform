@@ -40,6 +40,12 @@ Branch: `feature/production-saas-upgrade`
   matrix, owner-only privilege boundaries, and last-owner protection. Legacy
   route declarations now delegate to that matrix with read-only Analyst/Viewer
   compatibility, and the team UI understands all six roles.
+- Added migration `0027_add_team_invitations` with company-bound digest-only
+  credentials, expiry, single use, revoke and resend state, cooldown rotation,
+  existing/new-account acceptance, cross-tenant rejection, audit events, and
+  encrypted asynchronous invitation delivery. The team page now lists and
+  manages pending invitations, and the public acceptance page handles account
+  creation or an existing same-tenant account.
 - Updated README scope and screenshot gallery.
 
 ## Bugs fixed
@@ -53,12 +59,12 @@ Branch: `feature/production-saas-upgrade`
 
 ## Verification summary
 
-See `artifacts/final-test-report.md`. Final pytest: 852 passed, 3 skipped. Full
-fixture Playwright: 46 passed, 23 explicitly guarded real-backend skips. Frontend
+See `artifacts/final-test-report.md`. Final pytest: 856 passed, 3 skipped. Full
+fixture Playwright: 47 passed, 23 explicitly guarded real-backend skips. Frontend
 lint/format/type/build, backend changed-file lint/format, full mypy, Compose
 configuration, full mypy across 287 source files, and empty-database billing and
 transactional-email and verification migration round trips passed. The rebuilt
-local runtime is at migration `0026`; API health and billing catalogue probes
+local runtime is at migration `0027`; API health and billing catalogue probes
 returned HTTP 200.
 
 ## Required current environment variables
@@ -86,7 +92,7 @@ production webhook on this revision.
 ## Remaining limitations
 
 This repository is **not production-ready for the full requested scope**.
-Invitations, progressive account lockout, HttpOnly
+Progressive account lockout, HttpOnly
 refresh cookies, SES/SendGrid adapters and credential-backed provider proof,
 Paymob checkout/signature/webhook processing, subscription mutations, plan-limit
 enforcement, billing admin UI, notification preferences, current k6 load evidence,

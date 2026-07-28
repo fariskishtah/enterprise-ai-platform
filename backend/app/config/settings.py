@@ -74,6 +74,9 @@ class Settings(BaseSettings):
     email_verification_expire_hours: PositiveInt = Field(default=24, le=168)
     email_verification_resend_cooldown_seconds: PositiveInt = Field(default=60, le=3600)
     expose_local_email_verification_token: bool = False
+    team_invitation_expire_hours: PositiveInt = Field(default=72, le=336)
+    team_invitation_resend_cooldown_seconds: PositiveInt = Field(default=60, le=3600)
+    expose_local_team_invitation_token: bool = False
     email_provider: Literal["disabled", "capture", "resend", "smtp"] = "disabled"
     resend_api_key: SecretStr | None = None
     email_from: EmailStr | None = Field(
@@ -449,6 +452,10 @@ class Settings(BaseSettings):
         ):
             raise ValueError(
                 "expose_local_email_verification_token must be false in production."
+            )
+        if self.environment == "production" and self.expose_local_team_invitation_token:
+            raise ValueError(
+                "expose_local_team_invitation_token must be false in production."
             )
         if self.environment == "production" and not self.email_verification_required:
             raise ValueError("email_verification_required must be true in production.")

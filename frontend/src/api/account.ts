@@ -21,6 +21,28 @@ export interface UserPage {
   readonly total: number;
 }
 
+export interface TeamInvitation {
+  readonly accepted_at: string | null;
+  readonly company_id: string;
+  readonly created_at: string;
+  readonly expires_at: string;
+  readonly id: string;
+  readonly invited_email: string;
+  readonly inviter_user_id: string;
+  readonly last_sent_at: string;
+  readonly local_invitation_token: string | null;
+  readonly revoked_at: string | null;
+  readonly role: UserRole;
+  readonly send_count: number;
+}
+
+export interface InvitationPage {
+  readonly items: readonly TeamInvitation[];
+  readonly limit: number;
+  readonly offset: number;
+  readonly total: number;
+}
+
 export interface ActiveSession {
   readonly created_at: string;
   readonly expires_at: string;
@@ -65,6 +87,46 @@ export function updateUser(
     body: JSON.stringify(payload),
     method: "PATCH",
   });
+}
+
+export function listInvitations(signal?: AbortSignal): Promise<InvitationPage> {
+  return apiRequest<InvitationPage>("/team/invitations?limit=50&offset=0", {
+    signal,
+  });
+}
+
+export function createInvitation(payload: {
+  readonly email: string;
+  readonly role: UserRole;
+}): Promise<TeamInvitation> {
+  return apiRequest<TeamInvitation>("/team/invitations", {
+    body: JSON.stringify(payload),
+    method: "POST",
+  });
+}
+
+export function resendInvitation(invitationId: string): Promise<TeamInvitation> {
+  return apiRequest<TeamInvitation>(`/team/invitations/${invitationId}/resend`, {
+    method: "POST",
+  });
+}
+
+export function revokeInvitation(invitationId: string): Promise<void> {
+  return apiRequest<void>(`/team/invitations/${invitationId}`, {
+    method: "DELETE",
+  });
+}
+
+export function acceptInvitation(payload: {
+  readonly full_name?: string;
+  readonly password?: string;
+  readonly token: string;
+}): Promise<{ readonly status: "accepted"; readonly user: CompanyUser }> {
+  return apiRequest(
+    "/team/invitations/accept",
+    { body: JSON.stringify(payload), method: "POST" },
+    { authenticated: false },
+  );
 }
 
 export function changePassword(payload: {

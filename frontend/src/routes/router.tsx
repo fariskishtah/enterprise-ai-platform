@@ -30,6 +30,11 @@ const EmailVerificationPage = lazy(() =>
     default: EmailVerificationPage,
   })),
 );
+const InvitationAcceptancePage = lazy(() =>
+  import("../pages/InvitationAcceptancePage").then(({ InvitationAcceptancePage }) => ({
+    default: InvitationAcceptancePage,
+  })),
+);
 const ForgotPasswordPage = lazy(() =>
   import("../pages/PasswordRecoveryPages").then(({ ForgotPasswordPage }) => ({
     default: ForgotPasswordPage,
@@ -352,6 +357,11 @@ const ReportDetailPage = lazy(() =>
 );
 
 export const router = createBrowserRouter([
+  {
+    element: <InvitationAcceptancePage />,
+    errorElement: <RouteErrorPage />,
+    path: "/accept-invitation",
+  },
   {
     element: <EmailVerificationPage />,
     errorElement: <RouteErrorPage />,
