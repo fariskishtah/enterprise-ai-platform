@@ -117,8 +117,11 @@ export function PricingPage(): ReactElement {
             <ul className="mt-7 space-y-3 border-t border-neutral-200 pt-6">
               {Object.entries(plan.entitlements).map(([key, value]) => (
                 <li className="flex gap-3 text-sm text-neutral-700" key={key}>
-                  <span aria-hidden="true" className="font-bold text-emerald-700">
-                    ✓
+                  <span
+                    aria-hidden="true"
+                    className={`font-bold ${value === false ? "text-neutral-400" : "text-emerald-700"}`}
+                  >
+                    {value === false ? "—" : "✓"}
                   </span>
                   {typeof value === "boolean"
                     ? `${value ? "Includes" : "Excludes"} ${entitlementLabels[key] ?? key}`
