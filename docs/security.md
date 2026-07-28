@@ -44,6 +44,19 @@ Refresh behavior:
 
 Logout revokes the supplied refresh token.
 
+## Account Recovery and Email Ownership
+
+Password-reset and email-verification credentials are cryptographically random,
+stored only as SHA-256 digests, bounded by expiry, and single-use. Their queued
+email bodies are encrypted at rest and delivered asynchronously. Reset requests
+use the same response for known and unknown addresses. Verification resend is
+authenticated, rate-limited, and protected by a persisted cooldown.
+
+Production refuses to start unless email-verification enforcement is enabled.
+Unverified users can still log in, inspect their own verification state, and
+resend; other authenticated product routes return `403` until ownership is
+confirmed. Existing accounts are migration-backfilled as verified.
+
 ## RBAC
 
 Supported roles:
@@ -82,8 +95,6 @@ Primary risks addressed:
 
 Risks intentionally deferred:
 
-- Account recovery.
-- Email verification.
 - Multi-factor authentication.
 - Device/session management UI.
 - Fine-grained per-company authorization.

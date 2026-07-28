@@ -75,6 +75,10 @@ class User(Base):
         server_default=UserRole.OPERATOR.value,
     )
     is_active: Mapped[bool] = mapped_column(nullable=False, default=True)
+    is_email_verified: Mapped[bool] = mapped_column(
+        nullable=False, default=False, server_default="false"
+    )
+    email_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
@@ -94,6 +98,11 @@ class User(Base):
     )
     company: Mapped[Company] = relationship(back_populates="users")
     password_reset_tokens: Mapped[list[PasswordResetToken]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    email_verification_tokens: Mapped[list[EmailVerificationToken]] = relationship(
         back_populates="user",
         cascade="all, delete-orphan",
         passive_deletes=True,
@@ -167,6 +176,35 @@ class PasswordResetToken(Base):
     )
 
     user: Mapped[User] = relationship(back_populates="password_reset_tokens")
+
+
+class EmailVerificationToken(Base):
+    """Hashed, expiring, single-use email ownership credential."""
+
+    __tablename__ = "email_verification_tokens"
+    __table_args__ = (
+        Index("ix_email_verification_tokens_hash", "token_hash", unique=True),
+        Index("ix_email_verification_tokens_user_created", "user_id", "created_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), primary_key=True, default=uuid4
+    )
+    user_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    token_hash: Mapped[str] = mapped_column(String(length=64), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    user: Mapped[User] = relationship(back_populates="email_verification_tokens")
 
 
 class AuditEvent(Base):

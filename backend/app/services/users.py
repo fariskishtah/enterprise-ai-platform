@@ -6,13 +6,16 @@ from uuid import UUID
 
 from sqlalchemy.exc import IntegrityError
 
-from app.models.user import RefreshToken, User, UserRole
+from app.models.user import EmailVerificationToken, RefreshToken, User, UserRole
 from app.repositories.users import UserRepository
 from app.services.exceptions import (
     AccountLifecycleError,
     DuplicateCompanyNameError,
     DuplicateEmailError,
+    ExpiredEmailVerificationTokenError,
+    InvalidEmailVerificationTokenError,
     InvalidPasswordResetTokenError,
+    UsedEmailVerificationTokenError,
 )
 from app.utils.passwords import PasswordHasher, validate_password_strength
 from app.utils.security import as_utc, hash_token, normalize_email, utc_now
@@ -185,6 +188,73 @@ class UserService:
         )
         await self._repository.commit()
         return user, token
+
+    async def initiate_email_verification(
+        self,
+        *,
+        user: User,
+        expiry_hours: int,
+        cooldown_seconds: int,
+    ) -> tuple[str | None, EmailVerificationToken | None, int]:
+        """Issue a hashed token unless verified or inside the resend cooldown."""
+        if user.is_email_verified:
+            return None, None, 0
+        latest = await self._repository.latest_email_verification_token(user.id)
+        now = utc_now()
+        if latest is not None:
+            available_at = as_utc(latest.created_at) + timedelta(
+                seconds=cooldown_seconds
+            )
+            if available_at > now:
+                remaining = max(int((available_at - now).total_seconds()) + 1, 1)
+                return None, None, remaining
+        token = secrets.token_urlsafe(48)
+        entity = await self._repository.create_email_verification_token(
+            user_id=user.id,
+            token_hash=hash_token(token),
+            expires_at=now + timedelta(hours=expiry_hours),
+        )
+        await self._repository.commit()
+        return token, entity, cooldown_seconds
+
+    async def verify_email(self, token: str) -> tuple[User, bool]:
+        """Consume one hashed token and mark ownership exactly once."""
+        entity = await self._repository.get_email_verification_token(hash_token(token))
+        if entity is None:
+            raise InvalidEmailVerificationTokenError("Verification token is invalid.")
+        if entity.used_at is not None:
+            raise UsedEmailVerificationTokenError(
+                "Verification token has already been used."
+            )
+        now = utc_now()
+        if as_utc(entity.expires_at) <= now:
+            raise ExpiredEmailVerificationTokenError("Verification token has expired.")
+        user = await self._repository.get_by_id(entity.user_id)
+        if user is None or not user.is_active:
+            raise InvalidEmailVerificationTokenError("Verification token is invalid.")
+        if user.is_email_verified:
+            entity.used_at = now
+            await self._repository.commit()
+            return user, False
+        user.is_email_verified = True
+        user.email_verified_at = now
+        await self._repository.mark_other_verification_tokens_used(
+            user_id=user.id, used_at=now
+        )
+        await self._repository.commit()
+        await self._repository.refresh_user(user)
+        return user, True
+
+    async def verification_resend_after(
+        self, *, user: User, cooldown_seconds: int
+    ) -> int:
+        if user.is_email_verified:
+            return 0
+        latest = await self._repository.latest_email_verification_token(user.id)
+        if latest is None:
+            return 0
+        available_at = as_utc(latest.created_at) + timedelta(seconds=cooldown_seconds)
+        return max(int((available_at - utc_now()).total_seconds()) + 1, 0)
 
     async def complete_password_reset(self, *, token: str, new_password: str) -> User:
         entity = await self._repository.get_password_reset_token(hash_token(token))

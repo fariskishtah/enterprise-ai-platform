@@ -54,6 +54,10 @@ EMAIL_RECONCILIATION_SCHEDULING_ENABLED=true
 EMAIL_RECONCILIATION_INTERVAL_SECONDS=60
 EMAIL_PROCESSING_STALE_SECONDS=300
 EMAIL_RECONCILIATION_BATCH_SIZE=100
+EMAIL_VERIFICATION_REQUIRED=true
+EMAIL_VERIFICATION_EXPIRE_HOURS=24
+EMAIL_VERIFICATION_RESEND_COOLDOWN_SECONDS=60
+EXPOSE_LOCAL_EMAIL_VERIFICATION_TOKEN=false
 ```
 
 Resend additionally needs `RESEND_API_KEY`. SMTP needs `SMTP_HOST` and
@@ -61,9 +65,32 @@ Resend additionally needs `RESEND_API_KEY`. SMTP needs `SMTP_HOST` and
 both absent. `SMTP_USE_TLS=true` enables STARTTLS. Secrets belong in the
 deployment secret manager, never Git.
 
+Production settings reject `capture` and `disabled`; a deploy must select
+`resend` or `smtp`. Provider credentials and sender-domain authorization still
+require deployment-owned staging proof before release approval.
+
 `EMAIL_FROM`/`SUPPORT_EMAIL_TO`/`SUPPORT_EMAIL_MAX_ATTEMPTS`/`APP_BASE_URL` remain
 accepted as migration aliases, but new deployments should use the names above.
 
-Email verification and wiring the existing password-reset flow to this queue
-are the next identity phase; the foundation does not claim those journeys are
-complete yet.
+## Identity email policy
+
+New accounts are always persisted with unverified ownership. Registration and
+authenticated resend create a cryptographically random credential, persist only
+its SHA-256 digest, and queue an encrypted email body. Verification credentials
+expire, are single-use, and are invalidated together when ownership succeeds.
+Production configuration requires `EMAIL_VERIFICATION_REQUIRED=true`; login and
+the current-account/verification endpoints remain available while other bearer
+routes return `403` until verification. This preserves account recovery without
+granting product access to an unverified address.
+
+Resend is authenticated, rate-limited, and subject to
+`EMAIL_VERIFICATION_RESEND_COOLDOWN_SECONDS`. The public verification endpoint
+returns distinct invalid (`422`), expired (`410`), and used (`409`) outcomes.
+Raw verification credentials can be returned only in local/development/test
+when `EXPOSE_LOCAL_EMAIL_VERIFICATION_TOKEN=true`; production rejects that flag.
+
+Password-reset requests use the same encrypted durable queue and retain the
+same generic response for known and unknown addresses. Token-bearing queued
+bodies are encrypted using a key derived from `SECRET_KEY`; rotate that key only
+after the queue has drained, or outstanding encrypted messages will fail safely
+and require a new request.

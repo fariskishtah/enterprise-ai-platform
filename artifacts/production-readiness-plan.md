@@ -50,8 +50,8 @@ their runtime acceptance tests pass with deployment-owned credentials.
 | --- | --- | --- | --- |
 | Backend | FastAPI routers, dependency injection, application services, repositories, typed schemas | Mature structure; several very large route/service modules increase change risk | Medium |
 | Frontend | React 18, TypeScript, Vite, lazy routes, typed API modules, reusable shells/states | Strong foundation; several pages exceed 500 lines and one demo page exceeds 1,200 lines | Medium |
-| Database | PostgreSQL/pgvector and linear migrations `0001`–`0024`; billing, usage, and outbound-email foundations | Invitation, verification, and notification-preference schemas remain | Critical |
-| Authentication | Argon2, short JWT access token, hashed rotating refresh tokens, logout/revocation, password reset backend | Registration immediately logs in; no email verification, login lockout, invitation flow, or six-role model | Critical |
+| Database | PostgreSQL/pgvector and linear migrations `0001`–`0025`; billing, usage, outbound-email, and verification foundations | Invitation and notification-preference schemas remain | Critical |
+| Authentication | Argon2, short JWT access token, hashed rotating refresh tokens, logout/revocation, queued password reset, and enforced email verification | No progressive login lockout, invitation flow, or six-role model | Critical |
 | Token storage | Access and refresh tokens returned to JavaScript and stored in `sessionStorage` | Bounded persistence but vulnerable to token theft through XSS; cookie settings exist without an HttpOnly session flow | High |
 | Authorization | Server-side role dependencies and company filters across major resources | Only admin/engineer/operator; systematic BOLA regression tests exist for many but not all future domains | Critical |
 | Multi-tenancy | `company_id` scoping in repositories/routes plus ownership constraints | Good foundation; every new billing/email/admin query must preserve company scope and opaque 404 behavior | Critical |
@@ -78,9 +78,9 @@ their runtime acceptance tests pass with deployment-owned credentials.
 - [ ] Rename production import/report UI modules so real features do not depend on
       a demo namespace; gate or retire scenario-control routes without deleting
       existing persisted customer data.
-- [ ] Add verified-email ownership, verification token lifecycle, resend flow,
-      generic forgot-password delivery, login throttling/lockout, and security
-      audit events.
+- [x] Add verified-email ownership, verification token lifecycle, resend flow,
+      generic forgot-password delivery, and security audit events. Login rate
+      limiting exists; progressive account-specific lockout remains separate.
 - [ ] Expand roles to Owner, Admin, Engineer, Operator, Analyst, and Viewer with a
       centralized server-side permission matrix and backward-compatible role
       migration.
@@ -105,7 +105,7 @@ their runtime acceptance tests pass with deployment-owned credentials.
 ## High-priority checklist
 
 - [ ] Add forgot/reset/verify/invitation pages and accurate API-error messaging.
-      Forgot/reset pages are complete; verification and invitation remain open.
+      Forgot/reset/verification pages are complete; invitation remains open.
 - [ ] Add pricing, billing status, payment history, usage, plan warning, and admin
       subscription pages with loading, empty, error, and success states.
 - [ ] Add notification preferences and company settings backed by real APIs.

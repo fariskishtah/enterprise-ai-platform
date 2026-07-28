@@ -7,7 +7,13 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.manufacturing import Company
-from app.models.user import PasswordResetToken, RefreshToken, User, UserRole
+from app.models.user import (
+    EmailVerificationToken,
+    PasswordResetToken,
+    RefreshToken,
+    User,
+    UserRole,
+)
 from app.repositories.manufacturing import normalize_name
 
 
@@ -150,6 +156,56 @@ class UserRepository:
         self._session.add(entity)
         await self._session.flush()
         return entity
+
+    async def create_email_verification_token(
+        self,
+        *,
+        user_id: UUID,
+        token_hash: str,
+        expires_at: datetime,
+    ) -> EmailVerificationToken:
+        entity = EmailVerificationToken(
+            user_id=user_id,
+            token_hash=token_hash,
+            expires_at=expires_at,
+        )
+        self._session.add(entity)
+        await self._session.flush()
+        await self._session.refresh(entity)
+        return entity
+
+    async def get_email_verification_token(
+        self, token_hash: str
+    ) -> EmailVerificationToken | None:
+        result = await self._session.execute(
+            select(EmailVerificationToken)
+            .where(EmailVerificationToken.token_hash == token_hash)
+            .with_for_update()
+        )
+        return result.scalar_one_or_none()
+
+    async def latest_email_verification_token(
+        self, user_id: UUID
+    ) -> EmailVerificationToken | None:
+        result = await self._session.execute(
+            select(EmailVerificationToken)
+            .where(EmailVerificationToken.user_id == user_id)
+            .order_by(EmailVerificationToken.created_at.desc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
+    async def mark_other_verification_tokens_used(
+        self, *, user_id: UUID, used_at: datetime
+    ) -> None:
+        await self._session.execute(
+            update(EmailVerificationToken)
+            .where(
+                EmailVerificationToken.user_id == user_id,
+                EmailVerificationToken.used_at.is_(None),
+            )
+            .values(used_at=used_at)
+        )
 
     async def get_password_reset_token(
         self, token_hash: str

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import hashlib
 import smtplib
 from dataclasses import dataclass, field
 from email.message import EmailMessage
@@ -12,6 +14,7 @@ from uuid import uuid4
 from xml.etree.ElementTree import Element, SubElement, tostring
 
 import httpx
+from cryptography.fernet import Fernet, InvalidToken
 
 from app.config.settings import Settings
 from app.models.email import EmailMessageType
@@ -26,6 +29,23 @@ class EmailDeliveryError(RuntimeError):
     def __init__(self, message: str, *, retryable: bool = False) -> None:
         super().__init__(message)
         self.retryable = retryable
+
+
+class EmailPayloadCipher:
+    """Authenticated encryption for token-bearing queued email bodies."""
+
+    def __init__(self, secret: str) -> None:
+        key = base64.urlsafe_b64encode(hashlib.sha256(secret.encode()).digest())
+        self._fernet = Fernet(key)
+
+    def encrypt(self, value: str) -> str:
+        return self._fernet.encrypt(value.encode()).decode()
+
+    def decrypt(self, value: str) -> str:
+        try:
+            return self._fernet.decrypt(value.encode()).decode()
+        except (InvalidToken, UnicodeDecodeError) as exc:
+            raise EmailDeliveryError("The queued email payload is invalid.") from exc
 
 
 @dataclass(frozen=True, slots=True)

@@ -40,6 +40,9 @@ export function ProtectedRoute(): ReactElement {
       />
     );
   }
+  if (auth.user?.is_email_verified === false) {
+    return <Navigate replace to="/verify-email" />;
+  }
   return <Outlet />;
 }
 

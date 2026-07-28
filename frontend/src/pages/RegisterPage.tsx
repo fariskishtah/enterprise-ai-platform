@@ -25,13 +25,18 @@ export function RegisterPage(): ReactElement {
     }
     setSubmitting(true);
     try {
-      await auth.register({
+      const localToken = await auth.register({
         company_name: companyName,
         email,
         name,
         password,
       });
-      navigate("/", { replace: true });
+      navigate(
+        localToken === null
+          ? "/verify-email"
+          : `/verify-email?token=${encodeURIComponent(localToken)}`,
+        { replace: true },
+      );
     } catch (caught) {
       setError(
         caught instanceof ApiError

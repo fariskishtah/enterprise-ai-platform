@@ -332,7 +332,9 @@ cryptography==49.0.0 \
     --hash=sha256:f78ff2c9ed8dc2d036b0f4d640e22522213d047c1b14e61205a7e55c80a494d4 \
     --hash=sha256:f89660a348f4f78a92366240a61404e337586ef7f5909a2fef59ca88ef505493 \
     --hash=sha256:fc1e275c2f1d97b1a6450b8b0ea3ebfa6e087a611c2b26cb2404d48588abab7b
-    # via google-auth
+    # via
+    #   ai-manufacturing-platform-backend (pyproject.toml)
+    #   google-auth
 databricks-sdk==0.122.0 \
     --hash=sha256:7d998ec47f580be6be1cfe066be78038054767575b7437af5e4f76b67dde49c2 \
     --hash=sha256:eb11be13f0c02fc4ffc6e2672ad47478ce26ac4b310bd26916af8ba56e374e98

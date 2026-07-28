@@ -1,7 +1,11 @@
 """Authentication API schemas."""
 
+from datetime import datetime
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
+from app.schemas.user import UserResponse
 from app.utils.passwords import validate_password_strength
 from app.utils.safe_text import ensure_safe_single_line
 
@@ -37,6 +41,12 @@ class RegisterRequest(BaseModel):
             raise ValueError("Value must contain at least 2 non-whitespace characters.")
         ensure_safe_single_line(normalized)
         return normalized
+
+
+class RegistrationResponse(UserResponse):
+    """New account state with an optional local-only verification credential."""
+
+    local_verification_token: str | None = None
 
 
 class LoginRequest(BaseModel):
@@ -103,3 +113,27 @@ class PasswordResetCompleteRequest(BaseModel):
     def validate_new_password(cls, value: str) -> str:
         validate_password_strength(value)
         return value
+
+
+class EmailVerificationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    token: str = Field(min_length=32, max_length=512)
+
+
+class EmailVerificationResponse(BaseModel):
+    status: Literal["verified", "already_verified"]
+    message: str
+
+
+class EmailVerificationStatusResponse(BaseModel):
+    email: EmailStr
+    is_verified: bool
+    verified_at: datetime | None
+    resend_available_in_seconds: int = Field(ge=0, le=3600)
+
+
+class EmailVerificationResendResponse(BaseModel):
+    message: str
+    resend_available_in_seconds: int = Field(ge=0, le=3600)
+    local_verification_token: str | None = None

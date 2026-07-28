@@ -26,6 +26,15 @@ Branch: `feature/production-saas-upgrade`
   sanitized metrics/logging, and ten provider-neutral HTML/text templates.
 - Moved support email off the API request path while preserving the support
   record and durable delivery state across provider or queue failures.
+- Added migration `0025_add_email_verification`, backfilled existing accounts,
+  and made new registrations unverified with digest-only, expiring, single-use
+  credentials, authenticated resend cooldown, audit events, and
+  production-required server enforcement that still permits login and recovery.
+- Queued verification, welcome, and password-reset messages asynchronously;
+  token-bearing outbound bodies are authenticated-encrypted at rest and raw
+  credentials remain available only behind explicit local/test flags.
+- Added the verification-pending frontend with verified, already-verified,
+  expired, invalid, used, resend, and cooldown states.
 - Updated README scope and screenshot gallery.
 
 ## Bugs fixed
@@ -39,11 +48,13 @@ Branch: `feature/production-saas-upgrade`
 
 ## Verification summary
 
-See `artifacts/final-test-report.md`. Final pytest: 840 passed, 3 skipped. Full
-fixture Playwright: 45 passed, 23 explicitly guarded real-backend skips. Frontend
+See `artifacts/final-test-report.md`. Final pytest: 849 passed, 3 skipped. Full
+fixture Playwright: 46 passed, 23 explicitly guarded real-backend skips. Frontend
 lint/format/type/build, backend changed-file lint/format, full mypy, Compose
 configuration, full mypy across 287 source files, and empty-database billing and
-transactional-email migration round trips passed.
+transactional-email and verification migration round trips passed. The rebuilt
+local runtime is at migration `0025`; API health and billing catalogue probes
+returned HTTP 200.
 
 ## Required current environment variables
 
@@ -54,7 +65,9 @@ HTTPS `APP_PUBLIC_URL`/`API_BASE_URL`, exact `ALLOWED_HOSTS` and
 paths, PostgreSQL credentials, and non-default Grafana credentials. Resend support
 delivery additionally needs `EMAIL_PROVIDER=resend`, `RESEND_API_KEY`,
 `EMAIL_FROM_ADDRESS`, and `SUPPORT_NOTIFICATION_EMAIL`. `ENABLE_DEVELOPMENT_SEED` and
-`DEMO_TOOLS_ENABLED` must be false in production.
+`DEMO_TOOLS_ENABLED` must be false in production. Production also requires
+`EMAIL_VERIFICATION_REQUIRED=true` and forbids exposing local verification
+credentials.
 
 ## Deployment
 
@@ -67,8 +80,8 @@ production webhook on this revision.
 
 ## Remaining limitations
 
-This repository is **not production-ready for the full requested scope**. Email
-verification, invitations, six-role RBAC, progressive account lockout, HttpOnly
+This repository is **not production-ready for the full requested scope**.
+Invitations, six-role RBAC, progressive account lockout, HttpOnly
 refresh cookies, SES/SendGrid adapters and credential-backed provider proof,
 Paymob checkout/signature/webhook processing, subscription mutations, plan-limit
 enforcement, billing admin UI, notification preferences, current k6 load evidence,

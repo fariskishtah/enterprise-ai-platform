@@ -81,6 +81,9 @@ class OutboundEmailMessage(Base):
     subject: Mapped[str] = mapped_column(String(255), nullable=False)
     text_body: Mapped[str] = mapped_column(Text, nullable=False)
     html_body: Mapped[str] = mapped_column(Text, nullable=False)
+    payload_encrypted: Mapped[bool] = mapped_column(
+        nullable=False, default=False, server_default="false"
+    )
     provider: Mapped[str] = mapped_column(String(32), nullable=False)
     provider_message_id: Mapped[str | None] = mapped_column(String(255))
     status: Mapped[str] = mapped_column(

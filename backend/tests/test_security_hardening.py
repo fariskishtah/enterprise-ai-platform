@@ -35,6 +35,10 @@ def _validated_settings(settings: Settings, **updates: object) -> Settings:
                 "api_base_url": "https://platform.example/api",
                 "app_base_url": "https://platform.example",
                 "cookie_secure": True,
+                "email_verification_required": True,
+                "email_provider": "smtp",
+                "email_from": "accounts@platform.example",
+                "smtp_host": "smtp.platform.example",
             }
         )
         values.update(updates)
@@ -240,6 +244,39 @@ def test_production_rejects_enabled_api_documentation(settings: Settings) -> Non
         )
 
 
+def test_production_requires_email_verification_enforcement(settings: Settings) -> None:
+    """Production cannot silently admit accounts with unverified ownership."""
+    with pytest.raises(
+        ValidationError,
+        match="email_verification_required must be true in production",
+    ):
+        _validated_settings(
+            settings,
+            environment="production",
+            enable_api_docs=False,
+            cors_allowed_origins=("https://platform.example",),
+            email_verification_required=False,
+        )
+
+
+def test_production_requires_real_transactional_email_provider(
+    settings: Settings,
+) -> None:
+    """Capture and disabled delivery cannot lock production users out."""
+    with pytest.raises(
+        ValidationError,
+        match="production email_provider must be resend or smtp",
+    ):
+        _validated_settings(
+            settings,
+            environment="production",
+            enable_api_docs=False,
+            cors_allowed_origins=("https://platform.example",),
+            email_provider="capture",
+            email_from="accounts@platform.example",
+        )
+
+
 def test_cors_rejects_wildcard_origin(settings: Settings) -> None:
     """An arbitrary wildcard cannot enter the CORS allowlist."""
     with pytest.raises(ValidationError):
@@ -253,6 +290,7 @@ def test_production_requires_exact_domain_and_secure_cookie_settings(
     values.update(
         {
             "cors_allowed_origins": ("https://platform.example",),
+            "email_verification_required": True,
             "enable_api_docs": False,
             "environment": "production",
         }

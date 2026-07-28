@@ -25,6 +25,18 @@ class InvalidPasswordResetTokenError(ValueError):
     """Raised when a password reset credential is invalid, expired, or used."""
 
 
+class InvalidEmailVerificationTokenError(ValueError):
+    """Raised when an email verification credential is unknown."""
+
+
+class ExpiredEmailVerificationTokenError(ValueError):
+    """Raised when an email verification credential is expired."""
+
+
+class UsedEmailVerificationTokenError(ValueError):
+    """Raised when an email verification credential was already consumed."""
+
+
 class ResourceNotFoundError(ValueError):
     """Raised when a requested resource does not exist."""
 

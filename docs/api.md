@@ -44,11 +44,19 @@ POST /auth/register
 POST /auth/login
 POST /auth/refresh
 POST /auth/logout
+POST /auth/password-reset/request
+POST /auth/password-reset/complete
+GET  /auth/email-verification/status
+POST /auth/email-verification/resend
+POST /auth/email-verification/verify
 GET  /users/me
 ```
 
-Public registration creates an operator. User invitations, role administration,
-password reset, MFA, and account mutation are not implemented.
+Public registration creates a company administrator with unverified email
+ownership. Login remains available, but production restricts product routes
+until the hashed, expiring, single-use verification credential is consumed.
+Password reset uses a privacy-safe generic request response. User invitations,
+the six-role model, and MFA are not yet implemented.
 
 ## Manufacturing hierarchy
 

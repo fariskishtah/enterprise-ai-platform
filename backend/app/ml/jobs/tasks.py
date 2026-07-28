@@ -152,6 +152,7 @@ def deliver_transactional_email(message_id: str) -> None:
             session_factory=_worker_session_factory(_settings.database_url),
             provider=configured_email_provider(_settings),
             retry_base_seconds=_settings.email_retry_base_seconds,
+            payload_encryption_key=_settings.secret_key.get_secret_value(),
         ).execute(email_id)
     )
     if outcome is EmailWorkerState.RETRY:

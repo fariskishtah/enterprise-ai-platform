@@ -25,6 +25,11 @@ const RegisterPage = lazy(() =>
     default: RegisterPage,
   })),
 );
+const EmailVerificationPage = lazy(() =>
+  import("../pages/EmailVerificationPage").then(({ EmailVerificationPage }) => ({
+    default: EmailVerificationPage,
+  })),
+);
 const ForgotPasswordPage = lazy(() =>
   import("../pages/PasswordRecoveryPages").then(({ ForgotPasswordPage }) => ({
     default: ForgotPasswordPage,
@@ -347,6 +352,11 @@ const ReportDetailPage = lazy(() =>
 );
 
 export const router = createBrowserRouter([
+  {
+    element: <EmailVerificationPage />,
+    errorElement: <RouteErrorPage />,
+    path: "/verify-email",
+  },
   {
     element: <PricingPage />,
     errorElement: <RouteErrorPage />,

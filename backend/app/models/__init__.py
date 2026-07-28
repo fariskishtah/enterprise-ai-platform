@@ -80,7 +80,14 @@ from app.models.sensor_data import (
     UploadJobStatus,
 )
 from app.models.support import SupportRequest, SupportRequestStatus
-from app.models.user import AuditEvent, PasswordResetToken, RefreshToken, User, UserRole
+from app.models.user import (
+    AuditEvent,
+    EmailVerificationToken,
+    PasswordResetToken,
+    RefreshToken,
+    User,
+    UserRole,
+)
 
 __all__ = [
     "AutoMLExecutionSlot",
@@ -102,6 +109,7 @@ __all__ = [
     "DocumentRecord",
     "EmailDeliveryStatus",
     "EmailMessageType",
+    "EmailVerificationToken",
     "Experiment",
     "Factory",
     "FactoryLayout",

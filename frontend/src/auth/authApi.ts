@@ -9,6 +9,8 @@ export interface CurrentUser {
   readonly email: string;
   readonly id: string;
   readonly is_active: boolean;
+  readonly is_email_verified?: boolean;
+  readonly email_verified_at?: string | null;
   readonly full_name: string | null;
   readonly role: UserRole;
   readonly updated_at: string;
@@ -31,10 +33,52 @@ export interface PasswordResetRequestResponse {
   readonly message: string;
 }
 
-export function registerAccount(payload: RegisterRequest): Promise<CurrentUser> {
-  return apiRequest<CurrentUser>(
+export interface RegistrationResponse extends CurrentUser {
+  readonly local_verification_token: string | null;
+}
+
+export interface EmailVerificationStatus {
+  readonly email: string;
+  readonly is_verified: boolean;
+  readonly verified_at: string | null;
+  readonly resend_available_in_seconds: number;
+}
+
+export interface EmailVerificationResult {
+  readonly message: string;
+  readonly status: "already_verified" | "verified";
+}
+
+export interface EmailVerificationResendResult {
+  readonly local_verification_token: string | null;
+  readonly message: string;
+  readonly resend_available_in_seconds: number;
+}
+
+export function registerAccount(
+  payload: RegisterRequest,
+): Promise<RegistrationResponse> {
+  return apiRequest<RegistrationResponse>(
     "/auth/register",
     { body: JSON.stringify(payload), method: "POST" },
+    { authenticated: false },
+  );
+}
+
+export function getEmailVerificationStatus(): Promise<EmailVerificationStatus> {
+  return apiRequest<EmailVerificationStatus>("/auth/email-verification/status");
+}
+
+export function resendEmailVerification(): Promise<EmailVerificationResendResult> {
+  return apiRequest<EmailVerificationResendResult>("/auth/email-verification/resend", {
+    method: "POST",
+  });
+}
+
+export function verifyEmail(token: string): Promise<EmailVerificationResult> {
+  return apiRequest<EmailVerificationResult>(
+    "/auth/email-verification/verify",
+    { body: JSON.stringify({ token }), method: "POST" },
     { authenticated: false },
   );
 }

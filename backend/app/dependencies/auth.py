@@ -4,7 +4,7 @@ import logging
 from collections.abc import Callable
 from typing import Annotated
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.config.settings import Settings, get_settings
@@ -28,6 +28,7 @@ def _unauthorized_exception() -> HTTPException:
 
 
 async def get_current_user(
+    request: Request,
     credentials: Annotated[
         HTTPAuthorizationCredentials | None,
         Depends(bearer_scheme),
@@ -58,6 +59,20 @@ async def get_current_user(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="User account is inactive.",
+        )
+    verification_allowed_paths = {
+        "/users/me",
+        "/auth/email-verification/status",
+        "/auth/email-verification/resend",
+    }
+    if (
+        settings.email_verification_required
+        and not user.is_email_verified
+        and request.url.path not in verification_allowed_paths
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Email verification is required before using this feature.",
         )
     bind_tenant(user.company_id)
     return user

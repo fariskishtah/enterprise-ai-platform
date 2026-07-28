@@ -70,6 +70,10 @@ class Settings(BaseSettings):
     refresh_token_expire_days: PositiveInt = 30
     password_reset_expire_minutes: PositiveInt = Field(default=30, le=1440)
     expose_local_password_reset_token: bool = False
+    email_verification_required: bool = False
+    email_verification_expire_hours: PositiveInt = Field(default=24, le=168)
+    email_verification_resend_cooldown_seconds: PositiveInt = Field(default=60, le=3600)
+    expose_local_email_verification_token: bool = False
     email_provider: Literal["disabled", "capture", "resend", "smtp"] = "disabled"
     resend_api_key: SecretStr | None = None
     email_from: EmailStr | None = Field(
@@ -439,6 +443,15 @@ class Settings(BaseSettings):
             raise ValueError("demo_tools_enabled must be false in production.")
         if self.environment == "production" and self.enable_development_seed:
             raise ValueError("enable_development_seed must be false in production.")
+        if (
+            self.environment == "production"
+            and self.expose_local_email_verification_token
+        ):
+            raise ValueError(
+                "expose_local_email_verification_token must be false in production."
+            )
+        if self.environment == "production" and not self.email_verification_required:
+            raise ValueError("email_verification_required must be true in production.")
         if self.environment == "production" and any(
             urlsplit(origin).hostname in {"localhost", "127.0.0.1", "::1"}
             for origin in self.cors_allowed_origins
@@ -470,6 +483,8 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "production allowed_hosts must not contain local hosts."
                 )
+            if self.email_provider not in {"resend", "smtp"}:
+                raise ValueError("production email_provider must be resend or smtp.")
         if self.email_provider in {"capture", "resend", "smtp"} and (
             self.email_from is None
         ):

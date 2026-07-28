@@ -9,6 +9,29 @@ function json(route: Route, body: unknown, status = 200): Promise<void> {
 }
 
 test.describe("account recovery", () => {
+  test("shows successful and expired email verification states", async ({ page }) => {
+    await page.route(
+      "http://localhost:8000/auth/email-verification/verify",
+      (route) => {
+        const token = (route.request().postDataJSON() as { token: string }).token;
+        return token.startsWith("valid")
+          ? json(route, {
+              message: "Your email has been verified.",
+              status: "verified",
+            })
+          : json(route, { detail: "Verification token has expired." }, 410);
+      },
+    );
+    await page.goto(`/verify-email?token=${`valid${"a".repeat(43)}`}`);
+    await expect(page.getByRole("heading", { name: "Email verified" })).toBeVisible();
+    await expect(page.getByRole("status")).toContainText("has been verified");
+
+    await page.goto(`/verify-email?token=${`expired${"b".repeat(41)}`}`);
+    await expect(
+      page.getByRole("heading", { name: "Verification link expired" }),
+    ).toBeVisible();
+  });
+
   test("requests reset instructions without disclosing account existence", async ({
     page,
   }) => {

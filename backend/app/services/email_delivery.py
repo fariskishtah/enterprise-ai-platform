@@ -23,6 +23,7 @@ from app.observability.logging import emit_safe
 from app.observability.metrics import record_email_delivery
 from app.services.email import (
     EmailDeliveryError,
+    EmailPayloadCipher,
     EmailProvider,
     OutboundEmail,
 )
@@ -56,6 +57,7 @@ async def persist_email(
     deduplication_key: str,
     related_resource_type: str | None = None,
     related_resource_id: UUID | None = None,
+    payload_encryption_key: str | None = None,
 ) -> EnqueuedEmail:
     """Persist a delivery once; the unique key protects repeated business events."""
     existing = await session.scalar(
@@ -65,6 +67,11 @@ async def persist_email(
     )
     if existing is not None:
         return EnqueuedEmail(existing, False)
+    cipher = (
+        EmailPayloadCipher(payload_encryption_key)
+        if payload_encryption_key is not None
+        else None
+    )
     item = OutboundEmailMessage(
         company_id=company_id,
         message_type=message_type.value,
@@ -73,8 +80,9 @@ async def persist_email(
         from_name=email.from_name,
         reply_to=email.reply_to,
         subject=email.subject,
-        text_body=email.text,
-        html_body=email.html,
+        text_body=cipher.encrypt(email.text) if cipher is not None else email.text,
+        html_body=cipher.encrypt(email.html) if cipher is not None else email.html,
+        payload_encrypted=cipher is not None,
         provider=provider,
         status=EmailDeliveryStatus.QUEUED.value,
         max_retries=max_retries,
@@ -150,10 +158,16 @@ class EmailDeliveryWorker:
         session_factory: async_sessionmaker[AsyncSession],
         provider: EmailProvider,
         retry_base_seconds: float,
+        payload_encryption_key: str | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._provider = provider
         self._retry_base_seconds = retry_base_seconds
+        self._payload_cipher = (
+            EmailPayloadCipher(payload_encryption_key)
+            if payload_encryption_key is not None
+            else None
+        )
 
     async def execute(self, message_id: UUID) -> EmailWorkerState:
         started = perf_counter()
@@ -189,14 +203,29 @@ class EmailDeliveryWorker:
             item.next_attempt_at = None
             await session.commit()
 
+        if item.payload_encrypted and self._payload_cipher is None:
+            return await self._fail_invalid_payload(message_id, started)
+        try:
+            text_body = (
+                self._payload_cipher.decrypt(item.text_body)
+                if item.payload_encrypted and self._payload_cipher is not None
+                else item.text_body
+            )
+            html_body = (
+                self._payload_cipher.decrypt(item.html_body)
+                if item.payload_encrypted and self._payload_cipher is not None
+                else item.html_body
+            )
+        except EmailDeliveryError:
+            return await self._fail_invalid_payload(message_id, started)
         email = OutboundEmail(
             to=item.recipient,
             from_address=item.from_address,
             from_name=item.from_name,
             reply_to=item.reply_to,
             subject=item.subject,
-            text=item.text_body,
-            html=item.html_body,
+            text=text_body,
+            html=html_body,
         )
         try:
             result = await self._provider.send(email)
@@ -252,6 +281,21 @@ class EmailDeliveryWorker:
             await session.commit()
             self._record(current, state, started)
             return state
+
+    async def _fail_invalid_payload(
+        self, message_id: UUID, started: float
+    ) -> EmailWorkerState:
+        async with self._session_factory() as session:
+            current = await session.get(OutboundEmailMessage, message_id)
+            if current is None:
+                return EmailWorkerState.SKIPPED
+            current.status = EmailDeliveryStatus.FAILED.value
+            current.last_error = "invalid_encrypted_payload"
+            current.failed_at = utc_now()
+            await self._sync_related_support(session, current)
+            await session.commit()
+            self._record(current, EmailWorkerState.FAILED, started)
+        return EmailWorkerState.FAILED
 
     @staticmethod
     async def _sync_related_support(

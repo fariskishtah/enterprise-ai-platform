@@ -10,7 +10,8 @@ export interface AuthContextValue {
   readonly login: (credentials: LoginRequest) => Promise<void>;
   readonly logout: () => Promise<void>;
   readonly notice: string | null;
-  readonly register: (details: RegisterRequest) => Promise<void>;
+  readonly refreshUser: () => Promise<void>;
+  readonly register: (details: RegisterRequest) => Promise<string | null>;
   readonly role: UserRole | null;
   readonly status: AuthStatus;
   readonly user: CurrentUser | null;

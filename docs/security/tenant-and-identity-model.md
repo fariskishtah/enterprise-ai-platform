@@ -75,7 +75,16 @@ tokens. Users can list session metadata, revoke one session, and revoke all
 other sessions. Raw access, refresh, and reset tokens are excluded from audit
 metadata and logs.
 
-Production requires an outbound password-reset email adapter. The raw reset
+Every new user begins with `is_email_verified=false`. Existing users are
+backfilled as verified by migration `0025_add_email_verification` to avoid a
+surprise tenant-wide lockout. Verification credentials are random, digest-only,
+expiring, and single-use. Token-bearing outbound bodies are encrypted at rest in
+the delivery table. Production requires server-side verification enforcement:
+unverified users may log in, inspect their current account and verification
+status, and request a cooldown-governed resend, but other authenticated routes
+return `403`. Successful ownership changes and delivery requests are audited.
+
+Production requires a real outbound email adapter. The raw reset
 credential can be returned only when
 `EXPOSE_LOCAL_PASSWORD_RESET_TOKEN=true` and the environment is local,
 development, or test.
@@ -86,4 +95,3 @@ The pilot does not provide MFA, OIDC/SAML SSO, SCIM, delegated tenant
 administration, platform super-administration, company switching, invitations
 with email delivery, domain claiming, or tenant self-service deletion. These
 require separate threat modeling, product policy, and acceptance testing.
-

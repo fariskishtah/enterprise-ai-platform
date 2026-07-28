@@ -91,25 +91,36 @@ export function AuthProvider({
     }
   }, []);
 
-  const register = useCallback(async (details: RegisterRequest): Promise<void> => {
-    await registerAccount(details);
-    const tokens = await requestLogin({
-      email: details.email,
-      password: details.password,
-    });
-    storeTokenPair(tokens);
-    try {
-      const currentUser = await getCurrentUser();
-      setUser(currentUser);
-      setNotice(null);
-      setStatus("authenticated");
-    } catch (error) {
-      clearStoredTokens();
-      setUser(null);
-      setStatus("unauthenticated");
-      throw error;
-    }
+  const refreshUser = useCallback(async (): Promise<void> => {
+    const currentUser = await getCurrentUser();
+    setUser(currentUser);
+    setNotice(null);
+    setStatus("authenticated");
   }, []);
+
+  const register = useCallback(
+    async (details: RegisterRequest): Promise<string | null> => {
+      const registration = await registerAccount(details);
+      const tokens = await requestLogin({
+        email: details.email,
+        password: details.password,
+      });
+      storeTokenPair(tokens);
+      try {
+        const currentUser = await getCurrentUser();
+        setUser(currentUser);
+        setNotice(null);
+        setStatus("authenticated");
+        return registration.local_verification_token;
+      } catch (error) {
+        clearStoredTokens();
+        setUser(null);
+        setStatus("unauthenticated");
+        throw error;
+      }
+    },
+    [],
+  );
 
   const logout = useCallback(async (): Promise<void> => {
     const refreshToken = readStoredTokens()?.refreshToken;
@@ -133,12 +144,13 @@ export function AuthProvider({
       login,
       logout,
       notice,
+      refreshUser,
       register,
       role: user?.role ?? null,
       status,
       user,
     }),
-    [login, logout, notice, register, status, user],
+    [login, logout, notice, refreshUser, register, status, user],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

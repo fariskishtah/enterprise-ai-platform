@@ -1,19 +1,33 @@
 """Authentication routes."""
 
 import logging
+from contextlib import suppress
 from typing import Annotated
+from urllib.parse import urlencode
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config.settings import Settings, get_settings
+from app.dependencies.auth import get_current_user
+from app.dependencies.database import get_db_session
 from app.dependencies.rate_limit import enforce_auth_rate_limit
 from app.dependencies.services import (
     get_audit_service,
     get_authentication_service,
+    get_transactional_email_queue,
     get_user_service,
 )
+from app.email.queue import TransactionalEmailQueue
+from app.models.email import EmailMessageType
+from app.models.user import User
 from app.observability.logging import emit_safe
 from app.schemas.auth import (
+    EmailVerificationRequest,
+    EmailVerificationResendResponse,
+    EmailVerificationResponse,
+    EmailVerificationStatusResponse,
     LoginRequest,
     LogoutRequest,
     PasswordResetCompleteRequest,
@@ -21,20 +35,27 @@ from app.schemas.auth import (
     PasswordResetRequestResponse,
     RefreshTokenRequest,
     RegisterRequest,
+    RegistrationResponse,
     TokenResponse,
 )
 from app.schemas.user import UserResponse
 from app.services.audit import AuditService
 from app.services.authentication import AuthenticationService
+from app.services.email import OutboundEmail, transactional_email
+from app.services.email_delivery import persist_email
 from app.services.exceptions import (
     DuplicateCompanyNameError,
     DuplicateEmailError,
+    ExpiredEmailVerificationTokenError,
     InactiveUserError,
     InvalidCredentialsError,
+    InvalidEmailVerificationTokenError,
     InvalidPasswordResetTokenError,
     InvalidRefreshTokenError,
+    UsedEmailVerificationTokenError,
 )
 from app.services.users import UserService
+from app.utils.security import hash_token
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 security_logger = logging.getLogger("app.security.audit")
@@ -50,9 +71,70 @@ _RATE_LIMIT_RESPONSE = {
 }
 
 
+async def _persist_and_publish_email(
+    *,
+    session: AsyncSession,
+    settings: Settings,
+    queue: TransactionalEmailQueue,
+    company_id: UUID,
+    message_type: EmailMessageType,
+    email: OutboundEmail,
+    deduplication_key: str,
+    related_resource_type: str,
+    related_resource_id: UUID,
+    encrypt_payload: bool = False,
+) -> None:
+    enqueued = await persist_email(
+        session,
+        company_id=company_id,
+        message_type=message_type,
+        email=email,
+        provider=settings.email_provider,
+        max_retries=settings.email_max_retries,
+        deduplication_key=deduplication_key,
+        related_resource_type=related_resource_type,
+        related_resource_id=related_resource_id,
+        payload_encryption_key=(
+            settings.secret_key.get_secret_value() if encrypt_payload else None
+        ),
+    )
+    await session.commit()
+    if enqueued.created:
+        with suppress(Exception):
+            queue.enqueue(enqueued.message.id)
+
+
+def _account_email(
+    settings: Settings,
+    *,
+    message_type: EmailMessageType,
+    recipient: str,
+    intro: str,
+    action_label: str | None = None,
+    action_path: str | None = None,
+) -> OutboundEmail | None:
+    if settings.email_from is None:
+        return None
+    action_url = (
+        f"{(settings.app_base_url or 'http://localhost:5173').rstrip('/')}{action_path}"
+        if action_path is not None
+        else None
+    )
+    return transactional_email(
+        message_type,
+        recipient=recipient,
+        from_address=str(settings.email_from),
+        from_name=settings.email_from_name,
+        reply_to=(str(settings.email_reply_to) if settings.email_reply_to else None),
+        intro=intro,
+        action_label=action_label,
+        action_url=action_url,
+    )
+
+
 @router.post(
     "/register",
-    response_model=UserResponse,
+    response_model=RegistrationResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Create a company workspace and its first administrator",
     responses={
@@ -70,8 +152,12 @@ async def register(
         AuthenticationService,
         Depends(get_authentication_service),
     ],
+    users: Annotated[UserService, Depends(get_user_service)],
     audit: Annotated[AuditService, Depends(get_audit_service)],
-) -> UserResponse:
+    settings: Annotated[Settings, Depends(get_settings)],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+    queue: Annotated[TransactionalEmailQueue, Depends(get_transactional_email_queue)],
+) -> RegistrationResponse:
     """Create an isolated company and its server-assigned administrator."""
     try:
         user = await authentication_service.register(
@@ -98,7 +184,55 @@ async def register(
         resource_id=user.id,
         result="success",
     )
-    return UserResponse.model_validate(user)
+    token, entity, cooldown = await users.initiate_email_verification(
+        user=user,
+        expiry_hours=settings.email_verification_expire_hours,
+        cooldown_seconds=settings.email_verification_resend_cooldown_seconds,
+    )
+    if token is not None and entity is not None:
+        email = _account_email(
+            settings,
+            message_type=EmailMessageType.EMAIL_VERIFICATION,
+            recipient=user.email,
+            intro="Confirm that this email address belongs to you.",
+            action_label="Verify email",
+            action_path=f"/verify-email?{urlencode({'token': token})}",
+        )
+        if email is not None:
+            await _persist_and_publish_email(
+                session=session,
+                settings=settings,
+                queue=queue,
+                company_id=user.company_id,
+                message_type=EmailMessageType.EMAIL_VERIFICATION,
+                email=email,
+                deduplication_key=f"email-verification:{entity.id}",
+                related_resource_type="user",
+                related_resource_id=user.id,
+                encrypt_payload=True,
+            )
+        await audit.record(
+            company_id=user.company_id,
+            actor=user,
+            action="email.verification_requested",
+            resource_type="user",
+            resource_id=user.id,
+            result="success",
+            metadata={"resend_available_in_seconds": cooldown},
+        )
+    expose = (
+        settings.expose_local_email_verification_token
+        and settings.environment
+        in {
+            "local",
+            "development",
+            "test",
+        }
+    )
+    return RegistrationResponse(
+        **UserResponse.model_validate(user).model_dump(),
+        local_verification_token=token if expose else None,
+    )
 
 
 @router.post(
@@ -312,6 +446,8 @@ async def request_password_reset(
     settings: Annotated[Settings, Depends(get_settings)],
     users: Annotated[UserService, Depends(get_user_service)],
     audit: Annotated[AuditService, Depends(get_audit_service)],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+    queue: Annotated[TransactionalEmailQueue, Depends(get_transactional_email_queue)],
 ) -> PasswordResetRequestResponse:
     """Create a privacy-safe reset request without revealing account existence."""
     user, token = await users.initiate_password_reset(
@@ -319,6 +455,28 @@ async def request_password_reset(
         expiry_minutes=settings.password_reset_expire_minutes,
     )
     if user is not None:
+        if token is not None:
+            email = _account_email(
+                settings,
+                message_type=EmailMessageType.PASSWORD_RESET,
+                recipient=user.email,
+                intro="A password reset was requested for your account.",
+                action_label="Reset password",
+                action_path=f"/reset-password?{urlencode({'token': token})}",
+            )
+            if email is not None:
+                await _persist_and_publish_email(
+                    session=session,
+                    settings=settings,
+                    queue=queue,
+                    company_id=user.company_id,
+                    message_type=EmailMessageType.PASSWORD_RESET,
+                    email=email,
+                    deduplication_key=f"password-reset:{hash_token(token)}",
+                    related_resource_type="user",
+                    related_resource_id=user.id,
+                    encrypt_payload=True,
+                )
         await audit.record(
             company_id=user.company_id,
             actor=None,
@@ -341,6 +499,154 @@ async def request_password_reset(
     return PasswordResetRequestResponse(
         message="If the account exists, password reset instructions are available.",
         local_reset_token=token if expose else None,
+    )
+
+
+@router.get(
+    "/email-verification/status",
+    response_model=EmailVerificationStatusResponse,
+)
+async def email_verification_status(
+    user: Annotated[User, Depends(get_current_user)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    users: Annotated[UserService, Depends(get_user_service)],
+) -> EmailVerificationStatusResponse:
+    return EmailVerificationStatusResponse(
+        email=user.email,
+        is_verified=user.is_email_verified,
+        verified_at=user.email_verified_at,
+        resend_available_in_seconds=await users.verification_resend_after(
+            user=user,
+            cooldown_seconds=settings.email_verification_resend_cooldown_seconds,
+        ),
+    )
+
+
+@router.post(
+    "/email-verification/resend",
+    response_model=EmailVerificationResendResponse,
+    dependencies=[Depends(enforce_auth_rate_limit)],
+)
+async def resend_email_verification(
+    user: Annotated[User, Depends(get_current_user)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    users: Annotated[UserService, Depends(get_user_service)],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+    queue: Annotated[TransactionalEmailQueue, Depends(get_transactional_email_queue)],
+    audit: Annotated[AuditService, Depends(get_audit_service)],
+) -> EmailVerificationResendResponse:
+    token, entity, cooldown = await users.initiate_email_verification(
+        user=user,
+        expiry_hours=settings.email_verification_expire_hours,
+        cooldown_seconds=settings.email_verification_resend_cooldown_seconds,
+    )
+    if token is not None and entity is not None:
+        email = _account_email(
+            settings,
+            message_type=EmailMessageType.EMAIL_VERIFICATION,
+            recipient=user.email,
+            intro="Confirm that this email address belongs to you.",
+            action_label="Verify email",
+            action_path=f"/verify-email?{urlencode({'token': token})}",
+        )
+        if email is not None:
+            await _persist_and_publish_email(
+                session=session,
+                settings=settings,
+                queue=queue,
+                company_id=user.company_id,
+                message_type=EmailMessageType.EMAIL_VERIFICATION,
+                email=email,
+                deduplication_key=f"email-verification:{entity.id}",
+                related_resource_type="user",
+                related_resource_id=user.id,
+                encrypt_payload=True,
+            )
+        await audit.record(
+            company_id=user.company_id,
+            actor=user,
+            action="email.verification_resent",
+            resource_type="user",
+            resource_id=user.id,
+            result="success",
+        )
+    expose = (
+        settings.expose_local_email_verification_token
+        and settings.environment
+        in {
+            "local",
+            "development",
+            "test",
+        }
+    )
+    return EmailVerificationResendResponse(
+        message=(
+            "Your email is already verified."
+            if user.is_email_verified
+            else "If eligible, a verification email has been queued."
+        ),
+        resend_available_in_seconds=cooldown,
+        local_verification_token=token if expose else None,
+    )
+
+
+@router.post(
+    "/email-verification/verify",
+    response_model=EmailVerificationResponse,
+    dependencies=[Depends(enforce_auth_rate_limit)],
+)
+async def verify_email(
+    payload: EmailVerificationRequest,
+    settings: Annotated[Settings, Depends(get_settings)],
+    users: Annotated[UserService, Depends(get_user_service)],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+    queue: Annotated[TransactionalEmailQueue, Depends(get_transactional_email_queue)],
+    audit: Annotated[AuditService, Depends(get_audit_service)],
+) -> EmailVerificationResponse:
+    try:
+        user, changed = await users.verify_email(payload.token)
+    except InvalidEmailVerificationTokenError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
+    except ExpiredEmailVerificationTokenError as exc:
+        raise HTTPException(status.HTTP_410_GONE, str(exc)) from exc
+    except UsedEmailVerificationTokenError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    if changed:
+        await audit.record(
+            company_id=user.company_id,
+            actor=user,
+            action="email.verified",
+            resource_type="user",
+            resource_id=user.id,
+            result="success",
+        )
+        welcome = _account_email(
+            settings,
+            message_type=EmailMessageType.WELCOME,
+            recipient=user.email,
+            intro="Your email is verified. Welcome to the AI Manufacturing Platform.",
+            action_label="Open platform",
+            action_path="/",
+        )
+        if welcome is not None:
+            await _persist_and_publish_email(
+                session=session,
+                settings=settings,
+                queue=queue,
+                company_id=user.company_id,
+                message_type=EmailMessageType.WELCOME,
+                email=welcome,
+                deduplication_key=f"welcome:{user.id}",
+                related_resource_type="user",
+                related_resource_id=user.id,
+            )
+    return EmailVerificationResponse(
+        status="verified" if changed else "already_verified",
+        message=(
+            "Your email has been verified."
+            if changed
+            else "Your email was already verified."
+        ),
     )
 
 

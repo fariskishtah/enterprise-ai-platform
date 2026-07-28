@@ -67,7 +67,7 @@ async function expectNoSeriousA11yViolations(page: Page): Promise<void> {
 }
 
 test.describe("authentication", () => {
-  test("SaaS registration provisions a company administrator and signs in", async ({
+  test("SaaS registration provisions a company administrator pending verification", async ({
     page,
   }) => {
     const failures = observeBrowserFailures(page);
@@ -85,6 +85,8 @@ test.describe("authentication", () => {
         full_name: "Demo Engineer",
         id: "e2e-public-engineer",
         is_active: true,
+        is_email_verified: false,
+        local_verification_token: null,
         role: "admin",
         updated_at: NOW,
       });
@@ -105,6 +107,7 @@ test.describe("authentication", () => {
         full_name: "Demo Engineer",
         id: "e2e-public-engineer",
         is_active: true,
+        is_email_verified: false,
         role: "admin",
         updated_at: NOW,
       }),
@@ -119,6 +122,14 @@ test.describe("authentication", () => {
         status: "ready",
       });
     });
+    await page.route("**/auth/email-verification/status", (route) =>
+      json(route, {
+        email: "engineer.demo@example.local",
+        is_verified: false,
+        resend_available_in_seconds: 60,
+        verified_at: null,
+      }),
+    );
     await page.route("**/product/features", (route) =>
       json(route, {
         demo_tools_enabled: false,
@@ -135,10 +146,8 @@ test.describe("authentication", () => {
     await page.getByLabel("Confirm password").fill("LocalDemo!12345");
     await page.getByRole("button", { name: "Create your workspace" }).click();
 
-    await expect(page).toHaveURL(/\/$/);
-    await expect(
-      page.getByRole("navigation", { name: "Primary navigation" }),
-    ).toBeVisible();
+    await expect(page).toHaveURL(/\/verify-email$/);
+    await expect(page.getByRole("heading", { name: "Check your inbox" })).toBeVisible();
     expect(registrationPayload).toEqual({
       company_name: "Northstar Manufacturing",
       email: "engineer.demo@example.local",
