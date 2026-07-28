@@ -73,7 +73,7 @@ their runtime acceptance tests pass with deployment-owned credentials.
 
 ## Critical checklist
 
-- [ ] Remove normal customer-flow demo onboarding and all automatic demo workspace
+- [x] Remove normal customer-flow demo onboarding and all automatic demo workspace
       preparation. Keep explicit development seeding disabled by default.
 - [ ] Rename production import/report UI modules so real features do not depend on
       a demo namespace; gate or retire scenario-control routes without deleting
@@ -105,6 +105,7 @@ their runtime acceptance tests pass with deployment-owned credentials.
 ## High-priority checklist
 
 - [ ] Add forgot/reset/verify/invitation pages and accurate API-error messaging.
+      Forgot/reset pages are complete; verification and invitation remain open.
 - [ ] Add pricing, billing status, payment history, usage, plan warning, and admin
       subscription pages with loading, empty, error, and success states.
 - [ ] Add notification preferences and company settings backed by real APIs.

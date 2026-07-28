@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-07-28",
+  "hardware": {"architecture": "arm64", "memory_gib": 8, "accelerator": null},
+  "results": [
+    {"model": "random_forest_regression", "task": "regression", "validation": "automated unit/API/smoke suite", "result": "passed"},
+    {"model": "random_forest_classification", "task": "classification", "validation": "automated unit/API/smoke suite", "result": "passed"},
+    {"model": "allowlisted sklearn plugins", "task": "classification_and_regression", "validation": "plugin matrix tests", "result": "passed"},
+    {"model": "local_hash_embedding_v1", "task": "retrieval", "validation": "RAG service/API/tenant tests", "result": "passed", "limitation": "deterministic lexical embedding, not semantic"}
+  ],
+  "external_models": {"result": "not_configured", "credentials_used": false}
+}

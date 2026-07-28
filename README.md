@@ -11,6 +11,17 @@ The exact supported and deferred capabilities are defined in the
 yet licensed for commercial redistribution; see the
 [legal readiness checklist](docs/release/legal-readiness-checklist.md).
 
+## Product preview
+
+| Sign in | Create a workspace |
+| --- | --- |
+| ![Sign-in page](artifacts/screenshots/01-login.png) | ![Registration page](artifacts/screenshots/02-register.png) |
+
+![Backend-authoritative EGP pricing catalogue](artifacts/screenshots/03-pricing.png)
+
+These captures use empty public forms and the checked-in plan catalogue; they do
+not contain customer data or represent a completed payment.
+
 ## Architecture
 
 ```text
@@ -55,12 +66,16 @@ architecture, data-flow, deployment, and observability diagrams.
 - Company-scoped, append-only audit history with bounded filters and CSV/JSON
   export for critical identity, data, model, prediction, alert, and retraining
   actions.
+- Backend-authoritative Starter, Professional, and Enterprise EGP plan catalogue,
+  billing persistence migration, and responsive public pricing page. Payment
+  checkout/webhooks and entitlement enforcement remain disabled pending a
+  verified provider implementation; see [billing](docs/billing.md).
 - Docker Compose local/staging/single-host deployment, optional HTTPS, backup,
   isolated restore verification, rollback, smoke, and observability tooling.
 
 Enterprise identity federation and automated tenant provisioning, HA, off-host
-durable storage, semantic/LLM RAG, advanced document ingestion, billing, and
-entitlements are explicitly outside this release.
+durable storage, semantic/LLM RAG, advanced document ingestion, payment-provider
+processing, and entitlement enforcement are explicitly outside this release.
 
 ## Repository layout
 
