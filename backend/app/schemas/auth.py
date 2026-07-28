@@ -64,29 +64,12 @@ class LoginRequest(BaseModel):
         return str(value).strip().lower()
 
 
-class RefreshTokenRequest(BaseModel):
-    """Refresh token request body."""
-
-    model_config = ConfigDict(frozen=True)
-
-    refresh_token: str = Field(min_length=1)
-
-
-class LogoutRequest(BaseModel):
-    """Logout request body."""
-
-    model_config = ConfigDict(frozen=True)
-
-    refresh_token: str = Field(min_length=1)
-
-
 class TokenResponse(BaseModel):
-    """JWT token pair response."""
+    """Short-lived access credential response."""
 
     model_config = ConfigDict(frozen=True)
 
     access_token: str
-    refresh_token: str
     token_type: str = "bearer"
     expires_in: int
 

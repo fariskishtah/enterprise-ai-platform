@@ -124,6 +124,7 @@ class RefreshToken(Base):
         Index("ix_refresh_tokens_jti", "jti", unique=True),
         Index("ix_refresh_tokens_token_hash", "token_hash", unique=True),
         Index("ix_refresh_tokens_user_id", "user_id"),
+        Index("ix_refresh_tokens_family_id", "family_id"),
     )
 
     id: Mapped[UUID] = mapped_column(
@@ -137,6 +138,11 @@ class RefreshToken(Base):
         nullable=False,
     )
     jti: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    family_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    parent_token_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("refresh_tokens.id", ondelete="SET NULL"),
+    )
     token_hash: Mapped[str] = mapped_column(String(length=64), nullable=False)
     expires_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

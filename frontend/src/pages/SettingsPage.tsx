@@ -7,7 +7,6 @@ import {
   type ActiveSession,
 } from "../api/account";
 import { isRequestCancelled } from "../api/client";
-import { readStoredTokens } from "../api/sessionStorage";
 import { useAuth } from "../auth/useAuth";
 import {
   primaryButtonClassName,
@@ -213,10 +212,8 @@ export function SettingsPage(): ReactElement {
             <button
               className={secondaryButtonClassName}
               onClick={() => {
-                const token = readStoredTokens()?.refreshToken;
-                if (!token) return;
                 setSessionError(null);
-                void revokeOtherSessions(token)
+                void revokeOtherSessions()
                   .then(() => {
                     setMessage("Other sessions revoked.");
                     setRevision((value) => value + 1);

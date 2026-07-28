@@ -7,12 +7,8 @@ import {
   type ReactNode,
 } from "react";
 
-import { setSessionExpiredHandler } from "../api/client";
-import {
-  clearStoredTokens,
-  readStoredTokens,
-  storeTokenPair,
-} from "../api/sessionStorage";
+import { refreshAccessToken, setSessionExpiredHandler } from "../api/client";
+import { clearStoredTokens, storeTokenPair } from "../api/tokenStore";
 import {
   getCurrentUser,
   login as requestLogin,
@@ -49,13 +45,8 @@ export function AuthProvider({
     let active = true;
 
     const initialize = async (): Promise<void> => {
-      if (readStoredTokens() === null) {
-        if (active) {
-          setStatus("unauthenticated");
-        }
-        return;
-      }
       try {
+        await refreshAccessToken();
         const currentUser = await getCurrentUser();
         if (active) {
           setUser(currentUser);
@@ -65,7 +56,7 @@ export function AuthProvider({
         clearStoredTokens();
         if (active) {
           setUser(null);
-          setNotice("Your session expired. Please sign in again.");
+          setNotice(null);
           setStatus("unauthenticated");
         }
       }
@@ -123,17 +114,14 @@ export function AuthProvider({
   );
 
   const logout = useCallback(async (): Promise<void> => {
-    const refreshToken = readStoredTokens()?.refreshToken;
     clearStoredTokens();
     setUser(null);
     setNotice("You have been signed out.");
     setStatus("unauthenticated");
-    if (refreshToken !== undefined) {
-      try {
-        await revokeSession(refreshToken);
-      } catch {
-        // Local logout is authoritative when server revocation is unavailable.
-      }
+    try {
+      await revokeSession();
+    } catch {
+      // Local logout is authoritative when server revocation is unavailable.
     }
   }, []);
 

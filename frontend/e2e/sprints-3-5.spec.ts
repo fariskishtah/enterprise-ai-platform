@@ -28,49 +28,29 @@ interface Sensor {
   readonly name: string;
 }
 
-const sessions = new Map<string, string>();
 const browserErrors = new WeakMap<Page, string[]>();
 
 async function login(page: Page, email: string | undefined): Promise<void> {
   if (!email || !password) throw new Error("Real-backend credentials are required.");
+  await page.context().clearCookies();
   await page.goto("/login");
-  await page.evaluate(() => sessionStorage.clear());
-  const saved = sessions.get(email);
-  if (saved) {
-    await page.evaluate(
-      (value) => sessionStorage.setItem("factorymind.auth.tokens", value),
-      saved,
-    );
-    const identity = page.waitForResponse(
-      (response) =>
-        response.url().includes("/users/me") && response.request().method() === "GET",
-    );
-    await page.reload();
-    expect((await identity).status()).toBe(200);
-  } else {
-    await page.getByLabel("Email address").fill(email);
-    await page.getByLabel("Password").fill(password);
-    const response = page.waitForResponse(
-      (value) =>
-        value.url().includes("/auth/login") && value.request().method() === "POST",
-    );
-    await page.getByRole("button", { name: "Sign in" }).click();
-    expect((await response).status()).toBe(200);
-    sessions.set(
-      email,
-      await page.evaluate(
-        () => sessionStorage.getItem("factorymind.auth.tokens") ?? "",
-      ),
-    );
-  }
+  await page.getByLabel("Email address").fill(email);
+  await page.getByLabel("Password").fill(password);
+  const response = page.waitForResponse(
+    (value) =>
+      value.url().includes("/auth/login") && value.request().method() === "POST",
+  );
+  await page.getByRole("button", { name: "Sign in" }).click();
+  expect((await response).status()).toBe(200);
   await expect(page.getByRole("button", { name: /Open account menu/ })).toBeVisible();
 }
 
 async function token(page: Page): Promise<string> {
-  return page.evaluate(() => {
-    const raw = sessionStorage.getItem("factorymind.auth.tokens");
-    if (!raw) throw new Error("Browser access token is missing.");
-    return (JSON.parse(raw) as { accessToken: string }).accessToken;
+  return page.evaluate(async () => {
+    const { readStoredTokens } = await import("/src/api/tokenStore.ts");
+    const tokens = readStoredTokens();
+    if (!tokens) throw new Error("Browser access token is missing.");
+    return tokens.accessToken;
   });
 }
 

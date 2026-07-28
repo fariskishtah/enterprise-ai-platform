@@ -52,12 +52,14 @@ source and synchronizes package metadata to `0.9.0`.
 
 ## Incomplete or limited capabilities
 
-- Company administrators can create, update, deactivate, and initiate password
-  resets for users in their own company. There is no invitation email delivery,
-  platform-level tenant administration, or customer self-service provisioning.
+- Owner/Admin team managers can create, update, deactivate, invite, resend,
+  revoke, and initiate password resets for users in their own company. There is
+  no platform-level tenant administration or tenant switching.
 - Password change, reset-token completion, refresh-session listing, and session
   revocation are implemented. MFA, SSO/SAML/OIDC, device attestation, SCIM,
-  tenant provisioning, and billing/entitlements are absent.
+  tenant switching, and external identity provisioning are absent. Billing
+  catalogue and entitlement persistence exist; live payment processing is a
+  separate provider-integration phase.
 - The company-scoped audit API records critical identity, manufacturing, data,
   model, prediction, alert, and retraining actions with bounded CSV/JSON export.
   It is not a compliance archive, SIEM pipeline, or legal-hold system.

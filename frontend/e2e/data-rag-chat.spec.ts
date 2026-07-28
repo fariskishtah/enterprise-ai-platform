@@ -40,17 +40,12 @@ async function authenticated(
   page: Page,
   role: "engineer" | "operator" = "engineer",
 ): Promise<void> {
-  await page.addInitScript(
-    ({ expiresAt }) =>
-      sessionStorage.setItem(
-        "factorymind.auth.tokens",
-        JSON.stringify({
-          accessToken: "registry-rag-access",
-          accessTokenExpiresAt: expiresAt,
-          refreshToken: "registry-rag-refresh",
-        }),
-      ),
-    { expiresAt: Date.now() + 3_600_000 },
+  await page.route("**/auth/refresh", (route) =>
+    json(route, {
+      access_token: "registry-rag-access",
+      expires_in: 3600,
+      token_type: "bearer",
+    }),
   );
   await page.route("**/users/me", (route) =>
     json(route, {

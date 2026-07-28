@@ -3,7 +3,7 @@ import { expect, test, type Page, type Route } from "@playwright/test";
 
 type Role = "admin" | "engineer" | "operator";
 
-const API_PATTERN = /^http:\/\/localhost:8000(\/.*)$/;
+const API_PATTERN = /^http:\/\/(?:localhost|127\.0\.0\.1):8000(\/.*)$/;
 const NOW = "2026-01-01T00:00:00Z";
 
 function json(route: Route, body: unknown, status = 200): Promise<void> {
@@ -15,18 +15,12 @@ function json(route: Route, body: unknown, status = 200): Promise<void> {
 }
 
 async function mockAuthenticatedUser(page: Page, role: Role): Promise<void> {
-  await page.addInitScript(
-    ({ expiresAt }) => {
-      sessionStorage.setItem(
-        "factorymind.auth.tokens",
-        JSON.stringify({
-          accessToken: "browser-test-access-token",
-          accessTokenExpiresAt: expiresAt,
-          refreshToken: "browser-test-refresh-token",
-        }),
-      );
-    },
-    { expiresAt: Date.now() + 3_600_000 },
+  await page.route("**/auth/refresh", (route) =>
+    json(route, {
+      access_token: "browser-test-access-token",
+      expires_in: 3600,
+      token_type: "bearer",
+    }),
   );
   await page.route("**/users/me", (route) =>
     json(route, {
@@ -95,7 +89,6 @@ test.describe("authentication", () => {
       json(route, {
         access_token: "browser-test-access-token",
         expires_in: 3600,
-        refresh_token: "browser-test-refresh-token",
         token_type: "bearer",
       }),
     );
@@ -155,13 +148,18 @@ test.describe("authentication", () => {
       password: "LocalDemo!12345",
     });
     expect(workspacePreparations).toBe(0);
-    expect(failures).toEqual([]);
+    expect(failures.filter((message) => !message.includes("status of 401"))).toEqual(
+      [],
+    );
   });
 
   test("anonymous users are redirected and invalid login feedback is safe", async ({
     page,
   }) => {
     const failures = observeBrowserFailures(page);
+    await page.route("**/auth/refresh", (route) =>
+      json(route, { detail: "Refresh session is missing." }, 401),
+    );
     await page.route("**/auth/login", (route) =>
       json(route, { detail: "Invalid email or password." }, 401),
     );
@@ -185,16 +183,26 @@ test.describe("authentication", () => {
     page,
   }) => {
     const failures = observeBrowserFailures(page);
+    let loggedIn = false;
     await page.route(API_PATTERN, (route) =>
       json(route, { items: [], limit: 20, offset: 0, total: 0 }),
     );
-    await page.route("**/auth/login", (route) =>
-      json(route, {
+    await page.route("**/auth/login", (route) => {
+      loggedIn = true;
+      return json(route, {
         access_token: "browser-test-access-token",
         expires_in: 3600,
-        refresh_token: "browser-test-refresh-token",
         token_type: "bearer",
-      }),
+      });
+    });
+    await page.route("**/auth/refresh", (route) =>
+      loggedIn
+        ? json(route, {
+            access_token: "browser-test-access-token",
+            expires_in: 3600,
+            token_type: "bearer",
+          })
+        : json(route, { detail: "Refresh session is missing." }, 401),
     );
     await page.route("**/users/me", (route) =>
       json(route, {
@@ -206,7 +214,10 @@ test.describe("authentication", () => {
         updated_at: NOW,
       }),
     );
-    await page.route("**/auth/logout", (route) => route.fulfill({ status: 204 }));
+    await page.route("**/auth/logout", (route) => {
+      loggedIn = false;
+      return route.fulfill({ status: 204 });
+    });
 
     await page.goto("/settings");
     await expect(page).toHaveURL(/\/login$/);
@@ -214,55 +225,54 @@ test.describe("authentication", () => {
     await page.getByLabel("Password").fill("local-test-password");
     await page.getByRole("button", { name: "Sign in" }).click();
     await expect(page).toHaveURL(/\/settings$/);
+    const persistedBrowserState = await page.evaluate(() => ({
+      local: Object.values(localStorage).join(" "),
+      session: Object.values(sessionStorage).join(" "),
+    }));
+    expect(JSON.stringify(persistedBrowserState)).not.toContain(
+      "browser-test-access-token",
+    );
+    expect(JSON.stringify(persistedBrowserState)).not.toContain("refresh");
     await page.reload();
     await expect(page.locator("#settings-heading")).toBeVisible();
     await page.getByRole("button", { name: /Open account menu/ }).click();
     await page.getByRole("menuitem", { name: "Log Out" }).click();
     await expect(page).toHaveURL(/\/login$/);
-    expect(failures).toEqual([]);
+    expect(failures.filter((message) => !message.includes("status of 401"))).toEqual(
+      [],
+    );
   });
 
   test("concurrent expired requests use one refresh and all resume", async ({
     page,
   }) => {
     let refreshCount = 0;
+    await page.goto("/login");
+    await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
     await page.route("**/auth/refresh", async (route) => {
       refreshCount += 1;
       await new Promise((resolve) => setTimeout(resolve, 100));
       await json(route, {
         access_token: "refreshed-access-token",
         expires_in: 3600,
-        refresh_token: "rotated-refresh-token",
         token_type: "bearer",
       });
     });
-    await page.route("**/users/me", (route) => json(route, { id: "e2e-user" }));
-    await page.goto("/login");
-    await page.evaluate(() => {
-      sessionStorage.setItem(
-        "factorymind.auth.tokens",
-        JSON.stringify({
-          accessToken: "expired-access-token",
-          accessTokenExpiresAt: 0,
-          refreshToken: "initial-refresh-token",
-        }),
-      );
-    });
 
     const results = await page.evaluate(async () => {
-      const { apiRequest } = await import("/src/api/client.ts");
+      const { refreshAccessToken } = await import("/src/api/client.ts");
       return Promise.all([
-        apiRequest<{ id: string }>("/users/me"),
-        apiRequest<{ id: string }>("/users/me"),
-        apiRequest<{ id: string }>("/users/me"),
+        refreshAccessToken(),
+        refreshAccessToken(),
+        refreshAccessToken(),
       ]);
     });
 
     expect(refreshCount).toBe(1);
     expect(results).toEqual([
-      { id: "e2e-user" },
-      { id: "e2e-user" },
-      { id: "e2e-user" },
+      "refreshed-access-token",
+      "refreshed-access-token",
+      "refreshed-access-token",
     ]);
   });
 
@@ -272,6 +282,8 @@ test.describe("authentication", () => {
     const refreshStarted = new Promise<void>((resolve) => {
       markRefreshStarted = resolve;
     });
+    await page.goto("/login");
+    await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
     await page.route("**/auth/refresh", async (route) => {
       markRefreshStarted?.();
       await new Promise<void>((release) => {
@@ -280,38 +292,32 @@ test.describe("authentication", () => {
       await json(route, {
         access_token: "late-access-token",
         expires_in: 3600,
-        refresh_token: "late-refresh-token",
         token_type: "bearer",
       });
     });
-    await page.goto("/login");
-    await page.evaluate(() => {
-      sessionStorage.setItem(
-        "factorymind.auth.tokens",
-        JSON.stringify({
-          accessToken: "expired-access-token",
-          accessTokenExpiresAt: 0,
-          refreshToken: "initial-refresh-token",
-        }),
-      );
-    });
 
     const pending = page.evaluate(async () => {
-      const { apiRequest } = await import("/src/api/client.ts");
+      const { refreshAccessToken } = await import("/src/api/client.ts");
       try {
-        await apiRequest("/users/me");
+        await refreshAccessToken();
         return "resolved";
       } catch {
         return "rejected";
       }
     });
     await refreshStarted;
-    await page.evaluate(() => sessionStorage.removeItem("factorymind.auth.tokens"));
+    await page.evaluate(async () => {
+      const { clearStoredTokens } = await import("/src/api/tokenStore.ts");
+      clearStoredTokens();
+    });
     releaseRefresh?.();
 
     expect(await pending).toBe("rejected");
     expect(
-      await page.evaluate(() => sessionStorage.getItem("factorymind.auth.tokens")),
+      await page.evaluate(async () => {
+        const { readStoredTokens } = await import("/src/api/tokenStore.ts");
+        return readStoredTokens();
+      }),
     ).toBeNull();
   });
 });
@@ -324,6 +330,7 @@ test.describe("role-aware navigation", () => {
       let restrictedAuditRequests = 0;
       await page.route(API_PATTERN, (route) => {
         if (route.request().url().endsWith("/users/me")) return route.fallback();
+        if (route.request().url().endsWith("/auth/refresh")) return route.fallback();
         if (route.request().url().endsWith("/auth/logout")) return route.fallback();
         if (route.request().url().endsWith("/product/features")) {
           return json(route, {

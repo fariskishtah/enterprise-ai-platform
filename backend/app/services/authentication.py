@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import timedelta
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from app.config.settings import Settings
 from app.models.user import User, UserRole
@@ -99,11 +99,14 @@ class AuthenticationService:
             token_hash=hash_token(refresh_token),
         )
         now = utc_now()
-        if (
-            persisted_token is None
-            or persisted_token.revoked_at is not None
-            or as_utc(persisted_token.expires_at) <= now
-        ):
+        if persisted_token is None or as_utc(persisted_token.expires_at) <= now:
+            raise InvalidRefreshTokenError("Refresh token is invalid.")
+        if persisted_token.revoked_at is not None:
+            await self._repository.revoke_refresh_token_family(
+                family_id=persisted_token.family_id,
+                revoked_at=now,
+            )
+            await self._repository.commit()
             raise InvalidRefreshTokenError("Refresh token is invalid.")
 
         user = await self._repository.get_by_id(claims.sub)
@@ -120,6 +123,8 @@ class AuthenticationService:
             user,
             user_agent=persisted_token.user_agent_summary,
             source_ip=persisted_token.source_ip,
+            family_id=persisted_token.family_id,
+            parent_token_id=persisted_token.id,
         )
 
     async def logout(self, *, refresh_token: str) -> User:
@@ -157,6 +162,8 @@ class AuthenticationService:
         *,
         user_agent: str | None = None,
         source_ip: str | None = None,
+        family_id: UUID | None = None,
+        parent_token_id: UUID | None = None,
     ) -> IssuedTokenPair:
         access_token = create_jwt_token(
             subject=user.id,
@@ -185,6 +192,8 @@ class AuthenticationService:
             jti=refresh_token.jti,
             token_hash=hash_token(refresh_token.token),
             expires_at=utc_now() + refresh_expiration,
+            family_id=family_id or uuid4(),
+            parent_token_id=parent_token_id,
             user_agent_summary=user_agent[:255] if user_agent else None,
             source_ip=source_ip[:64] if source_ip else None,
         )

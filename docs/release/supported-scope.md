@@ -59,12 +59,12 @@ enterprise production readiness.
 
 ## Implemented limitations
 
-- Public registration creates operators. Company administrators can manage
-  roles, activation, reset initiation, and session revocation only within their
-  existing company; invitation email delivery and platform administration are
-  not provided.
-- Password reset tokens are hashed, expiring, and single-use, but production
-  reset email delivery is deployment work outside this release.
+- Public registration creates a company Owner pending email verification.
+  Owner/Admin team managers can create, resend, revoke, list, and deliver
+  company-bound invitations; only Owners can invite another Owner.
+- Password reset and email-verification tokens are hashed, expiring, and
+  single-use. Their encrypted queued messages use the configured Resend or SMTP
+  provider in production.
 - Company-scoped audit history covers critical identity and supported domain
   actions with bounded filters and CSV/JSON export; it is not a SIEM, legal-hold,
   or compliance-retention service.

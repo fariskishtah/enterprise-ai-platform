@@ -55,7 +55,7 @@ curl -X POST http://localhost:8000/auth/register \
   -d '{"name":"<full-name>","company_name":"<company-name>","email":"<work-email>","password":"<strong-password>"}'
 ```
 
-Then obtain an access and refresh token pair:
+Then obtain an access token; the refresh credential is set as an HttpOnly cookie:
 
 ```bash
 curl -X POST http://localhost:8000/auth/login \
@@ -63,8 +63,9 @@ curl -X POST http://localhost:8000/auth/login \
   -d '{"email":"<email>","password":"<password>"}'
 ```
 
-The login response contains `access_token`, `refresh_token`, `token_type`, and
-`expires_in`. Copy the access token for the examples below:
+The login response contains `access_token`, `token_type`, and `expires_in`. Copy the
+access token for the examples below. Browser clients must include credentials and the
+CSRF header when rotating or revoking the refresh cookie:
 
 ```bash
 export ACCESS_TOKEN="<access_token>"

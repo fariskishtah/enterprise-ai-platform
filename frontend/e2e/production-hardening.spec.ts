@@ -1,6 +1,6 @@
 import { expect, test, type Page, type Route } from "@playwright/test";
 
-const API_PATTERN = /^http:\/\/localhost:8000(\/.*)$/;
+const API_PATTERN = /^http:\/\/(?:localhost|127\.0\.0\.1):8000(\/.*)$/;
 const NOW = "2026-01-01T00:00:00Z";
 const COMPANY_ID = "00000000-0000-4000-8000-000000000099";
 
@@ -13,18 +13,12 @@ function json(route: Route, body: unknown, status = 200): Promise<void> {
 }
 
 async function authenticate(page: Page): Promise<void> {
-  await page.addInitScript(
-    ({ expiresAt }) => {
-      sessionStorage.setItem(
-        "factorymind.auth.tokens",
-        JSON.stringify({
-          accessToken: "production-hardening-access-token",
-          accessTokenExpiresAt: expiresAt,
-          refreshToken: "production-hardening-refresh-token",
-        }),
-      );
-    },
-    { expiresAt: Date.now() + 3_600_000 },
+  await page.route("**/auth/refresh", (route) =>
+    json(route, {
+      access_token: "production-hardening-access-token",
+      expires_in: 3600,
+      token_type: "bearer",
+    }),
   );
 }
 
@@ -37,6 +31,7 @@ async function mockWorkspace(
   await page.route(API_PATTERN, async (route) => {
     const request = route.request();
     const url = new URL(request.url());
+    if (url.pathname === "/auth/refresh") return route.fallback();
     if (url.pathname === "/users/me") {
       return json(route, {
         company_id: COMPANY_ID,

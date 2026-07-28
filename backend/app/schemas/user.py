@@ -82,9 +82,3 @@ class SessionResponse(BaseModel):
 
 class SessionListResponse(BaseModel):
     items: list[SessionResponse]
-
-
-class RevokeOtherSessionsRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    refresh_token: str = Field(min_length=1)

@@ -10,18 +10,12 @@ function json(route: Route, body: unknown, status = 200): Promise<void> {
 }
 
 async function mockAuthenticatedUser(page: Page): Promise<void> {
-  await page.addInitScript(
-    ({ expiresAt }) => {
-      sessionStorage.setItem(
-        "factorymind.auth.tokens",
-        JSON.stringify({
-          accessToken: "browser-test-access-token",
-          accessTokenExpiresAt: expiresAt,
-          refreshToken: "browser-test-refresh-token",
-        }),
-      );
-    },
-    { expiresAt: Date.now() + 3_600_000 },
+  await page.route("**/auth/refresh", (route) =>
+    json(route, {
+      access_token: "browser-test-access-token",
+      expires_in: 3600,
+      token_type: "bearer",
+    }),
   );
   await page.route("**/users/me", (route) =>
     json(route, {

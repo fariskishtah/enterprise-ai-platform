@@ -14,6 +14,9 @@ the production `/api/` proxy prefix.
 ## Common behavior
 
 - Protected routes require `Authorization: Bearer <access-token>`.
+- Login returns only the short-lived access token in JSON. Refresh and logout use
+  the HttpOnly refresh cookie plus `X-CSRF-Token`; browser requests include
+  credentials and are restricted to configured Origins.
 - Roles are enforced by backend dependencies, not frontend visibility.
 - List APIs use bounded `limit`/`offset` pagination where defined.
 - Sensitive mutations use distributed rate limiting.
@@ -44,6 +47,7 @@ POST /auth/register
 POST /auth/login
 POST /auth/refresh
 POST /auth/logout
+POST /auth/sessions/revoke-others
 POST /auth/password-reset/request
 POST /auth/password-reset/complete
 GET  /auth/email-verification/status

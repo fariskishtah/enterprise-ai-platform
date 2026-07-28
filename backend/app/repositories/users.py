@@ -345,6 +345,8 @@ class UserRepository:
         jti: UUID,
         token_hash: str,
         expires_at: datetime,
+        family_id: UUID,
+        parent_token_id: UUID | None = None,
         user_agent_summary: str | None = None,
         source_ip: str | None = None,
     ) -> RefreshToken:
@@ -354,6 +356,8 @@ class UserRepository:
             jti=jti,
             token_hash=token_hash,
             expires_at=expires_at,
+            family_id=family_id,
+            parent_token_id=parent_token_id,
             user_agent_summary=user_agent_summary,
             source_ip=source_ip,
             last_seen_at=datetime.now().astimezone(),
@@ -383,9 +387,13 @@ class UserRepository:
         token_hash: str,
     ) -> RefreshToken | None:
         """Return a refresh token by its JWT ID and digest."""
-        statement = select(RefreshToken).where(
-            RefreshToken.jti == jti,
-            RefreshToken.token_hash == token_hash,
+        statement = (
+            select(RefreshToken)
+            .where(
+                RefreshToken.jti == jti,
+                RefreshToken.token_hash == token_hash,
+            )
+            .with_for_update()
         )
         result = await self._session.execute(statement)
         return result.scalar_one_or_none()
@@ -423,6 +431,19 @@ class UserRepository:
             .values(revoked_at=revoked_at)
         )
         await self._session.execute(statement)
+
+    async def revoke_refresh_token_family(
+        self, *, family_id: UUID, revoked_at: datetime
+    ) -> None:
+        """Revoke every active descendant in a replayed token family."""
+        await self._session.execute(
+            update(RefreshToken)
+            .where(
+                RefreshToken.family_id == family_id,
+                RefreshToken.revoked_at.is_(None),
+            )
+            .values(revoked_at=revoked_at)
+        )
 
     async def commit(self) -> None:
         """Commit the active transaction."""

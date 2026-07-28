@@ -94,8 +94,11 @@ Passwords are hashed using the existing password hasher. Reset credentials are
 random, stored only as SHA-256 digests, expire after a bounded interval, and are
 single use. Password change/reset and user deactivation revoke active refresh
 tokens. Users can list session metadata, revoke one session, and revoke all
-other sessions. Raw access, refresh, and reset tokens are excluded from audit
-metadata and logs.
+other sessions. Browser access tokens remain only in memory. Refresh credentials
+are stored in HttpOnly cookies, rotated with family lineage, and the family is
+revoked when a rotated ancestor is replayed. Refresh/logout require double-submit
+CSRF validation and an allowed Origin. Raw access, refresh, and reset tokens are
+excluded from audit metadata and logs.
 
 Every new user begins with `is_email_verified=false`. Existing users are
 backfilled as verified by migration `0025_add_email_verification` to avoid a

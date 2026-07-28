@@ -29,6 +29,8 @@ from tests.ai_api_support import VALID_PASSWORD, ai_api_client, auth_headers
 
 NEW_PASSWORD = "ChangedPassword2!"
 MODEL_NAME = "pilot_machine_risk"
+REFRESH_COOKIE = "factorymind_refresh"
+CSRF_COOKIE = "factorymind_csrf"
 
 
 async def _login(client, email: str, password: str = VALID_PASSWORD) -> dict[str, str]:
@@ -36,7 +38,26 @@ async def _login(client, email: str, password: str = VALID_PASSWORD) -> dict[str
         "/auth/login", json={"email": email, "password": password}
     )
     assert response.status_code == 200, response.text
-    return response.json()
+    payload = response.json()
+    refresh_token = client.cookies.get(REFRESH_COOKIE)
+    csrf_token = client.cookies.get(CSRF_COOKIE)
+    assert refresh_token is not None
+    assert csrf_token is not None
+    payload["_refresh_token"] = refresh_token
+    payload["_csrf_token"] = csrf_token
+    return payload
+
+
+async def _refresh_with(client, refresh_token: str, csrf_token: str | None = None):
+    csrf = csrf_token or client.cookies.get(CSRF_COOKIE)
+    assert csrf is not None
+    return await client.post(
+        "/auth/refresh",
+        headers={
+            "Cookie": f"{REFRESH_COOKIE}={refresh_token}; {CSRF_COOKIE}={csrf}",
+            "X-CSRF-Token": csrf,
+        },
+    )
 
 
 async def _second_tenant_admin(
@@ -110,9 +131,7 @@ async def test_company_user_password_session_and_audit_lifecycle(
             },
         )
         assert changed.status_code == 204, changed.text
-        revoked_refresh = await client.post(
-            "/auth/refresh", json={"refresh_token": tokens["refresh_token"]}
-        )
+        revoked_refresh = await _refresh_with(client, tokens["_refresh_token"])
         assert revoked_refresh.status_code == 401
         await _login(client, "tenant-a-engineer@example.com", NEW_PASSWORD)
 
@@ -258,16 +277,14 @@ async def test_reset_privacy_expiry_session_revocation_and_deactivation(
         assert sessions.status_code == 200
         assert len(sessions.json()["items"]) == 2
         revoked_others = await client.post(
-            "/users/me/sessions/revoke-others",
-            headers=second_headers,
-            json={"refresh_token": second["refresh_token"]},
+            "/auth/sessions/revoke-others",
+            headers={
+                **second_headers,
+                "X-CSRF-Token": client.cookies.get(CSRF_COOKIE) or "",
+            },
         )
         assert revoked_others.status_code == 204
-        assert (
-            await client.post(
-                "/auth/refresh", json={"refresh_token": first["refresh_token"]}
-            )
-        ).status_code == 401
+        assert (await _refresh_with(client, first["_refresh_token"])).status_code == 401
 
         deactivated = await client.patch(
             f"/users/{user_id}",
@@ -276,9 +293,7 @@ async def test_reset_privacy_expiry_session_revocation_and_deactivation(
         )
         assert deactivated.status_code == 200
         assert (
-            await client.post(
-                "/auth/refresh", json={"refresh_token": second["refresh_token"]}
-            )
+            await _refresh_with(client, second["_refresh_token"], second["_csrf_token"])
         ).status_code == 401
 
     assert safe_audit_metadata(

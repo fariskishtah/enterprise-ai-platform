@@ -45,9 +45,14 @@ or verified backup restore.
 ### Identity
 
 - `users`: normalized email, Argon2 password hash, role, active state.
-- `refresh_tokens`: user, JWT ID/hash, expiry, rotation/revocation state.
+- `refresh_tokens`: user, JWT ID/hash, expiry, rotation/revocation state, and
+  replay-containment family lineage.
+- `email_verification_tokens`: digest-only ownership verification state.
+- `team_invitations`: company-bound invitation digest, role, expiry, resend,
+  acceptance, and revocation state.
 
-There are no tenant-membership, invitation, MFA, or identity-provider tables.
+Users currently have exactly one company membership. There are no MFA or external
+identity-provider tables.
 
 ### Manufacturing and sensor data
 

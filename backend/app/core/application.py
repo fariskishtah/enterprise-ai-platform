@@ -206,6 +206,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "Authorization",
             "Content-Type",
             "Idempotency-Key",
+            "X-CSRF-Token",
             resolved_settings.request_id_header,
             resolved_settings.correlation_id_header,
         ],

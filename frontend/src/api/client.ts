@@ -1,15 +1,19 @@
 import {
   clearStoredTokens,
   readStoredTokens,
+  readTokenRevision,
   storeTokenPair,
   type TokenPair,
-} from "./sessionStorage";
+} from "./tokenStore";
 
 const API_BASE_URL = (
   import.meta.env.VITE_API_BASE_URL ??
-  (import.meta.env.DEV ? "http://localhost:8000" : "/api")
+  (import.meta.env.DEV
+    ? `${window.location.protocol}//${window.location.hostname}:8000`
+    : "/api")
 ).replace(/\/$/, "");
 const ACCESS_EXPIRY_MARGIN_MS = 5_000;
+const CSRF_COOKIE_NAME = "factorymind_csrf";
 
 interface RequestOptions {
   readonly authenticated?: boolean;
@@ -83,8 +87,6 @@ function isTokenPair(payload: unknown): payload is TokenPair {
     payload !== null &&
     "access_token" in payload &&
     typeof payload.access_token === "string" &&
-    "refresh_token" in payload &&
-    typeof payload.refresh_token === "string" &&
     "expires_in" in payload &&
     typeof payload.expires_in === "number" &&
     Number.isFinite(payload.expires_in) &&
@@ -92,6 +94,15 @@ function isTokenPair(payload: unknown): payload is TokenPair {
     "token_type" in payload &&
     payload.token_type === "bearer"
   );
+}
+
+function readCsrfToken(): string | null {
+  const prefix = `${CSRF_COOKIE_NAME}=`;
+  const cookie = document.cookie
+    .split(";")
+    .map((item) => item.trim())
+    .find((item) => item.startsWith(prefix));
+  return cookie === undefined ? null : decodeURIComponent(cookie.slice(prefix.length));
 }
 
 async function parseBody(response: Response): Promise<unknown> {
@@ -108,22 +119,18 @@ async function parseBody(response: Response): Promise<unknown> {
   }
 }
 
-async function refreshAccessToken(): Promise<string> {
+export async function refreshAccessToken(): Promise<string> {
   if (refreshRequest !== null) {
     return refreshRequest;
   }
 
-  const tokens = readStoredTokens();
-  if (tokens === null) {
-    sessionExpiredHandler?.();
-    throw new ApiError("Your session has expired. Please sign in again.", 401);
-  }
+  const revision = readTokenRevision();
 
   refreshRequest = (async () => {
     try {
       const response = await fetch(`${API_BASE_URL}/auth/refresh`, {
-        body: JSON.stringify({ refresh_token: tokens.refreshToken }),
-        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        headers: { "X-CSRF-Token": readCsrfToken() ?? "" },
         method: "POST",
       });
       const payload = await parseBody(response);
@@ -136,7 +143,7 @@ async function refreshAccessToken(): Promise<string> {
       if (!isTokenPair(payload)) {
         throw new ApiError("The server returned an invalid session response.", 0);
       }
-      if (readStoredTokens()?.refreshToken !== tokens.refreshToken) {
+      if (readTokenRevision() !== revision) {
         throw new ApiError("The session changed while it was being refreshed.", 401);
       }
       return storeTokenPair(payload).accessToken;
@@ -169,11 +176,8 @@ export async function apiRequest<T>(
 
   if (authenticated) {
     const tokens = readStoredTokens();
-    if (tokens === null) {
-      sessionExpiredHandler?.();
-      throw new ApiError("Authentication is required.", 401);
-    }
     accessToken =
+      tokens === null ||
       tokens.accessTokenExpiresAt <= Date.now() + ACCESS_EXPIRY_MARGIN_MS
         ? await refreshAccessToken()
         : tokens.accessToken;
@@ -187,10 +191,18 @@ export async function apiRequest<T>(
   if (accessToken !== null) {
     headers.set("Authorization", `Bearer ${accessToken}`);
   }
+  const csrfToken = readCsrfToken();
+  if (csrfToken !== null && !headers.has("X-CSRF-Token")) {
+    headers.set("X-CSRF-Token", csrfToken);
+  }
 
   let response: Response;
   try {
-    response = await fetch(`${API_BASE_URL}${path}`, { ...init, headers });
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      ...init,
+      credentials: "include",
+      headers,
+    });
   } catch (error) {
     if (isRequestCancelled(error, init.signal)) throw error;
     throw new ApiError("Unable to reach the server. Please try again.", 0);
@@ -232,17 +244,15 @@ export async function apiRequest<T>(
 
 export async function apiDownload(path: string): Promise<Blob> {
   const tokens = readStoredTokens();
-  if (tokens === null) {
-    sessionExpiredHandler?.();
-    throw new ApiError("Authentication is required.", 401);
-  }
   const accessToken =
+    tokens === null ||
     tokens.accessTokenExpiresAt <= Date.now() + ACCESS_EXPIRY_MARGIN_MS
       ? await refreshAccessToken()
       : tokens.accessToken;
   let response: Response;
   try {
     response = await fetch(`${API_BASE_URL}${path}`, {
+      credentials: "include",
       headers: { Authorization: `Bearer ${accessToken}` },
     });
   } catch {

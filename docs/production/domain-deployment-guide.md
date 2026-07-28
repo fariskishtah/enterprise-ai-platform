@@ -35,13 +35,12 @@ the browser API only under `/api`.
 
 ## Current limitations
 
-Browser tokens use session storage and the API uses bearer authentication; the
-application does not issue authentication cookies. `COOKIE_SECURE` and
-`COOKIE_SAMESITE` are validated deployment intent, not evidence of an HttpOnly
-cookie flow. Password-reset email delivery is not connected to Resend. Dataset,
-model, and report objects use mounted local storage rather than an application
-S3 adapter. These are blockers for an unrestricted production recommendation,
-but not for a reviewed public demo with non-customer data and controlled access.
+The browser keeps its short-lived access token only in memory. Refresh tokens use
+rotating HttpOnly cookies with configurable Secure, SameSite, and domain attributes;
+cookie-authenticated mutations require a double-submit CSRF token and an allowed
+Origin. Dataset, model, and report objects still use mounted local storage rather
+than an application S3 adapter. That storage limitation remains a blocker for an
+unrestricted production recommendation.
 
 Do not expose seed credentials, run the demo seed, enable the simulator, or use
 private customer data on the public-video environment.

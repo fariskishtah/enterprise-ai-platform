@@ -10,8 +10,10 @@ APP_PUBLIC_URL=https://platform.example
 API_BASE_URL=https://platform.example/api
 ALLOWED_HOSTS=["platform.example"]
 CORS_ALLOWED_ORIGINS=["https://platform.example"]
+CORS_ALLOW_CREDENTIALS=true
 COOKIE_SECURE=true
 COOKIE_SAMESITE=strict
+COOKIE_DOMAIN=platform.example
 ENABLE_API_DOCS=false
 DEMO_TOOLS_ENABLED=false
 

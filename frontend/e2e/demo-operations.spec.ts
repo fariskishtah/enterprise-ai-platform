@@ -66,27 +66,11 @@ let action: Action | null = null;
 let alert: Alert | null = null;
 let shift: Shift | null = null;
 const browserErrors = new WeakMap<Page, string[]>();
-const savedSessions = new Map<string, string>();
 
 async function login(page: Page, email: string | undefined): Promise<void> {
   if (!email || !password) throw new Error("Real-backend credentials are required.");
-  const savedSession = savedSessions.get(email);
+  await page.context().clearCookies();
   await page.goto("/login");
-  await page.evaluate(() => sessionStorage.clear());
-  if (savedSession) {
-    await page.evaluate(
-      (value) => sessionStorage.setItem("factorymind.auth.tokens", value),
-      savedSession,
-    );
-    const identityResponse = page.waitForResponse(
-      (item) => item.url().includes("/users/me") && item.request().method() === "GET",
-    );
-    await page.reload();
-    expect((await identityResponse).status()).toBe(200);
-    await expect(page).toHaveURL(/\/$/);
-    await expect(page.getByRole("button", { name: /Open account menu/ })).toBeVisible();
-    return;
-  }
   await page.getByLabel("Email address").fill(email);
   await page.getByLabel("Password").fill(password);
   const response = page.waitForResponse(
@@ -96,17 +80,14 @@ async function login(page: Page, email: string | undefined): Promise<void> {
   expect((await response).status()).toBe(200);
   await expect(page).toHaveURL(/\/$/);
   await expect(page.getByRole("button", { name: /Open account menu/ })).toBeVisible();
-  savedSessions.set(
-    email,
-    await page.evaluate(() => sessionStorage.getItem("factorymind.auth.tokens") ?? ""),
-  );
 }
 
 async function accessToken(page: Page): Promise<string> {
-  return page.evaluate(() => {
-    const raw = sessionStorage.getItem("factorymind.auth.tokens");
-    if (!raw) throw new Error("Browser session token is unavailable.");
-    return (JSON.parse(raw) as { accessToken: string }).accessToken;
+  return page.evaluate(async () => {
+    const { readStoredTokens } = await import("/src/api/tokenStore.ts");
+    const tokens = readStoredTokens();
+    if (!tokens) throw new Error("Browser session token is unavailable.");
+    return tokens.accessToken;
   });
 }
 

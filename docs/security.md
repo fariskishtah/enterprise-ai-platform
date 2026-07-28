@@ -32,17 +32,22 @@ user state, and RBAC role. Access and refresh tokens are not interchangeable.
 
 ## Refresh Tokens
 
-Refresh tokens are stateful. The raw refresh token is returned to the client once. The backend stores only a SHA-256 digest plus metadata.
+Refresh tokens are stateful. The raw credential is written only to a scoped HttpOnly
+cookie; it is never returned in JSON or exposed to browser JavaScript. The backend
+stores only a SHA-256 digest plus session and token-family metadata.
 
 Refresh behavior:
 
 - Decode and validate refresh JWT.
 - Find matching `jti` and token digest.
-- Reject revoked or expired tokens.
+- Reject expired tokens and revoke the entire descendant family when a rotated token
+  is replayed.
 - Revoke the used token.
 - Issue a new access token and refresh token.
 
-Logout revokes the supplied refresh token.
+Refresh and logout require a matching double-submit CSRF token and reject browser
+Origins outside the configured CORS allowlist. Logout revokes the cookie session and
+expires both cookies. Access tokens remain short lived and memory only in the browser.
 
 ## Account Recovery and Email Ownership
 

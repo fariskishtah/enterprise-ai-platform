@@ -37,7 +37,9 @@ services:
       ALLOWED_HOSTS: ${ALLOWED_HOSTS:?Set ALLOWED_HOSTS in the production environment file}
       COOKIE_SECURE: ${COOKIE_SECURE:?Set COOKIE_SECURE in the production environment file}
       COOKIE_SAMESITE: ${COOKIE_SAMESITE:?Set COOKIE_SAMESITE in the production environment file}
+      COOKIE_DOMAIN: ${COOKIE_DOMAIN:-}
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:?Set CORS_ALLOWED_ORIGINS in the production environment file}
+      CORS_ALLOW_CREDENTIALS: ${CORS_ALLOW_CREDENTIALS:-true}
       ENVIRONMENT: production
       APP_ENV: production
       ENABLE_API_DOCS: "false"

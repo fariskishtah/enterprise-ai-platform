@@ -1,5 +1,5 @@
 import { apiRequest } from "../api/client";
-import type { TokenPair } from "../api/sessionStorage";
+import type { TokenPair } from "../api/tokenStore";
 
 export type UserRole =
   "owner" | "admin" | "engineer" | "operator" | "analyst" | "viewer";
@@ -117,11 +117,10 @@ export function getCurrentUser(): Promise<CurrentUser> {
   return apiRequest<CurrentUser>("/users/me");
 }
 
-export function revokeSession(refreshToken: string): Promise<void> {
+export function revokeSession(): Promise<void> {
   return apiRequest<void>(
     "/auth/logout",
     {
-      body: JSON.stringify({ refresh_token: refreshToken }),
       method: "POST",
     },
     { authenticated: false },

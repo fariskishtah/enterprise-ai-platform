@@ -12,7 +12,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config.settings import Settings, get_settings
 from app.dependencies.auth import get_current_user
 from app.dependencies.database import get_db_session
-from app.dependencies.rate_limit import enforce_auth_rate_limit
+from app.dependencies.rate_limit import (
+    enforce_auth_rate_limit,
+    enforce_mutation_rate_limit,
+)
 from app.dependencies.services import (
     get_audit_service,
     get_authentication_service,
@@ -29,21 +32,25 @@ from app.schemas.auth import (
     EmailVerificationResponse,
     EmailVerificationStatusResponse,
     LoginRequest,
-    LogoutRequest,
     PasswordResetCompleteRequest,
     PasswordResetRequest,
     PasswordResetRequestResponse,
-    RefreshTokenRequest,
     RegisterRequest,
     RegistrationResponse,
     TokenResponse,
 )
 from app.schemas.user import UserResponse
+from app.security.cookie_auth import (
+    clear_auth_cookies,
+    issue_auth_cookies,
+    require_cookie_auth,
+)
 from app.services.audit import AuditService
 from app.services.authentication import AuthenticationService
 from app.services.email import OutboundEmail, transactional_email
 from app.services.email_delivery import persist_email
 from app.services.exceptions import (
+    AccountLifecycleError,
     DuplicateCompanyNameError,
     DuplicateEmailError,
     ExpiredEmailVerificationTokenError,
@@ -249,14 +256,16 @@ async def register(
 async def login(
     payload: LoginRequest,
     request: Request,
+    response: Response,
     authentication_service: Annotated[
         AuthenticationService,
         Depends(get_authentication_service),
     ],
     users: Annotated[UserService, Depends(get_user_service)],
     audit: Annotated[AuditService, Depends(get_audit_service)],
+    settings: Annotated[Settings, Depends(get_settings)],
 ) -> TokenResponse:
-    """Authenticate a user and issue access and refresh tokens."""
+    """Authenticate and issue an access token plus protected refresh cookie."""
     try:
         tokens = await authentication_service.login(
             email=payload.email,
@@ -336,9 +345,9 @@ async def login(
         source_ip=request.client.host if request.client else None,
         user_agent=request.headers.get("user-agent"),
     )
+    issue_auth_cookies(response, refresh_token=tokens.refresh_token, settings=settings)
     return TokenResponse(
         access_token=tokens.access_token,
-        refresh_token=tokens.refresh_token,
         token_type=tokens.token_type,
         expires_in=tokens.expires_in,
     )
@@ -357,29 +366,30 @@ async def login(
     dependencies=[Depends(enforce_auth_rate_limit)],
 )
 async def refresh(
-    payload: RefreshTokenRequest,
+    request: Request,
+    response: Response,
     authentication_service: Annotated[
         AuthenticationService,
         Depends(get_authentication_service),
     ],
     audit: Annotated[AuditService, Depends(get_audit_service)],
-) -> TokenResponse:
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> TokenResponse | Response:
     """Rotate a refresh token and issue a new access token."""
+    refresh_token = require_cookie_auth(request, settings=settings)
     try:
         tokens = await authentication_service.refresh(
-            refresh_token=payload.refresh_token,
+            refresh_token=refresh_token,
         )
-    except InvalidRefreshTokenError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Refresh token is invalid.",
-            headers={"WWW-Authenticate": "Bearer"},
-        ) from exc
-    except InactiveUserError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="User account is inactive.",
-        ) from exc
+    except InvalidRefreshTokenError:
+        clear_auth_cookies(response, settings=settings)
+        response.status_code = status.HTTP_401_UNAUTHORIZED
+        response.headers["WWW-Authenticate"] = "Bearer"
+        return response
+    except InactiveUserError:
+        clear_auth_cookies(response, settings=settings)
+        response.status_code = status.HTTP_403_FORBIDDEN
+        return response
 
     await audit.record(
         company_id=tokens.user.company_id,
@@ -388,9 +398,9 @@ async def refresh(
         resource_type="session",
         result="success",
     )
+    issue_auth_cookies(response, refresh_token=tokens.refresh_token, settings=settings)
     return TokenResponse(
         access_token=tokens.access_token,
-        refresh_token=tokens.refresh_token,
         token_type=tokens.token_type,
         expires_in=tokens.expires_in,
     )
@@ -406,23 +416,24 @@ async def refresh(
     },
 )
 async def logout(
-    payload: LogoutRequest,
     request: Request,
+    response: Response,
     authentication_service: Annotated[
         AuthenticationService,
         Depends(get_authentication_service),
     ],
     audit: Annotated[AuditService, Depends(get_audit_service)],
+    settings: Annotated[Settings, Depends(get_settings)],
 ) -> Response:
     """Revoke a refresh token."""
+    refresh_token = require_cookie_auth(request, settings=settings)
     try:
-        user = await authentication_service.logout(refresh_token=payload.refresh_token)
-    except InvalidRefreshTokenError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Refresh token is invalid.",
-            headers={"WWW-Authenticate": "Bearer"},
-        ) from exc
+        user = await authentication_service.logout(refresh_token=refresh_token)
+    except InvalidRefreshTokenError:
+        clear_auth_cookies(response, settings=settings)
+        response.status_code = status.HTTP_401_UNAUTHORIZED
+        response.headers["WWW-Authenticate"] = "Bearer"
+        return response
 
     await audit.record(
         company_id=user.company_id,
@@ -432,6 +443,39 @@ async def logout(
         result="success",
         source_ip=request.client.host if request.client else None,
         user_agent=request.headers.get("user-agent"),
+    )
+    clear_auth_cookies(response, settings=settings)
+    response.status_code = status.HTTP_204_NO_CONTENT
+    return response
+
+
+@router.post(
+    "/sessions/revoke-others",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Revoke every refresh session except the cookie session",
+    dependencies=[Depends(enforce_mutation_rate_limit)],
+)
+async def revoke_other_sessions(
+    request: Request,
+    current_user: Annotated[User, Depends(get_current_user)],
+    users: Annotated[UserService, Depends(get_user_service)],
+    audit: Annotated[AuditService, Depends(get_audit_service)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> Response:
+    refresh_token = require_cookie_auth(request, settings=settings)
+    try:
+        await users.revoke_other_sessions(
+            user_id=current_user.id,
+            current_refresh_token=refresh_token,
+        )
+    except AccountLifecycleError as exc:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, str(exc)) from exc
+    await audit.record(
+        company_id=current_user.company_id,
+        actor=current_user,
+        action="session.other_sessions_revoked",
+        resource_type="session",
+        result="success",
     )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 

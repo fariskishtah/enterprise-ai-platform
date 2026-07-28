@@ -9,6 +9,14 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 VALID_PASSWORD = "ValidPassword1!"
+REFRESH_COOKIE = "factorymind_refresh"
+CSRF_COOKIE = "factorymind_csrf"
+
+
+def csrf_headers(client: AsyncClient) -> dict[str, str]:
+    token = client.cookies.get(CSRF_COOKIE)
+    assert token is not None
+    return {"X-CSRF-Token": token}
 
 
 async def register_user(
@@ -214,16 +222,21 @@ async def test_register_rejects_weak_password(api_client: AsyncClient) -> None:
 
 
 @pytest.mark.anyio
-async def test_login_issues_token_pair(api_client: AsyncClient) -> None:
-    """Login returns access and refresh tokens."""
+async def test_login_issues_access_token_and_refresh_cookie(
+    api_client: AsyncClient,
+) -> None:
+    """Login exposes only access state while setting protected cookies."""
     await register_user(api_client)
 
     payload = await login_user(api_client)
 
     assert isinstance(payload["access_token"], str)
-    assert isinstance(payload["refresh_token"], str)
+    assert "refresh_token" not in payload
     assert payload["token_type"] == "bearer"
     assert payload["expires_in"] == 900
+    refresh_cookie = api_client.cookies.get(REFRESH_COOKIE)
+    assert isinstance(refresh_cookie, str)
+    assert isinstance(api_client.cookies.get(CSRF_COOKIE), str)
 
 
 @pytest.mark.anyio
@@ -243,41 +256,63 @@ async def test_login_rejects_invalid_password(api_client: AsyncClient) -> None:
 async def test_refresh_rotates_refresh_token(api_client: AsyncClient) -> None:
     """Refresh rotates stored refresh tokens and rejects reuse."""
     await register_user(api_client)
-    tokens = await login_user(api_client)
-    refresh_token = str(tokens["refresh_token"])
+    await login_user(api_client)
+    refresh_token = api_client.cookies.get(REFRESH_COOKIE)
+    assert refresh_token is not None
 
     refresh_response = await api_client.post(
         "/auth/refresh",
-        json={"refresh_token": refresh_token},
+        headers=csrf_headers(api_client),
     )
+    rotated_token = api_client.cookies.get(REFRESH_COOKIE)
+    rotated_csrf = api_client.cookies.get(CSRF_COOKIE)
+    assert rotated_token is not None
+    assert rotated_csrf is not None
     reuse_response = await api_client.post(
         "/auth/refresh",
-        json={"refresh_token": refresh_token},
+        headers={
+            **csrf_headers(api_client),
+            "Cookie": (
+                f"{REFRESH_COOKIE}={refresh_token}; " f"{CSRF_COOKIE}={rotated_csrf}"
+            ),
+        },
+    )
+    descendant_response = await api_client.post(
+        "/auth/refresh",
+        headers={
+            "X-CSRF-Token": rotated_csrf,
+            "Cookie": (
+                f"{REFRESH_COOKIE}={rotated_token}; " f"{CSRF_COOKIE}={rotated_csrf}"
+            ),
+        },
     )
 
     assert refresh_response.status_code == 200
-    assert refresh_response.json()["refresh_token"] != refresh_token
+    assert "refresh_token" not in refresh_response.json()
+    assert rotated_token != refresh_token
     assert reuse_response.status_code == 401
+    assert descendant_response.status_code == 401
 
 
 @pytest.mark.anyio
 async def test_logout_revokes_refresh_token(api_client: AsyncClient) -> None:
     """Logout revokes a refresh token."""
     await register_user(api_client)
-    tokens = await login_user(api_client)
-    refresh_token = str(tokens["refresh_token"])
+    await login_user(api_client)
 
     logout_response = await api_client.post(
         "/auth/logout",
-        json={"refresh_token": refresh_token},
+        headers=csrf_headers(api_client),
     )
     refresh_response = await api_client.post(
         "/auth/refresh",
-        json={"refresh_token": refresh_token},
+        headers={"X-CSRF-Token": "cleared"},
     )
 
     assert logout_response.status_code == 204
-    assert refresh_response.status_code == 401
+    assert api_client.cookies.get(REFRESH_COOKIE) is None
+    assert api_client.cookies.get(CSRF_COOKIE) is None
+    assert refresh_response.status_code == 403
 
 
 @pytest.mark.anyio
@@ -327,14 +362,22 @@ async def test_access_and_refresh_tokens_are_rejected_cross_endpoint(
     """Each protected endpoint accepts only its intended JWT purpose."""
     await register_user(api_client)
     tokens = await login_user(api_client)
+    refresh_token = api_client.cookies.get(REFRESH_COOKIE)
+    assert refresh_token is not None
 
     refresh_with_access = await api_client.post(
         "/auth/refresh",
-        json={"refresh_token": tokens["access_token"]},
+        headers={
+            **csrf_headers(api_client),
+            "Cookie": (
+                f"{REFRESH_COOKIE}={tokens['access_token']}; "
+                f"{CSRF_COOKIE}={api_client.cookies.get(CSRF_COOKIE)}"
+            ),
+        },
     )
     access_with_refresh = await api_client.get(
         "/users/me",
-        headers={"Authorization": f"Bearer {tokens['refresh_token']}"},
+        headers={"Authorization": f"Bearer {refresh_token}"},
     )
 
     assert refresh_with_access.status_code == 401
@@ -402,7 +445,7 @@ async def test_authentication_audit_logs_are_bounded_and_secret_free(
     assert "user@example.com" not in rendered
     assert submitted_password not in rendered
     assert str(succeeded.json()["access_token"]) not in rendered
-    assert str(succeeded.json()["refresh_token"]) not in rendered
+    assert "refresh_token" not in succeeded.json()
 
 
 @pytest.mark.anyio

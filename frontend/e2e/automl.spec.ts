@@ -26,17 +26,12 @@ async function authenticated(
   page: Page,
   role: "engineer" | "operator" = "engineer",
 ): Promise<void> {
-  await page.addInitScript(
-    ({ expiresAt }) =>
-      sessionStorage.setItem(
-        "factorymind.auth.tokens",
-        JSON.stringify({
-          accessToken: "automl-access",
-          accessTokenExpiresAt: expiresAt,
-          refreshToken: "automl-refresh",
-        }),
-      ),
-    { expiresAt: Date.now() + 3_600_000 },
+  await page.route("**/auth/refresh", (route) =>
+    json(route, {
+      access_token: "automl-access",
+      expires_in: 3600,
+      token_type: "bearer",
+    }),
   );
   await page.route("**/users/me", (route) =>
     json(route, {

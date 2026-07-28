@@ -20,12 +20,13 @@ The backend implements:
 
 - User ORM model with UUID primary key and unique normalized email.
 - Refresh-token metadata with hashed token storage, rotation, and revocation.
-- JWT access and refresh tokens.
+- Memory-only JWT access tokens and rotating HttpOnly refresh cookies with CSRF protection.
 - pwdlib password hashing.
-- Role-based access control for `admin`, `engineer`, and `operator`.
+- Explicit six-role permission matrix for owner, admin, engineer, operator, analyst, and viewer.
 - Current-user dependency for protected routes.
 
-Public registration creates `operator` users. Manufacturing routes use the RBAC dependency for role-specific access control.
+Public registration creates the initial company owner. Manufacturing routes use the
+permission dependency for role-specific access control.
 
 ## Sprint 3 Manufacturing Domain
 

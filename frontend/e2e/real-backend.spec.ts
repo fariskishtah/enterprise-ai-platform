@@ -16,8 +16,6 @@ const resourceNamespace = (
 )
   .replace(/[^A-Za-z0-9_.-]/g, "-")
   .slice(0, 40);
-const savedSessions = new Map<string, string>();
-
 interface ApiPage<T> {
   readonly items: readonly T[];
   readonly total: number;
@@ -93,25 +91,8 @@ async function login(page: Page, email: string): Promise<void> {
       `Real-backend E2E credentials missing (email=${email}, password=${password ? "set" : "missing"})`,
     );
   }
-  const savedSession = savedSessions.get(email);
+  await page.context().clearCookies();
   await page.goto("/login");
-  await page.evaluate(() => sessionStorage.clear());
-  if (savedSession) {
-    await page.evaluate(
-      (value) => sessionStorage.setItem("factorymind.auth.tokens", value),
-      savedSession,
-    );
-    const identityResponse = page.waitForResponse(
-      (response) =>
-        response.url().includes("/users/me") && response.request().method() === "GET",
-      { timeout: 15_000 },
-    );
-    await page.reload();
-    expect((await identityResponse).status()).toBe(200);
-    await expect(page).toHaveURL(/\/$/, { timeout: 20_000 });
-    await expect(page.getByRole("button", { name: /Open account menu/ })).toBeVisible();
-    return;
-  }
   await page.getByLabel("Email address").fill(email);
   await page.getByLabel("Password").fill(password);
 
@@ -139,10 +120,6 @@ async function login(page: Page, email: string): Promise<void> {
   }
 
   await expect(page).toHaveURL(/\/$/, { timeout: 20_000 });
-  savedSessions.set(
-    email,
-    await page.evaluate(() => sessionStorage.getItem("factorymind.auth.tokens") ?? ""),
-  );
 }
 
 function collectUnexpectedBrowserErrors(page: Page): string[] {
@@ -155,14 +132,11 @@ function collectUnexpectedBrowserErrors(page: Page): string[] {
 }
 
 async function accessToken(page: Page): Promise<string> {
-  return page.evaluate(() => {
-    const value = sessionStorage.getItem("factorymind.auth.tokens");
-    if (value === null)
-      throw new Error("The authenticated browser session is missing.");
-    const parsed = JSON.parse(value) as { accessToken?: unknown };
-    if (typeof parsed.accessToken !== "string")
-      throw new Error("The authenticated browser session is invalid.");
-    return parsed.accessToken;
+  return page.evaluate(async () => {
+    const { readStoredTokens } = await import("/src/api/tokenStore.ts");
+    const tokens = readStoredTokens();
+    if (!tokens) throw new Error("The authenticated browser session is missing.");
+    return tokens.accessToken;
   });
 }
 

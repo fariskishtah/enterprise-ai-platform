@@ -149,9 +149,8 @@ export function revokeActiveSession(sessionId: string): Promise<void> {
   return apiRequest<void>(`/users/me/sessions/${sessionId}`, { method: "DELETE" });
 }
 
-export function revokeOtherSessions(refreshToken: string): Promise<void> {
-  return apiRequest<void>("/users/me/sessions/revoke-others", {
-    body: JSON.stringify({ refresh_token: refreshToken }),
+export function revokeOtherSessions(): Promise<void> {
+  return apiRequest<void>("/auth/sessions/revoke-others", {
     method: "POST",
   });
 }

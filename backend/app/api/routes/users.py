@@ -14,7 +14,6 @@ from app.permissions import Permission
 from app.schemas.auth import PasswordResetRequestResponse
 from app.schemas.user import (
     ChangePasswordRequest,
-    RevokeOtherSessionsRequest,
     SessionListResponse,
     SessionResponse,
     UserCreateRequest,
@@ -251,34 +250,6 @@ async def revoke_session(
         action="session.revoked",
         resource_type="session",
         resource_id=session_id,
-        result="success",
-    )
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
-
-
-@router.post(
-    "/me/sessions/revoke-others",
-    status_code=status.HTTP_204_NO_CONTENT,
-    dependencies=[Depends(enforce_mutation_rate_limit)],
-)
-async def revoke_other_sessions(
-    payload: RevokeOtherSessionsRequest,
-    current_user: Annotated[User, Depends(get_current_user)],
-    service: Annotated[UserService, Depends(get_user_service)],
-    audit: Annotated[AuditService, Depends(get_audit_service)],
-) -> Response:
-    try:
-        await service.revoke_other_sessions(
-            user_id=current_user.id,
-            current_refresh_token=payload.refresh_token,
-        )
-    except AccountLifecycleError as exc:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, str(exc)) from exc
-    await audit.record(
-        company_id=current_user.company_id,
-        actor=current_user,
-        action="session.other_sessions_revoked",
-        resource_type="session",
         result="success",
     )
     return Response(status_code=status.HTTP_204_NO_CONTENT)

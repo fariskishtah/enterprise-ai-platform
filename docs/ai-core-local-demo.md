@@ -139,7 +139,7 @@ curl -X POST http://localhost:8000/auth/register \
   -d '{"name":"<full-name>","company_name":"<company-name>","email":"<work-email>","password":"<strong-password>"}'
 ```
 
-Login returns an access and refresh token pair:
+Login returns an access token and stores the refresh credential in an HttpOnly cookie:
 
 ```bash
 curl -X POST http://localhost:8000/auth/login \

@@ -111,10 +111,9 @@ operator evidence summary.
 
 ## Remaining limitations and release blockers
 
-- The 119-entry working tree is uncommitted and requires reviewable commits,
-  code review, clean-tree CI, and staging approval before a pilot deployment.
-- Production password-reset email delivery is not configured.
-- MFA, OIDC/SAML, SCIM, invitation delivery, and platform-level tenant
+- Reviewable production-hardening commits still require code review, clean-tree
+  CI, and staging approval before a pilot deployment.
+- MFA, OIDC/SAML, SCIM, and platform-level tenant
   administration are unsupported.
 - Customer data, risk thresholds, feature definitions, recommended actions, and
   maintenance procedures are not operationally validated.

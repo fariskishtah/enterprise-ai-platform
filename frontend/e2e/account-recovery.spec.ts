@@ -37,18 +37,15 @@ test.describe("account recovery", () => {
   });
 
   test("shows successful and expired email verification states", async ({ page }) => {
-    await page.route(
-      "http://localhost:8000/auth/email-verification/verify",
-      (route) => {
-        const token = (route.request().postDataJSON() as { token: string }).token;
-        return token.startsWith("valid")
-          ? json(route, {
-              message: "Your email has been verified.",
-              status: "verified",
-            })
-          : json(route, { detail: "Verification token has expired." }, 410);
-      },
-    );
+    await page.route("**/auth/email-verification/verify", (route) => {
+      const token = (route.request().postDataJSON() as { token: string }).token;
+      return token.startsWith("valid")
+        ? json(route, {
+            message: "Your email has been verified.",
+            status: "verified",
+          })
+        : json(route, { detail: "Verification token has expired." }, 410);
+    });
     await page.goto(`/verify-email?token=${`valid${"a".repeat(43)}`}`);
     await expect(page.getByRole("heading", { name: "Email verified" })).toBeVisible();
     await expect(page.getByRole("status")).toContainText("has been verified");
@@ -63,19 +60,16 @@ test.describe("account recovery", () => {
     page,
   }) => {
     let submissions = 0;
-    await page.route(
-      "http://localhost:8000/auth/password-reset/request",
-      async (route) => {
-        submissions += 1;
-        expect(route.request().postDataJSON()).toEqual({
-          email: "owner@example.com",
-        });
-        return json(route, {
-          local_reset_token: null,
-          message: "If the account exists, password reset instructions are available.",
-        });
-      },
-    );
+    await page.route("**/auth/password-reset/request", async (route) => {
+      submissions += 1;
+      expect(route.request().postDataJSON()).toEqual({
+        email: "owner@example.com",
+      });
+      return json(route, {
+        local_reset_token: null,
+        message: "If the account exists, password reset instructions are available.",
+      });
+    });
     await page.goto("/forgot-password");
     await page.getByLabel("Work email").fill("owner@example.com");
     await page.getByRole("button", { name: "Send reset instructions" }).click();
@@ -87,17 +81,14 @@ test.describe("account recovery", () => {
     page,
   }) => {
     let submissions = 0;
-    await page.route(
-      "http://localhost:8000/auth/password-reset/complete",
-      async (route) => {
-        submissions += 1;
-        expect(route.request().postDataJSON()).toEqual({
-          new_password: "ChangedPassword1!",
-          token: "a".repeat(48),
-        });
-        return route.fulfill({ status: 204 });
-      },
-    );
+    await page.route("**/auth/password-reset/complete", async (route) => {
+      submissions += 1;
+      expect(route.request().postDataJSON()).toEqual({
+        new_password: "ChangedPassword1!",
+        token: "a".repeat(48),
+      });
+      return route.fulfill({ status: 204 });
+    });
     await page.goto(`/reset-password?token=${"a".repeat(48)}`);
     await page.getByLabel("New password", { exact: true }).fill("ChangedPassword1!");
     await page.getByLabel("Confirm new password").fill("MismatchPassword1!");

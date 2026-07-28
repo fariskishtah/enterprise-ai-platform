@@ -1,5 +1,6 @@
 """Application settings loaded from environment variables."""
 
+import re
 from functools import lru_cache
 from typing import Annotated, Literal, Self
 from urllib.parse import urlsplit
@@ -138,12 +139,13 @@ class Settings(BaseSettings):
     api_base_url: str | None = None
     allowed_hosts: tuple[str, ...] = ("localhost", "127.0.0.1")
     cookie_secure: bool = False
-    cookie_samesite: Literal["lax", "strict"] = "lax"
+    cookie_samesite: Literal["lax", "strict", "none"] = "lax"
+    cookie_domain: str | None = None
     cors_allowed_origins: tuple[str, ...] = (
         "http://localhost:5173",
         "http://127.0.0.1:5173",
     )
-    cors_allow_credentials: bool = False
+    cors_allow_credentials: bool = True
     structured_logging_enabled: bool = True
     log_format: LogFormat = "json"
     log_level: LogLevel = "INFO"
@@ -437,6 +439,24 @@ class Settings(BaseSettings):
             raise ValueError("allowed_hosts must contain at least one hostname.")
         return tuple(normalized)
 
+    @field_validator("cookie_domain")
+    @classmethod
+    def validate_cookie_domain(cls, value: str | None) -> str | None:
+        """Accept only a hostname-style cookie domain."""
+        if value is None:
+            return None
+        normalized = value.strip().lower().lstrip(".")
+        if (
+            not normalized
+            or len(normalized) > 253
+            or not all(
+                re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", label)
+                for label in normalized.split(".")
+            )
+        ):
+            raise ValueError("cookie_domain must be a valid hostname.")
+        return normalized
+
     @model_validator(mode="after")
     def validate_drift_threshold_order(self) -> Self:
         """Require the operational warning threshold below critical."""
@@ -492,6 +512,8 @@ class Settings(BaseSettings):
                 )
             if self.email_provider not in {"resend", "smtp"}:
                 raise ValueError("production email_provider must be resend or smtp.")
+        if self.cookie_samesite == "none" and not self.cookie_secure:
+            raise ValueError("cookie_secure must be true when cookie_samesite is none.")
         if self.email_provider in {"capture", "resend", "smtp"} and (
             self.email_from is None
         ):

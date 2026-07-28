@@ -184,7 +184,7 @@ async def test_sensitive_auth_routes_are_rate_limited_with_bounded_retry_after(
             first = await client.post(path, json=payload)
             limited = await client.post(path, json=payload)
 
-            assert first.status_code in {401, 422}
+            assert first.status_code in {401, 403, 422}
             assert limited.status_code == 429
             assert limited.json()["detail"] == "Too many authentication attempts."
             assert limited.headers["Retry-After"] == "37"
@@ -281,6 +281,15 @@ def test_cors_rejects_wildcard_origin(settings: Settings) -> None:
     """An arbitrary wildcard cannot enter the CORS allowlist."""
     with pytest.raises(ValidationError):
         _validated_settings(settings, cors_allowed_origins=("*",))
+
+
+def test_cookie_policy_rejects_insecure_cross_site_and_invalid_domain(
+    settings: Settings,
+) -> None:
+    with pytest.raises(ValidationError, match="cookie_secure"):
+        _validated_settings(settings, cookie_samesite="none", cookie_secure=False)
+    with pytest.raises(ValidationError, match="cookie_domain"):
+        _validated_settings(settings, cookie_domain="bad domain.example")
 
 
 def test_production_requires_exact_domain_and_secure_cookie_settings(
