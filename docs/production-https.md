@@ -4,7 +4,10 @@ Production HTTPS is an explicit, optional overlay on the existing HTTP-only
 deployment. Nginx terminates TLS on container port `8443`; host Certbot owns
 certificate issuance and renewal under `/etc/letsencrypt`. Certificates, private
 keys, generated Nginx configuration, and production environment files remain
-outside Git.
+outside Git. Preparation stages only the active domain certificate into the
+gitignored `.deployment/https/certs` directory with permissions for the
+unprivileged proxy; the complete Certbot account tree is never mounted into the
+container.
 
 ## Prerequisites
 
@@ -58,9 +61,11 @@ repeated safely:
 ./scripts/prepare-production-https.sh --env-file .env.production
 ```
 
-It validates the hostname, public URL, certificate files, and generated Nginx
-configuration, then writes only `.deployment/https/default.conf`, which is
-gitignored.
+It validates the hostname, public URL, certificate files, staged certificate
+permissions, and generated Nginx configuration as the proxy's unprivileged
+runtime user. It writes `.deployment/https/default.conf` and the two active
+certificate files under `.deployment/https/certs`; the entire directory is
+gitignored and excluded from the Docker build context.
 
 Deploy with the explicit flag:
 
@@ -100,9 +105,10 @@ Exercise Certbot's renewal path before relying on it:
 sudo certbot renew --dry-run
 ```
 
-The hook first runs `nginx -t` inside the active container. A failed validation
-prevents reload and leaves the existing worker, backend, database, and proxy
-processes untouched.
+The hook refreshes the restricted certificate copies, runs `nginx -t` inside the
+active container, and then reloads Nginx. A failed validation prevents reload
+and leaves the existing worker, backend, database, and proxy processes
+untouched.
 
 ## Roll back to HTTP-only
 
@@ -121,7 +127,9 @@ generated files, volumes, or unrelated data.
 
 - Never commit `.env.production`, `.deployment/`, `/etc/letsencrypt`, certificate
   contents, or private keys.
-- Keep `/etc/letsencrypt` mounted read-only and restrict host root/Docker access.
+- Keep `/etc/letsencrypt` restricted to host root, and restrict host Docker access.
+  The proxy receives only a read-only, permission-limited copy of the active
+  domain certificate.
 - TLS 1.2 and 1.3 are enabled; HSTS is returned only by the HTTPS server.
 - HTTP redirects are enabled only when the HTTPS override replaces the default
   proxy configuration. `/healthz` and ACME challenges remain available on HTTP.

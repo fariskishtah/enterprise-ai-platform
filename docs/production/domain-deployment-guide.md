@@ -7,8 +7,9 @@ authorize unrestricted production use.
 
 1. Point the selected DNS A/AAAA record to the controlled server.
 2. Restrict inbound traffic to SSH from the operator network and public 80/443.
-3. Issue a certificate outside the application and mount the read-only
-   `/etc/letsencrypt` tree expected by `docker-compose.https.yml`.
+3. Issue a certificate outside the application. HTTPS preparation stages only
+   the active certificate for the unprivileged reverse proxy; the Certbot account
+   tree remains host-only.
 4. Create an untracked production environment from
    `docs/production/environment-template.md`.
 5. Verify the exact host, origin, and public URLs match.

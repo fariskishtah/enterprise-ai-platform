@@ -38,6 +38,8 @@ fi
   exit 1
 }
 
+"$REPO_ROOT/scripts/prepare-production-https.sh" --env-file "$ENV_FILE"
+
 COMPOSE=(
   docker compose
   --project-name "$PROJECT_NAME"

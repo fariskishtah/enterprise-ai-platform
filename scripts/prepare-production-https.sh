@@ -96,22 +96,38 @@ fi
   exit 1
 }
 
-certificate_dir="$LETSENCRYPT_DIR/live/$HTTPS_DOMAIN"
-certificate_file="$certificate_dir/fullchain.pem"
-private_key_file="$certificate_dir/privkey.pem"
-[[ -f "$certificate_file" ]] || {
-  echo "Error: the HTTPS certificate was not found under /etc/letsencrypt/live/HTTPS_DOMAIN/." >&2
-  exit 1
-}
-[[ -f "$private_key_file" ]] || {
-  echo "Error: the HTTPS private key was not found under /etc/letsencrypt/live/HTTPS_DOMAIN/." >&2
-  exit 1
-}
-
 generated_dir="$REPO_ROOT/.deployment/https"
+generated_certificate_dir="$generated_dir/certs"
 generated_config="$generated_dir/default.conf"
 template="$REPO_ROOT/infrastructure/nginx/https.conf.template"
-mkdir -p "$generated_dir"
+mkdir -p "$generated_dir" "$generated_certificate_dir"
+
+echo "Staging the active certificate for the unprivileged reverse proxy..."
+if ! docker run --rm \
+  --network none \
+  --read-only \
+  --user 0:0 \
+  --entrypoint /bin/sh \
+  --volume "$LETSENCRYPT_DIR:/source:ro" \
+  --volume "$generated_certificate_dir:/target" \
+  nginxinc/nginx-unprivileged:1.28.0-alpine \
+  -c '
+    set -eu
+    domain="$1"
+    rm -f /target/fullchain.pem.new /target/privkey.pem.new
+    cp "/source/live/$domain/fullchain.pem" /target/fullchain.pem.new
+    cp "/source/live/$domain/privkey.pem" /target/privkey.pem.new
+    chown 101:101 /target/fullchain.pem.new /target/privkey.pem.new
+    chmod 0640 /target/fullchain.pem.new /target/privkey.pem.new
+    mv -f /target/fullchain.pem.new /target/fullchain.pem
+    mv -f /target/privkey.pem.new /target/privkey.pem
+    chown 101:101 /target
+    chmod 0750 /target
+  ' _ "$HTTPS_DOMAIN"; then
+  echo "Error: the active HTTPS certificate could not be staged." >&2
+  exit 1
+fi
+
 temporary_config="$(mktemp "$generated_dir/default.conf.XXXXXX")"
 trap 'rm -f "$temporary_config"' EXIT
 
@@ -120,16 +136,17 @@ sed \
   -e "s/__HTTPS_DOMAIN__/$HTTPS_DOMAIN/g" \
   -e "s|__PUBLIC_BASE_URL__|$escaped_base_url|g" \
   "$template" > "$temporary_config"
-chmod 600 "$temporary_config"
+chmod 644 "$temporary_config"
 
 echo "Validating generated HTTPS Nginx configuration..."
 docker run --rm \
+  --user 101:101 \
   --add-host backend:127.0.0.1 \
   --add-host frontend:127.0.0.1 \
   --volume "$temporary_config:/etc/nginx/conf.d/default.conf:ro" \
   --volume "$REPO_ROOT/infrastructure/nginx/routes.inc:/etc/nginx/routes.inc:ro" \
-  --volume "$LETSENCRYPT_DIR:/etc/letsencrypt:ro" \
-  nginx:1.28.0-alpine nginx -t
+  --volume "$generated_certificate_dir:/etc/letsencrypt/live/$HTTPS_DOMAIN:ro" \
+  nginxinc/nginx-unprivileged:1.28.0-alpine nginx -t
 
 mv "$temporary_config" "$generated_config"
 trap - EXIT
