@@ -7,6 +7,7 @@ from uuid import UUID
 from sqlalchemy.exc import IntegrityError
 
 from app.models.user import EmailVerificationToken, RefreshToken, User, UserRole
+from app.permissions import Permission, has_permissions
 from app.repositories.users import UserRepository
 from app.services.exceptions import (
     AccountLifecycleError,
@@ -110,8 +111,12 @@ class UserService:
         role: UserRole,
         full_name: str | None = None,
     ) -> User:
-        if actor.role is not UserRole.ADMIN:
-            raise AccountLifecycleError("Administrator role is required.")
+        if not has_permissions(actor.role, Permission.TEAM_MANAGE):
+            raise AccountLifecycleError("Team management permission is required.")
+        if role is UserRole.OWNER and not has_permissions(
+            actor.role, Permission.OWNER_ASSIGN
+        ):
+            raise AccountLifecycleError("Only an owner can assign the owner role.")
         return await self.create_user(
             email=email,
             full_name=full_name,
@@ -131,18 +136,37 @@ class UserService:
         target = await self._repository.get_by_id_in_company(user_id, actor.company_id)
         if target is None:
             raise AccountLifecycleError("User not found.")
-        removes_active_admin = (
+        if not has_permissions(actor.role, Permission.TEAM_MANAGE):
+            raise AccountLifecycleError("Team management permission is required.")
+        if actor.role is not UserRole.OWNER and (
+            target.role is UserRole.OWNER or role is UserRole.OWNER
+        ):
+            raise AccountLifecycleError("Only an owner can manage owners.")
+        removes_active_owner = (
+            target.role is UserRole.OWNER
+            and target.is_active
+            and (
+                (role is not None and role is not UserRole.OWNER) or is_active is False
+            )
+        )
+        if removes_active_owner and (
+            await self._repository.count_active_owners(actor.company_id) <= 1
+        ):
+            raise AccountLifecycleError("The last active owner cannot be removed.")
+        removes_legacy_admin = (
             target.role is UserRole.ADMIN
             and target.is_active
             and (
                 (role is not None and role is not UserRole.ADMIN) or is_active is False
             )
         )
-        if removes_active_admin and (
-            await self._repository.count_active_admins(actor.company_id) <= 1
+        if (
+            removes_legacy_admin
+            and await self._repository.count_active_owners(actor.company_id) == 0
+            and await self._repository.count_active_admins(actor.company_id) <= 1
         ):
             raise AccountLifecycleError(
-                "The last active administrator cannot be removed."
+                "The last active owner or legacy administrator cannot be removed."
             )
         if role is not None:
             target.role = role

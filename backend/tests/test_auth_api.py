@@ -49,11 +49,11 @@ async def login_user(
 
 
 @pytest.mark.anyio
-async def test_register_creates_company_administrator(
+async def test_register_creates_company_owner(
     api_client: AsyncClient,
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """Registration creates a real tenant and its first administrator."""
+    """Registration creates a real tenant and its first owner."""
     payload = await register_user(
         api_client,
         email="USER@Example.com",
@@ -63,7 +63,7 @@ async def test_register_creates_company_administrator(
 
     assert payload["email"] == "user@example.com"
     assert payload["full_name"] == "Workspace Owner"
-    assert payload["role"] == "admin"
+    assert payload["role"] == "owner"
     assert payload["is_active"] is True
     assert "hashed_password" not in payload
 
@@ -78,7 +78,7 @@ async def test_register_creates_company_administrator(
 async def test_register_rejects_all_client_selected_roles(
     api_client: AsyncClient,
 ) -> None:
-    """The server, never the public client, assigns the initial admin role."""
+    """The server, never the public client, assigns the initial owner role."""
     admin = await api_client.post(
         "/auth/register",
         json={

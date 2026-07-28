@@ -10,6 +10,7 @@ import {
 import { isRequestCancelled } from "../api/client";
 import { getProductFeatureFlags, type ProductFeatureFlags } from "../api/product";
 import { useAuth } from "../auth/useAuth";
+import type { UserRole } from "../auth/authApi";
 import {
   ProductExperienceContext,
   type ProductExperienceValue,
@@ -28,8 +29,8 @@ interface FeatureState {
   readonly userId: string | null;
 }
 
-function defaultMode(role: "admin" | "engineer" | "operator" | null): ProductMode {
-  return role === "operator" ? "simple" : "expert";
+function defaultMode(role: UserRole | null): ProductMode {
+  return role === "operator" || role === "viewer" ? "simple" : "expert";
 }
 
 function storageKey(userId: string): string {
@@ -91,9 +92,10 @@ export function ProductExperienceProvider({
   const featureError = hasCurrentFeatures ? featureState.error : null;
   const featuresLoading = isAuthenticated && user !== null && !hasCurrentFeatures;
   const canSwitchMode =
-    role === "admin" && effectiveFeatures.simplified_experience_enabled;
+    (role === "owner" || role === "admin") &&
+    effectiveFeatures.simplified_experience_enabled;
   const storedAdminPreference =
-    role === "admin" && user !== null
+    (role === "owner" || role === "admin") && user !== null
       ? (adminPreferences[user.id] ??
         (localStorage.getItem(storageKey(user.id)) === "simple" ? "simple" : "expert"))
       : "expert";
@@ -109,7 +111,7 @@ export function ProductExperienceProvider({
   const setMode = useCallback(
     (nextMode: ProductMode): void => {
       if (
-        role !== "admin" ||
+        (role !== "owner" && role !== "admin") ||
         user === null ||
         !effectiveFeatures.simplified_experience_enabled
       ) {

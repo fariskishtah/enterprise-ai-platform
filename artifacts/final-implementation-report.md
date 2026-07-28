@@ -35,6 +35,11 @@ Branch: `feature/production-saas-upgrade`
   credentials remain available only behind explicit local/test flags.
 - Added the verification-pending frontend with verified, already-verified,
   expired, invalid, used, resend, and cooldown states.
+- Added migration `0026_add_six_role_rbac`, converting existing administrators to
+  owners, plus an explicit Owner/Admin/Engineer/Operator/Analyst/Viewer permission
+  matrix, owner-only privilege boundaries, and last-owner protection. Legacy
+  route declarations now delegate to that matrix with read-only Analyst/Viewer
+  compatibility, and the team UI understands all six roles.
 - Updated README scope and screenshot gallery.
 
 ## Bugs fixed
@@ -48,12 +53,12 @@ Branch: `feature/production-saas-upgrade`
 
 ## Verification summary
 
-See `artifacts/final-test-report.md`. Final pytest: 849 passed, 3 skipped. Full
+See `artifacts/final-test-report.md`. Final pytest: 852 passed, 3 skipped. Full
 fixture Playwright: 46 passed, 23 explicitly guarded real-backend skips. Frontend
 lint/format/type/build, backend changed-file lint/format, full mypy, Compose
 configuration, full mypy across 287 source files, and empty-database billing and
 transactional-email and verification migration round trips passed. The rebuilt
-local runtime is at migration `0025`; API health and billing catalogue probes
+local runtime is at migration `0026`; API health and billing catalogue probes
 returned HTTP 200.
 
 ## Required current environment variables
@@ -81,7 +86,7 @@ production webhook on this revision.
 ## Remaining limitations
 
 This repository is **not production-ready for the full requested scope**.
-Invitations, six-role RBAC, progressive account lockout, HttpOnly
+Invitations, progressive account lockout, HttpOnly
 refresh cookies, SES/SendGrid adapters and credential-backed provider proof,
 Paymob checkout/signature/webhook processing, subscription mutations, plan-limit
 enforcement, billing admin UI, notification preferences, current k6 load evidence,

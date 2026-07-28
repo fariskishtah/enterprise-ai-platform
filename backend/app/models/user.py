@@ -26,9 +26,12 @@ from app.db.base import Base
 class UserRole(StrEnum):
     """Roles supported by the platform authorization model."""
 
+    OWNER = "owner"
     ADMIN = "admin"
     ENGINEER = "engineer"
     OPERATOR = "operator"
+    ANALYST = "analyst"
+    VIEWER = "viewer"
 
 
 def _role_values(enum_type: type[UserRole]) -> list[str]:
@@ -42,7 +45,7 @@ class User(Base):
     __tablename__ = "users"
     __table_args__ = (
         CheckConstraint(
-            "role IN ('admin', 'engineer', 'operator')",
+            "role IN ('owner', 'admin', 'engineer', 'operator', 'analyst', 'viewer')",
             name="ck_users_role_valid",
         ),
         Index("ix_users_email", "email", unique=True),

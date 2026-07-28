@@ -1,7 +1,8 @@
 import { apiRequest } from "../api/client";
 import type { TokenPair } from "../api/sessionStorage";
 
-export type UserRole = "admin" | "engineer" | "operator";
+export type UserRole =
+  "owner" | "admin" | "engineer" | "operator" | "analyst" | "viewer";
 
 export interface CurrentUser {
   readonly company_id: string;

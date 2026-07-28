@@ -134,6 +134,19 @@ class UserRepository:
         )
         return len(rows.all())
 
+    async def count_active_owners(self, company_id: UUID) -> int:
+        """Lock active owner rows before an access-removing mutation."""
+        rows = await self._session.scalars(
+            select(User.id)
+            .where(
+                User.company_id == company_id,
+                User.role == UserRole.OWNER,
+                User.is_active.is_(True),
+            )
+            .with_for_update()
+        )
+        return len(rows.all())
+
     async def update_password(self, user: User, hashed_password: str) -> None:
         user.hashed_password = hashed_password
         await self._session.flush()

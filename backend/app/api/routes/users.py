@@ -6,10 +6,11 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 
 from app.config.settings import Settings, get_settings
-from app.dependencies.auth import get_current_user, require_roles
+from app.dependencies.auth import get_current_user, require_permissions
 from app.dependencies.rate_limit import enforce_mutation_rate_limit
 from app.dependencies.services import get_audit_service, get_user_service
 from app.models.user import User, UserRole
+from app.permissions import Permission
 from app.schemas.auth import PasswordResetRequestResponse
 from app.schemas.user import (
     ChangePasswordRequest,
@@ -37,7 +38,7 @@ async def read_current_user(
 
 @router.get("", response_model=UserListResponse)
 async def list_users(
-    current_user: Annotated[User, Depends(require_roles(UserRole.ADMIN))],
+    current_user: Annotated[User, Depends(require_permissions(Permission.TEAM_VIEW))],
     service: Annotated[UserService, Depends(get_user_service)],
     role: UserRole | None = None,
     is_active: bool | None = None,
@@ -67,7 +68,7 @@ async def list_users(
 )
 async def create_user(
     payload: UserCreateRequest,
-    current_user: Annotated[User, Depends(require_roles(UserRole.ADMIN))],
+    current_user: Annotated[User, Depends(require_permissions(Permission.TEAM_MANAGE))],
     service: Annotated[UserService, Depends(get_user_service)],
     audit: Annotated[AuditService, Depends(get_audit_service)],
 ) -> UserResponse:
@@ -79,7 +80,7 @@ async def create_user(
             password=payload.password,
             role=payload.role,
         )
-    except DuplicateEmailError as exc:
+    except (DuplicateEmailError, AccountLifecycleError) as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
     await audit.record(
         company_id=current_user.company_id,
@@ -101,7 +102,7 @@ async def create_user(
 async def update_user(
     user_id: UUID,
     payload: UserUpdateRequest,
-    current_user: Annotated[User, Depends(require_roles(UserRole.ADMIN))],
+    current_user: Annotated[User, Depends(require_permissions(Permission.TEAM_MANAGE))],
     service: Annotated[UserService, Depends(get_user_service)],
     audit: Annotated[AuditService, Depends(get_audit_service)],
 ) -> UserResponse:
@@ -180,7 +181,7 @@ async def change_password(
 )
 async def admin_reset_user_password(
     user_id: UUID,
-    current_user: Annotated[User, Depends(require_roles(UserRole.ADMIN))],
+    current_user: Annotated[User, Depends(require_permissions(Permission.TEAM_MANAGE))],
     service: Annotated[UserService, Depends(get_user_service)],
     settings: Annotated[Settings, Depends(get_settings)],
     audit: Annotated[AuditService, Depends(get_audit_service)],

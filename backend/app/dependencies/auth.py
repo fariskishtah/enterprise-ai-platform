@@ -12,6 +12,7 @@ from app.db.tenant_context import bind_tenant
 from app.dependencies.services import get_user_service
 from app.models.user import User, UserRole
 from app.observability.logging import emit_safe
+from app.permissions import Permission, has_permissions, legacy_route_permission
 from app.services.users import UserService
 from app.utils.jwt import TokenDecodeError, TokenType, decode_jwt_token
 
@@ -79,12 +80,17 @@ async def get_current_user(
 
 
 def require_roles(*allowed_roles: UserRole) -> Callable[..., User]:
-    """Return a dependency that enforces role membership."""
+    """Compatibility dependency backed by the central permission matrix."""
 
     def verify_role(
+        request: Request,
         current_user: Annotated[User, Depends(get_current_user)],
     ) -> User:
-        if current_user.role not in allowed_roles:
+        permission = legacy_route_permission(
+            allowed_roles,
+            safe_method=request.method in {"GET", "HEAD", "OPTIONS"},
+        )
+        if not has_permissions(current_user.role, permission):
             emit_safe(
                 security_logger,
                 logging.WARNING,
@@ -104,3 +110,31 @@ def require_roles(*allowed_roles: UserRole) -> Callable[..., User]:
         return current_user
 
     return verify_role
+
+
+def require_permissions(*required: Permission) -> Callable[..., User]:
+    """Return a dependency requiring every explicit capability."""
+
+    def verify_permission(
+        current_user: Annotated[User, Depends(get_current_user)],
+    ) -> User:
+        if not has_permissions(current_user.role, *required):
+            emit_safe(
+                security_logger,
+                logging.WARNING,
+                "security_audit",
+                extra={
+                    "audit_event": "privileged_authorization",
+                    "outcome": "denied",
+                    "reason": "insufficient_permission",
+                    "actor_role": current_user.role.value,
+                    "required_permissions": ",".join(item.value for item in required),
+                },
+            )
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="User does not have permission to perform this action.",
+            )
+        return current_user
+
+    return verify_permission

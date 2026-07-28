@@ -67,7 +67,7 @@ async function expectNoSeriousA11yViolations(page: Page): Promise<void> {
 }
 
 test.describe("authentication", () => {
-  test("SaaS registration provisions a company administrator pending verification", async ({
+  test("SaaS registration provisions a company owner pending verification", async ({
     page,
   }) => {
     const failures = observeBrowserFailures(page);
@@ -87,7 +87,7 @@ test.describe("authentication", () => {
         is_active: true,
         is_email_verified: false,
         local_verification_token: null,
-        role: "admin",
+        role: "owner",
         updated_at: NOW,
       });
     });
@@ -108,7 +108,7 @@ test.describe("authentication", () => {
         id: "e2e-public-engineer",
         is_active: true,
         is_email_verified: false,
-        role: "admin",
+        role: "owner",
         updated_at: NOW,
       }),
     );

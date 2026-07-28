@@ -52,11 +52,12 @@ POST /auth/email-verification/verify
 GET  /users/me
 ```
 
-Public registration creates a company administrator with unverified email
+Public registration creates a company owner with unverified email
 ownership. Login remains available, but production restricts product routes
 until the hashed, expiring, single-use verification credential is consumed.
-Password reset uses a privacy-safe generic request response. User invitations,
-the six-role model, and MFA are not yet implemented.
+Password reset uses a privacy-safe generic request response. Owner/Admin team
+management uses the backend six-role permission matrix. Invitations and MFA are
+not yet implemented.
 
 ## Manufacturing hierarchy
 
@@ -72,8 +73,9 @@ GET|PATCH|DELETE      /sensors/{sensor_id}
 GET                   /machines/{machine_id}/sensors
 ```
 
-Admins may delete. Admins and engineers may create/update. Operators are
-read-only.
+Owners/Admins may delete. Engineers may create/update. Operators execute bounded
+operational actions. Analysts and Viewers are read-only according to the central
+permission matrix.
 
 ## Sensor data and feature export
 

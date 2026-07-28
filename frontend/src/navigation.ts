@@ -1,4 +1,7 @@
-export type NavigationRole = "admin" | "engineer" | "operator";
+import { hasLegacyRoleAccess } from "./auth/permissions";
+import type { UserRole } from "./auth/authApi";
+
+export type NavigationRole = UserRole;
 export type NavigationMode = "expert" | "simple";
 export type NavigationFeature = "demo" | "operations";
 export type NavigationMotion =
@@ -306,7 +309,8 @@ export function getVisibleNavigationItems(
 ): readonly NavigationItem[] {
   return navigationItems.filter(
     (item) =>
-      (item.roles === undefined || (role !== null && item.roles.includes(role))) &&
+      (item.roles === undefined ||
+        (role !== null && hasLegacyRoleAccess(role, item.roles))) &&
       item.sidebar !== false &&
       (item.modes === undefined || item.modes.includes(mode)) &&
       (item.feature !== "operations" || features.operations_workflow_enabled) &&

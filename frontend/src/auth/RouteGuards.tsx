@@ -4,6 +4,8 @@ import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { useProductExperience } from "../product/productExperience";
 import { ForbiddenPage } from "../pages/RouteErrorPages";
 import { useAuth } from "./useAuth";
+import { hasLegacyRoleAccess } from "./permissions";
+import type { UserRole } from "./authApi";
 
 export function AuthLoadingScreen(): ReactElement {
   return (
@@ -67,13 +69,13 @@ export function PublicOnlyRoute(): ReactElement {
 export function RoleRoute({
   roles,
 }: {
-  readonly roles: readonly ("admin" | "engineer" | "operator")[];
+  readonly roles: readonly UserRole[];
 }): ReactElement {
   const auth = useAuth();
   if (auth.status === "loading") {
     return <AuthLoadingScreen />;
   }
-  return auth.role !== null && roles.includes(auth.role) ? (
+  return auth.role !== null && hasLegacyRoleAccess(auth.role, roles) ? (
     <Outlet />
   ) : (
     <ForbiddenPage />

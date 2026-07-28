@@ -95,9 +95,12 @@ export function UsersPage(): ReactElement {
             value={role}
           >
             <option value="">All roles</option>
+            <option value="owner">Owner</option>
             <option value="admin">Admin</option>
             <option value="engineer">Engineer</option>
             <option value="operator">Operator</option>
+            <option value="analyst">Analyst</option>
+            <option value="viewer">Viewer</option>
           </select>
         </label>
         <label className="text-sm font-medium text-foreground">
@@ -271,8 +274,11 @@ function CreateUserDialog({
           Initial role
           <select className={inputClassName} name="role" defaultValue="operator">
             <option value="operator">Operator</option>
+            <option value="viewer">Viewer</option>
+            <option value="analyst">Analyst</option>
             <option value="engineer">Engineer</option>
             <option value="admin">Admin</option>
+            <option value="owner">Owner</option>
           </select>
         </label>
         <label className="block text-sm font-medium">
@@ -330,9 +336,12 @@ function ManageUserDialog({
             onChange={(event) => setRole(event.target.value as UserRole)}
             value={role}
           >
-            <option value="operator">Operator</option>
-            <option value="engineer">Engineer</option>
+            <option value="owner">Owner</option>
             <option value="admin">Admin</option>
+            <option value="engineer">Engineer</option>
+            <option value="operator">Operator</option>
+            <option value="analyst">Analyst</option>
+            <option value="viewer">Viewer</option>
           </select>
         </label>
         <label className="flex items-center gap-3 text-sm font-medium">

@@ -21,6 +21,9 @@ Reviewed: 2026-07-28. Status: **not approved for unrestricted production**.
   Production requires server-side enforcement while preserving login and resend;
   token-bearing queued bodies are encrypted, provider delivery stays async, and
   capture/disabled providers are rejected in production.
+- Six roles use one server-side permission matrix. Existing Admins migrate to
+  Owner; Admin cannot manage Owner, read-only roles cannot mutate through legacy
+  dependencies, and the final active Owner is protected transactionally.
 
 ## Open findings
 
@@ -29,7 +32,6 @@ Reviewed: 2026-07-28. Status: **not approved for unrestricted production**.
 | Critical | Paymob checkout/webhook handling is not implemented. | Add hosted checkout, HMAC verification over exact raw payload, transactional idempotency, state transitions, and concurrency tests before enabling billing. |
 | High | Refresh tokens remain accessible to JavaScript in session storage. | Prefer same-site Secure HttpOnly refresh cookies with CSRF protection; retain short access tokens in memory. |
 | High | Login rate limiting exists, but there is no account-specific progressive lockout. | Add bounded failed-attempt state without enabling account enumeration or denial-of-service abuse. |
-| High | Only three roles are implemented. | Introduce Owner/Admin/Engineer/Operator/Analyst/Viewer through a compatibility migration and centralized permissions. |
 | Medium | CSV/plain-text ingestion lacks a production malware scanner. | Add quarantine and an asynchronous scanner hook before marking uploads ready. |
 | Medium | Current dependency/container scans were not rerun in this change. | Run CI security workflow and review Bandit, pip-audit, npm audit, gitleaks, Semgrep, Trivy, SBOM, and licences. |
 

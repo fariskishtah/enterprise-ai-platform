@@ -12,20 +12,27 @@ foreign keys, explicit company identifiers on business roots, request-scoped ORM
 query guards, and service/repository authorization. It is not a claim of general
 multi-tenant SaaS certification.
 
-## Roles
+## Roles and permissions
 
-- **Administrator** manages the company identity lifecycle, company settings,
-  audit export, model champion promotion, alert resolution, and other destructive
-  or privileged controls. An administrator cannot remove the last active
-  administrator.
-- **Engineer** manages manufacturing resources and data, trains and evaluates
-  models, builds knowledge bases, runs governed predictions, and investigates
-  monitoring state.
-- **Operator** has read-oriented manufacturing and operational access, can run
-  an approved structured prediction, and can acknowledge a pilot risk/alert.
-  Operators cannot administer users, train models, or resolve alerts.
+The backend-authoritative matrix in `app/permissions.py` defines six roles:
 
-Administrators have company-wide access, not platform-wide access. Dataset and
+- **Owner** has every tenant capability, including billing and assigning another
+  owner. The last active owner cannot be demoted or deactivated.
+- **Admin** manages team members, company settings, and privileged workflows but
+  cannot create, promote, demote, or deactivate an owner.
+- **Engineer** reads and changes manufacturing/AI resources and can execute
+  approved operational workflows without tenant administration.
+- **Operator** reads the common platform surface and executes approved operations.
+- **Analyst** has read-only common and engineering/analytics access.
+- **Viewer** has common read-only access.
+
+Migration `0026_add_six_role_rbac` converts every existing `admin` to `owner` so
+each tenant retains a principal capable of owner-only actions. The legacy route
+dependencies delegate to the same matrix: Owner inherits Admin access, Analyst
+can use safe Engineer reads, and Viewer can use safe Operator reads; neither
+read-only role receives a mutation permission.
+
+Owners and administrators have company-wide access, not platform-wide access. Dataset and
 RAG collaboration inside one company is supported where the service policy
 allows it; owner identifiers remain lineage, not a tenant boundary.
 
@@ -91,7 +98,7 @@ development, or test.
 
 ## Unsupported enterprise identity capabilities
 
-The pilot does not provide MFA, OIDC/SAML SSO, SCIM, delegated tenant
-administration, platform super-administration, company switching, invitations
-with email delivery, domain claiming, or tenant self-service deletion. These
+The pilot does not provide MFA, OIDC/SAML SSO, SCIM, platform
+super-administration, company switching, invitations with email delivery,
+domain claiming, or tenant self-service deletion. These
 require separate threat modeling, product policy, and acceptance testing.

@@ -61,12 +61,12 @@ class AuthenticationService:
         full_name: str,
         company_name: str,
     ) -> User:
-        """Create a tenant and its first administrator from public signup."""
+        """Create a tenant and its first owner from public signup."""
         return await self._user_service.create_user(
             email=email,
             password=password,
             full_name=full_name,
-            role=UserRole.ADMIN,
+            role=UserRole.OWNER,
             company_name=company_name,
         )
 

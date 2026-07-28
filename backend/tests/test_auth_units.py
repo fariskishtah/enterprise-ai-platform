@@ -17,7 +17,7 @@ from app.utils.jwt import (
     decode_jwt_token,
 )
 from app.utils.passwords import PasswordHasher, PasswordPolicyError
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 VALID_PASSWORD = "ValidPassword1!"
@@ -149,7 +149,8 @@ def test_require_roles_accepts_allowed_role() -> None:
         role=UserRole.ADMIN,
     )
 
-    assert dependency(user) is user
+    request = Request({"type": "http", "method": "GET", "path": "/users"})
+    assert dependency(request, user) is user
 
 
 def test_require_roles_rejects_disallowed_role(
@@ -167,7 +168,8 @@ def test_require_roles_rejects_disallowed_role(
     )
 
     with pytest.raises(HTTPException) as exc_info:
-        dependency(user)
+        request = Request({"type": "http", "method": "GET", "path": "/users"})
+        dependency(request, user)
 
     assert exc_info.value.status_code == 403
     audit_record = next(

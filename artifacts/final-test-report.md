@@ -6,11 +6,12 @@ Host: macOS ARM64, 8 CPUs, 8 GiB RAM
 | Check | Result |
 | --- | --- |
 | Initial backend suite | 824 passed, 3 skipped |
-| Final backend suite | 849 passed, 3 skipped in 177.82s |
+| Final backend suite | 852 passed, 3 skipped in 166.20s |
 | Billing/auth focused suite | 22 passed |
 | Billing catalogue + migration | 4 passed |
 | Transactional email/support/security focused suite | 25 passed |
 | Verification/email/security focused suite | 31 passed |
+| Six-role RBAC/auth focused suite | 39 passed |
 | Ruff on changed backend modules | Passed |
 | Black on changed backend modules | Passed |
 | mypy `app` | Passed, 287 source files |
@@ -18,14 +19,15 @@ Host: macOS ARM64, 8 CPUs, 8 GiB RAM
 | Frontend Prettier | Passed |
 | TypeScript + Vite production build | Passed |
 | Focused account-recovery Playwright | 2 passed |
-| Full fixture Playwright | 46 passed, 23 intentionally skipped in 40.7s |
+| Full fixture Playwright | 46 passed, 23 intentionally skipped in 29.9s |
 | Docker Compose config | Passed |
 | Billing migration empty SQLite round trip + Alembic check | Passed |
 | Transactional email migration empty SQLite round trip + Alembic check | Passed |
 | Email verification migration/backfill/downgrade + Alembic check | Passed |
+| Six-role migration/backfill/downgrade + Alembic check | Passed |
 | API/frontend local probes before rebuild | HTTP 200 |
 | Changed service Docker rebuild | Passed |
-| Current PostgreSQL migration | `0025_add_email_verification` (head) |
+| Current PostgreSQL migration | `0026_add_six_role_rbac` (head) |
 | Rebuilt API `/health` and `/billing/plans` | HTTP 200 |
 | k6 current load run | Blocked: k6 not installed |
 

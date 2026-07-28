@@ -1,6 +1,7 @@
 import { apiRequest } from "./client";
 
-export type UserRole = "admin" | "engineer" | "operator";
+export type UserRole =
+  "owner" | "admin" | "engineer" | "operator" | "analyst" | "viewer";
 
 export interface CompanyUser {
   readonly company_id: string;

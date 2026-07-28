@@ -49,7 +49,7 @@ architecture, data-flow, deployment, and observability diagrams.
 ## Implemented product areas
 
 - JWT login, refresh rotation, logout, hashed single-use password recovery,
-  enforced email ownership, admin/engineer/operator RBAC, and company-scoped
+  enforced email ownership, six-role permission-matrix RBAC, and company-scoped
   user and session lifecycle controls. Identity emails use the durable
   capture/Resend/SMTP queue; see [transactional email](docs/email.md).
 - Company → factory → machine → sensor hierarchy.

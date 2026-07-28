@@ -59,13 +59,12 @@ confirmed. Existing accounts are migration-backfilled as verified.
 
 ## RBAC
 
-Supported roles:
-
-- `admin`: full manufacturing CRUD access, including soft delete.
-- `engineer`: create, update, and read manufacturing resources.
-- `operator`: read-only manufacturing access.
-
-RBAC is enforced through the `require_roles` FastAPI dependency.
+The explicit backend matrix supports `owner`, `admin`, `engineer`, `operator`,
+`analyst`, and `viewer`. Owner holds every tenant capability; Admin cannot manage
+owners; Engineer can mutate engineering resources; Operator can execute bounded
+operations; Analyst and Viewer remain read-only at progressively narrower
+levels. New endpoints require named permissions. Existing role dependencies map
+through the same policy and distinguish safe reads from mutations.
 
 ## API Boundary Hardening
 
