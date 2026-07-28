@@ -6,7 +6,7 @@ root-readable environment file. Values below are placeholders.
 ```dotenv
 APP_ENV=production
 ENVIRONMENT=production
-APP_BASE_URL=https://platform.example
+APP_PUBLIC_URL=https://platform.example
 API_BASE_URL=https://platform.example/api
 ALLOWED_HOSTS=["platform.example"]
 CORS_ALLOWED_ORIGINS=["https://platform.example"]
@@ -23,9 +23,22 @@ JWT_AUDIENCE=<deployment-specific-audience>
 
 EMAIL_PROVIDER=resend
 RESEND_API_KEY=<server-only-secret>
-EMAIL_FROM=support@verified.example
-SUPPORT_EMAIL_TO=fkishtah@gmail.com
-SUPPORT_EMAIL_MAX_ATTEMPTS=3
+EMAIL_FROM_ADDRESS=support@verified.example
+EMAIL_FROM_NAME=FK SOLUTIONS
+EMAIL_REPLY_TO=support@verified.example
+SUPPORT_NOTIFICATION_EMAIL=<support-mailbox>
+SMTP_HOST=
+SMTP_PORT=587
+SMTP_USERNAME=
+SMTP_PASSWORD=
+SMTP_USE_TLS=true
+EMAIL_MAX_RETRIES=3
+EMAIL_RETRY_BASE_SECONDS=5
+EMAIL_QUEUE_NAME=transactional-email
+EMAIL_RECONCILIATION_SCHEDULING_ENABLED=true
+EMAIL_RECONCILIATION_INTERVAL_SECONDS=60
+EMAIL_PROCESSING_STALE_SECONDS=300
+EMAIL_RECONCILIATION_BATCH_SIZE=100
 
 PASSWORD_RESET_EXPIRE_MINUTES=30
 EXPOSE_LOCAL_PASSWORD_RESET_TOKEN=false

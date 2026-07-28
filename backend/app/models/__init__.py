@@ -36,6 +36,7 @@ from app.models.demo_experience import (
     ReportSchedule,
     ReportStatus,
 )
+from app.models.email import EmailDeliveryStatus, EmailMessageType, OutboundEmailMessage
 from app.models.manufacturing import Company, Factory, Machine
 from app.models.mlops import (
     Experiment,
@@ -99,6 +100,8 @@ __all__ = [
     "DemoScenarioStatus",
     "DocumentChunk",
     "DocumentRecord",
+    "EmailDeliveryStatus",
+    "EmailMessageType",
     "Experiment",
     "Factory",
     "FactoryLayout",
@@ -121,6 +124,7 @@ __all__ = [
     "OperationalActionStatus",
     "OperationalNote",
     "OperationalTimelineEvent",
+    "OutboundEmailMessage",
     "Payment",
     "PaymentProviderCustomer",
     "PlanEntitlement",

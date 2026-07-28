@@ -18,6 +18,8 @@ from app.datasets.queue import DramatiqDatasetProcessingQueue
 from app.datasets.service import DatasetLimits, DatasetProcessor
 from app.datasets.storage import LocalDatasetObjectStorage
 from app.db.session import build_session_factory
+from app.email.queue import DramatiqTransactionalEmailQueue
+from app.email.scheduling import EmailReconciliationSchedulerMiddleware
 from app.ml.automl.queue import DramatiqAutoMLQueue
 from app.ml.composition import (
     create_ai_model_registry,
@@ -53,6 +55,12 @@ from app.services.automl_execution import (
     AutoMLExecutionState,
     AutoMLReconciler,
     AutoMLTrialWorker,
+)
+from app.services.email import configured_email_provider
+from app.services.email_delivery import (
+    EmailDeliveryWorker,
+    EmailWorkerState,
+    reconcile_email_delivery,
 )
 from app.services.rag import RAGService
 from app.utils.security import utc_now
@@ -120,6 +128,51 @@ def _worker_session_factory(
 ) -> async_sessionmaker[AsyncSession]:
     """Build the process-local database pool lazily after worker fork."""
     return build_session_factory(database_url)
+
+
+class RetryableEmailDeliveryError(RuntimeError):
+    """Signal a bounded provider retry to Dramatiq."""
+
+
+@dramatiq.actor(
+    broker=broker,
+    queue_name=_settings.email_queue_name,
+    max_retries=_settings.email_max_retries,
+    min_backoff=int(_settings.email_retry_base_seconds * 1000),
+)
+@traced_operation("email.delivery", attributes={"trigger": "background"})
+def deliver_transactional_email(message_id: str) -> None:
+    """Deliver one authoritative persisted transactional email UUID."""
+    try:
+        email_id = UUID(message_id)
+    except ValueError:
+        return
+    outcome = asyncio.run(
+        EmailDeliveryWorker(
+            session_factory=_worker_session_factory(_settings.database_url),
+            provider=configured_email_provider(_settings),
+            retry_base_seconds=_settings.email_retry_base_seconds,
+        ).execute(email_id)
+    )
+    if outcome is EmailWorkerState.RETRY:
+        raise RetryableEmailDeliveryError("Email delivery released for bounded retry.")
+
+
+@dramatiq.actor(broker=broker, queue_name=_settings.email_queue_name)
+@traced_operation("email.reconciliation", attributes={"trigger": "scheduled"})
+def reconcile_transactional_email() -> None:
+    """Republish due durable email work idempotently."""
+
+    async def reconcile() -> None:
+        async with _worker_session_factory(_settings.database_url)() as session:
+            await reconcile_email_delivery(
+                session,
+                enqueue=DramatiqTransactionalEmailQueue().enqueue,
+                stale_after_seconds=_settings.email_processing_stale_seconds,
+                limit=_settings.email_reconciliation_batch_size,
+            )
+
+    asyncio.run(reconcile())
 
 
 @dramatiq.actor(
@@ -354,6 +407,16 @@ broker.add_middleware(
         interval_seconds=_settings.automl_reconciliation_interval_seconds,
         redis_url=_settings.redis_url,
         enqueue=reconcile_automl_execution.send,
+    )
+)
+broker.add_middleware(
+    EmailReconciliationSchedulerMiddleware(
+        enabled=_settings.email_reconciliation_scheduling_enabled,
+        interval_seconds=_settings.email_reconciliation_interval_seconds,
+        redis_url=_settings.redis_url,
+        enqueue=reconcile_transactional_email.send,
+        scheduler_key="scheduler:email:reconciliation:v1",
+        scheduler_name="email",
     )
 )
 broker.add_middleware(

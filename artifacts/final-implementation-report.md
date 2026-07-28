@@ -21,6 +21,11 @@ Branch: `feature/production-saas-upgrade`
   It does not claim checkout is available or fabricate payment success.
 - Added billing catalogue/migration tests, documentation, current security/model/
   training/load evidence, and three reviewed non-sensitive screenshots.
+- Added migration `0024_add_transactional_email`, durable UUID-only Dramatiq
+  delivery, capture/Resend/SMTP adapters, bounded retry state, deduplication,
+  sanitized metrics/logging, and ten provider-neutral HTML/text templates.
+- Moved support email off the API request path while preserving the support
+  record and durable delivery state across provider or queue failures.
 - Updated README scope and screenshot gallery.
 
 ## Bugs fixed
@@ -34,20 +39,21 @@ Branch: `feature/production-saas-upgrade`
 
 ## Verification summary
 
-See `artifacts/final-test-report.md`. Final pytest: 830 passed, 3 skipped. Full
+See `artifacts/final-test-report.md`. Final pytest: 840 passed, 3 skipped. Full
 fixture Playwright: 45 passed, 23 explicitly guarded real-backend skips. Frontend
 lint/format/type/build, backend changed-file lint/format, full mypy, Compose
-configuration, and empty-database billing migration round trip passed.
+configuration, full mypy across 287 source files, and empty-database billing and
+transactional-email migration round trips passed.
 
 ## Required current environment variables
 
 Use `.env.example` as the source of truth. Essential production values include
 `DATABASE_URL`, `REDIS_URL`, `SECRET_KEY`, JWT issuer/audience/expiry settings,
-HTTPS `APP_BASE_URL`/`API_BASE_URL`, exact `ALLOWED_HOSTS` and
+HTTPS `APP_PUBLIC_URL`/`API_BASE_URL`, exact `ALLOWED_HOSTS` and
 `CORS_ALLOWED_ORIGINS`, secure cookie flags, observability endpoints, storage
 paths, PostgreSQL credentials, and non-default Grafana credentials. Resend support
 delivery additionally needs `EMAIL_PROVIDER=resend`, `RESEND_API_KEY`,
-`EMAIL_FROM`, and `SUPPORT_EMAIL_TO`. `ENABLE_DEVELOPMENT_SEED` and
+`EMAIL_FROM_ADDRESS`, and `SUPPORT_NOTIFICATION_EMAIL`. `ENABLE_DEVELOPMENT_SEED` and
 `DEMO_TOOLS_ENABLED` must be false in production.
 
 ## Deployment
@@ -63,7 +69,7 @@ production webhook on this revision.
 
 This repository is **not production-ready for the full requested scope**. Email
 verification, invitations, six-role RBAC, progressive account lockout, HttpOnly
-refresh cookies, durable asynchronous transactional email, SMTP/SES/SendGrid,
+refresh cookies, SES/SendGrid adapters and credential-backed provider proof,
 Paymob checkout/signature/webhook processing, subscription mutations, plan-limit
 enforcement, billing admin UI, notification preferences, current k6 load evidence,
 full real-backend browser rerun, and most requested authenticated screenshots

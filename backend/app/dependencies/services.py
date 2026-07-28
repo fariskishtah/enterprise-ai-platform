@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config.mlops import MLOpsConfigurationLoader
 from app.config.settings import Settings, get_settings
 from app.dependencies.database import get_db_session
+from app.email.queue import DramatiqTransactionalEmailQueue, TransactionalEmailQueue
 from app.ml.artifacts import BaseArtifactManager, LocalArtifactManager
 from app.ml.composition import create_ai_trainer_registry
 from app.ml.engine import TrainingEngine
@@ -102,6 +103,11 @@ def get_support_email_provider(
 ) -> EmailProvider:
     """Return the narrow configured support email provider."""
     return configured_email_provider(settings)
+
+
+def get_transactional_email_queue() -> TransactionalEmailQueue:
+    """Return the UUID-only transactional email queue adapter."""
+    return DramatiqTransactionalEmailQueue()
 
 
 def get_operations_service(

@@ -30,7 +30,7 @@ class SupportRequest(Base):
             name="ck_support_requests_status",
         ),
         CheckConstraint(
-            "delivery_attempts >= 0 AND delivery_attempts <= 5",
+            "delivery_attempts >= 0 AND delivery_attempts <= 11",
             name="ck_support_requests_delivery_attempts",
         ),
         Index(

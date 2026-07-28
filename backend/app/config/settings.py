@@ -70,11 +70,46 @@ class Settings(BaseSettings):
     refresh_token_expire_days: PositiveInt = 30
     password_reset_expire_minutes: PositiveInt = Field(default=30, le=1440)
     expose_local_password_reset_token: bool = False
-    email_provider: Literal["disabled", "resend"] = "disabled"
+    email_provider: Literal["disabled", "capture", "resend", "smtp"] = "disabled"
     resend_api_key: SecretStr | None = None
-    email_from: EmailStr | None = None
-    support_email_to: EmailStr | None = None
-    support_email_max_attempts: PositiveInt = Field(default=3, le=5)
+    email_from: EmailStr | None = Field(
+        default=None,
+        validation_alias=AliasChoices("EMAIL_FROM_ADDRESS", "EMAIL_FROM", "email_from"),
+    )
+    email_from_name: str = Field(default="FK SOLUTIONS", min_length=1, max_length=100)
+    email_reply_to: EmailStr | None = None
+    support_email_to: EmailStr | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "SUPPORT_NOTIFICATION_EMAIL", "SUPPORT_EMAIL_TO", "support_email_to"
+        ),
+    )
+    email_max_retries: PositiveInt = Field(
+        default=3,
+        le=10,
+        validation_alias=AliasChoices(
+            "EMAIL_MAX_RETRIES", "SUPPORT_EMAIL_MAX_ATTEMPTS", "email_max_retries"
+        ),
+    )
+    email_retry_base_seconds: PositiveFloat = Field(default=5.0, le=3600)
+    email_queue_name: str = Field(
+        default="transactional-email",
+        min_length=1,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9_.-]+$",
+    )
+    email_reconciliation_scheduling_enabled: bool = True
+    email_reconciliation_interval_seconds: PositiveInt = Field(
+        default=60, ge=10, le=3600
+    )
+    email_processing_stale_seconds: PositiveInt = Field(default=300, le=86_400)
+    email_reconciliation_batch_size: PositiveInt = Field(default=100, le=1000)
+    smtp_host: str | None = Field(default=None, max_length=255)
+    smtp_port: int = Field(default=587, ge=1, le=65535)
+    smtp_username: str | None = Field(default=None, max_length=255)
+    smtp_password: SecretStr | None = None
+    smtp_use_tls: bool = True
+    smtp_timeout_seconds: PositiveFloat = Field(default=10.0, le=60)
     simplified_experience_enabled: bool = False
     operations_workflow_enabled: bool = False
     demo_tools_enabled: bool = False
@@ -89,7 +124,10 @@ class Settings(BaseSettings):
         default=50 * 1024 * 1024,
         le=100 * 1024 * 1024,
     )
-    app_base_url: str | None = None
+    app_base_url: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("APP_PUBLIC_URL", "APP_BASE_URL", "app_base_url"),
+    )
     api_base_url: str | None = None
     allowed_hosts: tuple[str, ...] = ("localhost", "127.0.0.1")
     cookie_secure: bool = False
@@ -432,14 +470,21 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "production allowed_hosts must not contain local hosts."
                 )
-        if self.email_provider == "resend" and (
-            self.resend_api_key is None
-            or self.email_from is None
-            or self.support_email_to is None
+        if self.email_provider in {"capture", "resend", "smtp"} and (
+            self.email_from is None
         ):
             raise ValueError(
-                "resend_api_key, email_from, and support_email_to are required "
-                "when email_provider is resend."
+                "email_from is required when transactional email is enabled."
+            )
+        if self.email_provider == "resend" and self.resend_api_key is None:
+            raise ValueError(
+                "resend_api_key is required when email_provider is resend."
+            )
+        if self.email_provider == "smtp" and not self.smtp_host:
+            raise ValueError("smtp_host is required when email_provider is smtp.")
+        if (self.smtp_username is None) != (self.smtp_password is None):
+            raise ValueError(
+                "smtp_username and smtp_password must be configured together."
             )
         otlp_endpoint = urlsplit(self.otel_exporter_otlp_endpoint)
         if (
@@ -492,6 +537,11 @@ class Settings(BaseSettings):
         if not aliases or len(aliases) > 10 or any(len(item) > 128 for item in aliases):
             raise ValueError("monitoring_eligible_model_aliases is invalid.")
         return aliases
+
+    @property
+    def support_email_max_attempts(self) -> int:
+        """Compatibility name for the former support-only delivery bound."""
+        return self.email_max_retries
 
 
 @lru_cache

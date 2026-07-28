@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import suppress
 from typing import Annotated
 from uuid import UUID
 
@@ -13,7 +14,9 @@ from app.config.settings import Settings, get_settings
 from app.dependencies.auth import get_current_user, require_roles
 from app.dependencies.database import get_db_session
 from app.dependencies.rate_limit import enforce_mutation_rate_limit
-from app.dependencies.services import get_audit_service, get_support_email_provider
+from app.dependencies.services import get_audit_service, get_transactional_email_queue
+from app.email.queue import TransactionalEmailQueue
+from app.models.email import EmailDeliveryStatus, EmailMessageType, OutboundEmailMessage
 from app.models.manufacturing import Company, Factory, Machine
 from app.models.support import SupportRequest, SupportRequestStatus
 from app.models.user import User, UserRole
@@ -23,12 +26,8 @@ from app.schemas.support import (
     SupportRequestResponse,
 )
 from app.services.audit import AuditService
-from app.services.email import (
-    EmailDeliveryError,
-    EmailProvider,
-    support_email,
-)
-from app.utils.security import utc_now
+from app.services.email import support_email
+from app.services.email_delivery import persist_email
 
 router = APIRouter(prefix="/support", tags=["support"])
 
@@ -110,38 +109,47 @@ async def _related_resources(
     return factory_name, machine_name
 
 
-async def _deliver(
+async def _queue_delivery(
     item: SupportRequest,
     *,
     session: AsyncSession,
     settings: Settings,
-    provider: EmailProvider,
+    queue: TransactionalEmailQueue,
     factory_name: str | None,
     machine_name: str | None,
 ) -> None:
-    item.delivery_attempts += 1
-    item.last_error = None
-    try:
-        if settings.support_email_to is None or settings.email_from is None:
-            raise EmailDeliveryError("Email delivery is not configured.")
-        result = await provider.send(
-            support_email(
-                item,
-                destination=str(settings.support_email_to),
-                from_address=str(settings.email_from),
-                factory_name=factory_name,
-                machine_name=machine_name,
-            )
-        )
-    except EmailDeliveryError:
+    if settings.support_email_to is None or settings.email_from is None:
         item.status = SupportRequestStatus.DELIVERY_FAILED.value
-        item.last_error = "Email delivery failed."
-    else:
-        item.status = SupportRequestStatus.DELIVERED.value
-        item.provider_message_id = result.provider_message_id
-        item.delivered_at = utc_now()
+        item.last_error = "email_not_configured"
+        await session.commit()
+        await session.refresh(item)
+        return
+    enqueued = await persist_email(
+        session,
+        company_id=item.company_id,
+        message_type=EmailMessageType.SUPPORT_REQUEST_RECEIVED,
+        email=support_email(
+            item,
+            destination=str(settings.support_email_to),
+            from_address=str(settings.email_from),
+            from_name=settings.email_from_name,
+            factory_name=factory_name,
+            machine_name=machine_name,
+        ),
+        provider=settings.email_provider,
+        max_retries=settings.email_max_retries,
+        deduplication_key=f"support-request:{item.id}",
+        related_resource_type="support_request",
+        related_resource_id=item.id,
+    )
     await session.commit()
     await session.refresh(item)
+    if enqueued.created:
+        try:
+            queue.enqueue(enqueued.message.id)
+        except Exception:
+            # The durable queued row remains authoritative for reconciliation.
+            return
 
 
 @router.post(
@@ -155,7 +163,7 @@ async def create_support_request(
     user: Annotated[User, Depends(get_current_user)],
     session: Annotated[AsyncSession, Depends(get_db_session)],
     settings: Annotated[Settings, Depends(get_settings)],
-    provider: Annotated[EmailProvider, Depends(get_support_email_provider)],
+    queue: Annotated[TransactionalEmailQueue, Depends(get_transactional_email_queue)],
     audit: Annotated[AuditService, Depends(get_audit_service)],
 ) -> SupportRequestResponse:
     existing = await session.scalar(
@@ -195,13 +203,13 @@ async def create_support_request(
         status=SupportRequestStatus.SUBMITTED.value,
     )
     session.add(item)
-    await session.commit()
+    await session.flush()
     await session.refresh(item)
-    await _deliver(
+    await _queue_delivery(
         item,
         session=session,
         settings=settings,
-        provider=provider,
+        queue=queue,
         factory_name=factory_name,
         machine_name=machine_name,
     )
@@ -211,17 +219,14 @@ async def create_support_request(
         action="support.request_submitted",
         resource_type="support_request",
         resource_id=item.id,
-        result=(
-            "success"
-            if item.status == SupportRequestStatus.DELIVERED.value
-            else "failure"
-        ),
+        result="success",
         metadata={
             "category": item.category,
             "delivery_status": item.status,
             "delivery_attempts": item.delivery_attempts,
         },
     )
+    await session.refresh(item)
     return _response(item)
 
 
@@ -266,7 +271,7 @@ async def resend_support_request(
     user: Annotated[User, Depends(require_roles(UserRole.ADMIN))],
     session: Annotated[AsyncSession, Depends(get_db_session)],
     settings: Annotated[Settings, Depends(get_settings)],
-    provider: Annotated[EmailProvider, Depends(get_support_email_provider)],
+    queue: Annotated[TransactionalEmailQueue, Depends(get_transactional_email_queue)],
     audit: Annotated[AuditService, Depends(get_audit_service)],
 ) -> SupportRequestResponse:
     item = await session.scalar(
@@ -285,39 +290,57 @@ async def resend_support_request(
         )
     if item.status == SupportRequestStatus.CLOSED.value:
         raise HTTPException(status.HTTP_409_CONFLICT, "Support request is closed.")
-    if item.delivery_attempts >= settings.support_email_max_attempts:
-        raise HTTPException(
-            status.HTTP_409_CONFLICT,
-            "Support request has reached the delivery retry limit.",
+    message = await session.scalar(
+        select(OutboundEmailMessage)
+        .where(
+            OutboundEmailMessage.related_resource_type == "support_request",
+            OutboundEmailMessage.related_resource_id == item.id,
         )
-    factory_name, machine_name = await _related_resources(
-        session,
-        company_id=user.company_id,
-        factory_id=item.factory_id,
-        machine_id=item.machine_id,
+        .with_for_update()
     )
-    await _deliver(
-        item,
-        session=session,
-        settings=settings,
-        provider=provider,
-        factory_name=factory_name,
-        machine_name=machine_name,
-    )
+    if message is None:
+        factory_name, machine_name = await _related_resources(
+            session,
+            company_id=user.company_id,
+            factory_id=item.factory_id,
+            machine_id=item.machine_id,
+        )
+        await _queue_delivery(
+            item,
+            session=session,
+            settings=settings,
+            queue=queue,
+            factory_name=factory_name,
+            machine_name=machine_name,
+        )
+    else:
+        if message.status not in {EmailDeliveryStatus.FAILED.value}:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "Support request delivery is already active.",
+            )
+        message.status = EmailDeliveryStatus.QUEUED.value
+        message.retry_count = 0
+        message.attempt_count = 0
+        message.next_attempt_at = None
+        message.last_error = None
+        message.failed_at = None
+        item.status = SupportRequestStatus.SUBMITTED.value
+        item.last_error = None
+        await session.commit()
+        with suppress(Exception):
+            queue.enqueue(message.id)
     await audit.record(
         company_id=user.company_id,
         actor=user,
         action="support.request_resent",
         resource_type="support_request",
         resource_id=item.id,
-        result=(
-            "success"
-            if item.status == SupportRequestStatus.DELIVERED.value
-            else "failure"
-        ),
+        result="success",
         metadata={
             "delivery_status": item.status,
             "delivery_attempts": item.delivery_attempts,
         },
     )
+    await session.refresh(item)
     return _response(item)

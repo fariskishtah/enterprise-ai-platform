@@ -266,6 +266,17 @@ RECONCILIATION_REPAIRS = Counter(
     "Dataset, RAG, and chatbot reconciliation outcomes.",
     ("service", "environment", "workload", "outcome"),
 )
+EMAIL_DELIVERIES = Counter(
+    "transactional_email_delivery_total",
+    "Transactional email delivery outcomes without recipient or content labels.",
+    ("service", "environment", "message_type", "provider", "final_status"),
+)
+EMAIL_DELIVERY_DURATION = Histogram(
+    "transactional_email_delivery_duration_seconds",
+    "Transactional email delivery attempt duration.",
+    ("service", "environment", "message_type", "provider", "final_status"),
+    buckets=_EVALUATION_DURATION_BUCKETS,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -334,6 +345,33 @@ def record_training_job_submitted(*, task_type: str, algorithm: str) -> None:
         lambda: TRAINING_JOBS_SUBMITTED.labels(
             **labels, task_type=task_type, algorithm=algorithm
         ).inc(),
+    )
+
+
+def record_email_delivery(
+    *,
+    message_type: str,
+    provider: str,
+    final_status: str,
+    duration_seconds: float,
+) -> None:
+    """Record fixed-vocabulary delivery metadata, never recipient or content."""
+    labels = _base_labels()
+    metric_labels = {
+        **labels,
+        "message_type": message_type,
+        "provider": provider,
+        "final_status": final_status,
+    }
+    _safe_record(
+        "transactional_email_delivery_total",
+        lambda: EMAIL_DELIVERIES.labels(**metric_labels).inc(),
+    )
+    _safe_record(
+        "transactional_email_delivery_duration_seconds",
+        lambda: EMAIL_DELIVERY_DURATION.labels(**metric_labels).observe(
+            max(duration_seconds, 0.0)
+        ),
     )
 
 

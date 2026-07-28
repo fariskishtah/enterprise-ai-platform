@@ -30,7 +30,7 @@ services:
       SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY in the production environment file}
       JWT_ISSUER: ${JWT_ISSUER:?Set JWT_ISSUER in the production environment file}
       JWT_AUDIENCE: ${JWT_AUDIENCE:?Set JWT_AUDIENCE in the production environment file}
-      APP_BASE_URL: ${APP_BASE_URL:?Set APP_BASE_URL in the production environment file}
+      APP_PUBLIC_URL: ${APP_PUBLIC_URL:?Set APP_PUBLIC_URL in the production environment file}
       API_BASE_URL: ${API_BASE_URL:?Set API_BASE_URL in the production environment file}
       ALLOWED_HOSTS: ${ALLOWED_HOSTS:?Set ALLOWED_HOSTS in the production environment file}
       COOKIE_SECURE: ${COOKIE_SECURE:?Set COOKIE_SECURE in the production environment file}
@@ -41,9 +41,23 @@ services:
       ENABLE_API_DOCS: "false"
       DEMO_TOOLS_ENABLED: "false"
       EMAIL_PROVIDER: ${EMAIL_PROVIDER:?Set EMAIL_PROVIDER in the production environment file}
-      RESEND_API_KEY: ${RESEND_API_KEY:?Set RESEND_API_KEY in the production environment file}
-      EMAIL_FROM: ${EMAIL_FROM:?Set EMAIL_FROM in the production environment file}
-      SUPPORT_EMAIL_TO: ${SUPPORT_EMAIL_TO:?Set SUPPORT_EMAIL_TO in the production environment file}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      EMAIL_FROM_ADDRESS: ${EMAIL_FROM_ADDRESS:?Set EMAIL_FROM_ADDRESS in the production environment file}
+      EMAIL_FROM_NAME: ${EMAIL_FROM_NAME:-FK SOLUTIONS}
+      EMAIL_REPLY_TO: ${EMAIL_REPLY_TO:-}
+      SUPPORT_NOTIFICATION_EMAIL: ${SUPPORT_NOTIFICATION_EMAIL:?Set SUPPORT_NOTIFICATION_EMAIL in the production environment file}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_USE_TLS: ${SMTP_USE_TLS:-true}
+      EMAIL_MAX_RETRIES: ${EMAIL_MAX_RETRIES:-3}
+      EMAIL_RETRY_BASE_SECONDS: ${EMAIL_RETRY_BASE_SECONDS:-5}
+      EMAIL_QUEUE_NAME: ${EMAIL_QUEUE_NAME:-transactional-email}
+      EMAIL_RECONCILIATION_SCHEDULING_ENABLED: ${EMAIL_RECONCILIATION_SCHEDULING_ENABLED:-true}
+      EMAIL_RECONCILIATION_INTERVAL_SECONDS: ${EMAIL_RECONCILIATION_INTERVAL_SECONDS:-60}
+      EMAIL_PROCESSING_STALE_SECONDS: ${EMAIL_PROCESSING_STALE_SECONDS:-300}
+      EMAIL_RECONCILIATION_BATCH_SIZE: ${EMAIL_RECONCILIATION_BATCH_SIZE:-100}
       LOG_ENVIRONMENT: production
       OBSERVABILITY_ENVIRONMENT: production
       OTEL_ENVIRONMENT: production
@@ -98,7 +112,7 @@ services:
       SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY in the production environment file}
       JWT_ISSUER: ${JWT_ISSUER:?Set JWT_ISSUER in the production environment file}
       JWT_AUDIENCE: ${JWT_AUDIENCE:?Set JWT_AUDIENCE in the production environment file}
-      APP_BASE_URL: ${APP_BASE_URL:?Set APP_BASE_URL in the production environment file}
+      APP_PUBLIC_URL: ${APP_PUBLIC_URL:?Set APP_PUBLIC_URL in the production environment file}
       API_BASE_URL: ${API_BASE_URL:?Set API_BASE_URL in the production environment file}
       ALLOWED_HOSTS: ${ALLOWED_HOSTS:?Set ALLOWED_HOSTS in the production environment file}
       COOKIE_SECURE: ${COOKIE_SECURE:?Set COOKIE_SECURE in the production environment file}
@@ -108,6 +122,24 @@ services:
       APP_ENV: production
       ENABLE_API_DOCS: "false"
       DEMO_TOOLS_ENABLED: "false"
+      EMAIL_PROVIDER: ${EMAIL_PROVIDER:?Set EMAIL_PROVIDER in the production environment file}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      EMAIL_FROM_ADDRESS: ${EMAIL_FROM_ADDRESS:?Set EMAIL_FROM_ADDRESS in the production environment file}
+      EMAIL_FROM_NAME: ${EMAIL_FROM_NAME:-FK SOLUTIONS}
+      EMAIL_REPLY_TO: ${EMAIL_REPLY_TO:-}
+      SUPPORT_NOTIFICATION_EMAIL: ${SUPPORT_NOTIFICATION_EMAIL:?Set SUPPORT_NOTIFICATION_EMAIL in the production environment file}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_USE_TLS: ${SMTP_USE_TLS:-true}
+      EMAIL_MAX_RETRIES: ${EMAIL_MAX_RETRIES:-3}
+      EMAIL_RETRY_BASE_SECONDS: ${EMAIL_RETRY_BASE_SECONDS:-5}
+      EMAIL_QUEUE_NAME: ${EMAIL_QUEUE_NAME:-transactional-email}
+      EMAIL_RECONCILIATION_SCHEDULING_ENABLED: ${EMAIL_RECONCILIATION_SCHEDULING_ENABLED:-true}
+      EMAIL_RECONCILIATION_INTERVAL_SECONDS: ${EMAIL_RECONCILIATION_INTERVAL_SECONDS:-60}
+      EMAIL_PROCESSING_STALE_SECONDS: ${EMAIL_PROCESSING_STALE_SECONDS:-300}
+      EMAIL_RECONCILIATION_BATCH_SIZE: ${EMAIL_RECONCILIATION_BATCH_SIZE:-100}
       LOG_ENVIRONMENT: production
       OBSERVABILITY_ENVIRONMENT: production
       OTEL_ENVIRONMENT: production

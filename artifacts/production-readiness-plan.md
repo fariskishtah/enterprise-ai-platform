@@ -9,7 +9,7 @@ Release currently declared by the repository: controlled pilot `0.9.0`
 ## Executive assessment
 
 The repository is a substantial, tested controlled-pilot platform rather than a
-prototype. It already has a coherent FastAPI/SQLAlchemy service layer, 22 ordered
+prototype. It already has a coherent FastAPI/SQLAlchemy service layer, 24 ordered
 Alembic migrations, tenant-scoped manufacturing and AI workflows, a typed React
 application, Dramatiq workers, Docker deployments, security checks, and a broad
 Grafana/Prometheus/Loki/Tempo stack. Existing documentation correctly avoids a
@@ -50,7 +50,7 @@ their runtime acceptance tests pass with deployment-owned credentials.
 | --- | --- | --- | --- |
 | Backend | FastAPI routers, dependency injection, application services, repositories, typed schemas | Mature structure; several very large route/service modules increase change risk | Medium |
 | Frontend | React 18, TypeScript, Vite, lazy routes, typed API modules, reusable shells/states | Strong foundation; several pages exceed 500 lines and one demo page exceeds 1,200 lines | Medium |
-| Database | PostgreSQL/pgvector and linear migrations `0001`–`0022` | No billing, invitation, verification, email-delivery, notification, or usage schema | Critical |
+| Database | PostgreSQL/pgvector and linear migrations `0001`–`0024`; billing, usage, and outbound-email foundations | Invitation, verification, and notification-preference schemas remain | Critical |
 | Authentication | Argon2, short JWT access token, hashed rotating refresh tokens, logout/revocation, password reset backend | Registration immediately logs in; no email verification, login lockout, invitation flow, or six-role model | Critical |
 | Token storage | Access and refresh tokens returned to JavaScript and stored in `sessionStorage` | Bounded persistence but vulnerable to token theft through XSS; cookie settings exist without an HttpOnly session flow | High |
 | Authorization | Server-side role dependencies and company filters across major resources | Only admin/engineer/operator; systematic BOLA regression tests exist for many but not all future domains | Critical |
@@ -59,7 +59,7 @@ their runtime acceptance tests pass with deployment-owned credentials.
 | RAG | Immutable document datasets, worker indexing, pgvector, citation persistence, tenant scoping | Deterministic lexical hashing/extractive provider; CSV/plain UTF-8 only; no PDF/DOCX/OCR or production LLM provider | High |
 | AI/models | Allowlisted sklearn plugins, MLflow, evaluation, promotion, rollback aliases, prediction monitoring | Broad tests; resource-bounded smoke validation and a current compatibility matrix are still required | High |
 | Training | Dramatiq queues, retries, cancellation/reconciliation, metrics | Good pilot behavior; local CPU/ARM constraints must be reflected in current evidence | High |
-| Feedback/support | Durable support request and audit models, Resend abstraction | Delivery occurs inside the API request; provider support is only disabled/Resend; disabled mode reports failure instead of capturing mail locally | Critical |
+| Feedback/support | Durable support and outbound-email records, asynchronous Dramatiq delivery, capture/Resend/SMTP adapters | Feedback notification wiring and provider-credential staging proof remain | High |
 | Reporting | Executive summaries and CSV/XLSX/PDF generation | Existing routes are grouped in demo-named modules and need product-language separation | High |
 | Billing | None | Plans, subscriptions, payments, webhooks, usage, entitlements, UI, and tests are absent | Critical |
 | Demo behavior | Feature flags reject demo tools in production; explicit seed script | Customer home/settings still contain demo onboarding; public-demo tables/routes/services remain; naming is mixed with real import/report features | Critical |
@@ -86,11 +86,11 @@ their runtime acceptance tests pass with deployment-owned credentials.
       migration.
 - [ ] Add invitation records and acceptance with company-bound, hashed,
       single-use, expiring tokens.
-- [ ] Add a durable outbound-email model/queue with provider message ID, bounded
+- [x] Add a durable outbound-email model/queue with provider message ID, bounded
       attempts/backoff, timestamps, sanitized errors, local capture mode, Resend,
       SMTP, and provider-neutral templates.
 - [ ] Move support/feedback delivery off the request path while preserving the
-      submitted record if delivery fails.
+      submitted record if delivery fails. Support is complete; feedback remains.
 - [ ] Add centralized plan catalogue and database-backed billing entities for
       plans, entitlements, customers, subscriptions, payments, invoices, webhook
       events, usage counters, and billing audit events.

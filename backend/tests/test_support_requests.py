@@ -8,7 +8,8 @@ from uuid import UUID, uuid4
 import pytest
 from app.config.settings import Settings
 from app.dependencies.rate_limit import get_auth_rate_limit_store
-from app.dependencies.services import get_support_email_provider
+from app.dependencies.services import get_transactional_email_queue
+from app.models.email import OutboundEmailMessage
 from app.models.manufacturing import Company, Factory, Machine
 from app.models.support import SupportRequest
 from app.models.user import AuditEvent, UserRole
@@ -17,6 +18,7 @@ from app.services.email import (
     EmailDeliveryResult,
     OutboundEmail,
 )
+from app.services.email_delivery import EmailDeliveryWorker, EmailWorkerState
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -38,6 +40,15 @@ class RecordingEmailProvider:
 
 
 @dataclass
+class RecordingEmailQueue:
+    message_ids: list[UUID] = field(default_factory=list)
+
+    def enqueue(self, message_id: UUID) -> str:
+        self.message_ids.append(message_id)
+        return f"queue-{len(self.message_ids)}"
+
+
+@dataclass
 class CountingRateLimitStore:
     counts: dict[str, int] = field(default_factory=dict)
 
@@ -49,9 +60,10 @@ class CountingRateLimitStore:
 def support_settings(settings: Settings) -> Settings:
     return settings.model_copy(
         update={
+            "email_provider": "capture",
             "email_from": "support@verified.example",
             "support_email_to": "destination@example.test",
-            "support_email_max_attempts": 3,
+            "email_max_retries": 3,
         }
     )
 
@@ -69,16 +81,17 @@ def support_payload(**overrides: object) -> dict[str, object]:
 
 
 @pytest.mark.anyio
-async def test_support_request_is_delivered_escaped_idempotent_and_audited(
+async def test_support_request_is_queued_escaped_idempotent_and_audited(
     settings: Settings,
     session_factory: async_sessionmaker[AsyncSession],
     tmp_path,
 ) -> None:
     provider = RecordingEmailProvider()
+    queue = RecordingEmailQueue()
     async with ai_api_client(
         support_settings(settings), session_factory, tmp_path=tmp_path
     ) as (client, application):
-        application.dependency_overrides[get_support_email_provider] = lambda: provider
+        application.dependency_overrides[get_transactional_email_queue] = lambda: queue
         headers = await auth_headers(
             client,
             session_factory,
@@ -98,8 +111,15 @@ async def test_support_request_is_delivered_escaped_idempotent_and_audited(
     assert response.status_code == 201
     assert duplicate.status_code == 201
     assert duplicate.json()["id"] == response.json()["id"]
-    assert response.json()["status"] == "delivered"
-    assert response.json()["delivery_attempts"] == 1
+    assert response.json()["status"] == "submitted"
+    assert response.json()["delivery_attempts"] == 0
+    assert len(queue.message_ids) == 1
+    outcome = await EmailDeliveryWorker(
+        session_factory=session_factory,
+        provider=provider,
+        retry_base_seconds=1,
+    ).execute(queue.message_ids[0])
+    assert outcome is EmailWorkerState.SENT
     assert len(provider.messages) == 1
     delivered = provider.messages[0]
     assert delivered.to == "destination@example.test"
@@ -113,6 +133,7 @@ async def test_support_request_is_delivered_escaped_idempotent_and_audited(
         item = await session.scalar(
             select(SupportRequest).where(SupportRequest.id == request_id)
         )
+        outbound_count = len(list(await session.scalars(select(OutboundEmailMessage))))
         event = await session.scalar(
             select(AuditEvent).where(
                 AuditEvent.resource_id == response.json()["id"],
@@ -120,12 +141,14 @@ async def test_support_request_is_delivered_escaped_idempotent_and_audited(
             )
         )
     assert item is not None
+    assert item.status == "delivered"
     assert item.last_error is None
+    assert outbound_count == 1
     assert event is not None
     assert event.safe_metadata == {
         "category": "technical_problem",
-        "delivery_status": "delivered",
-        "delivery_attempts": 1,
+        "delivery_status": "submitted",
+        "delivery_attempts": 0,
     }
 
 
@@ -136,10 +159,11 @@ async def test_failed_delivery_is_persisted_and_admin_can_retry(
     tmp_path,
 ) -> None:
     provider = RecordingEmailProvider(fail=True)
+    queue = RecordingEmailQueue()
     async with ai_api_client(
         support_settings(settings), session_factory, tmp_path=tmp_path
     ) as (client, application):
-        application.dependency_overrides[get_support_email_provider] = lambda: provider
+        application.dependency_overrides[get_transactional_email_queue] = lambda: queue
         admin_headers = await auth_headers(
             client,
             session_factory,
@@ -152,9 +176,12 @@ async def test_failed_delivery_is_persisted_and_admin_can_retry(
             headers=admin_headers,
         )
         assert create.status_code == 201
-        assert create.json()["status"] == "delivery_failed"
-        assert "saved" in create.json()["delivery_message"].lower()
-        assert "failed" in create.json()["delivery_message"].lower()
+        failed = await EmailDeliveryWorker(
+            session_factory=session_factory,
+            provider=provider,
+            retry_base_seconds=1,
+        ).execute(queue.message_ids[0])
+        assert failed is EmailWorkerState.FAILED
         assert "Synthetic provider failure" not in create.text
 
         provider.fail = False
@@ -162,11 +189,16 @@ async def test_failed_delivery_is_persisted_and_admin_can_retry(
             f"/support/requests/{create.json()['id']}/resend",
             headers=admin_headers,
         )
+        delivered = await EmailDeliveryWorker(
+            session_factory=session_factory,
+            provider=provider,
+            retry_base_seconds=1,
+        ).execute(queue.message_ids[-1])
+        assert delivered is EmailWorkerState.SENT
         listed = await client.get("/support/requests", headers=admin_headers)
 
     assert resent.status_code == 200
-    assert resent.json()["status"] == "delivered"
-    assert resent.json()["delivery_attempts"] == 2
+    assert resent.json()["status"] == "submitted"
     assert listed.status_code == 200
     assert listed.json()["total"] == 1
     assert listed.json()["items"][0]["id"] == create.json()["id"]
@@ -222,11 +254,11 @@ async def test_support_rejects_invalid_and_cross_tenant_context(
         )
         await session.commit()
 
-    provider = RecordingEmailProvider()
+    queue = RecordingEmailQueue()
     async with ai_api_client(
         support_settings(settings), session_factory, tmp_path=tmp_path
     ) as (client, application):
-        application.dependency_overrides[get_support_email_provider] = lambda: provider
+        application.dependency_overrides[get_transactional_email_queue] = lambda: queue
         headers = await auth_headers(
             client,
             session_factory,
@@ -256,7 +288,7 @@ async def test_support_rejects_invalid_and_cross_tenant_context(
     assert cross_factory.status_code == 404
     assert cross_machine.status_code == 404
     assert forbidden_list.status_code == 403
-    assert provider.messages == []
+    assert queue.message_ids == []
 
 
 @pytest.mark.anyio
@@ -272,13 +304,13 @@ async def test_support_submission_is_rate_limited_without_losing_first_request(
             "mutation_rate_limit_window_seconds": 60,
         }
     )
-    provider = RecordingEmailProvider()
+    queue = RecordingEmailQueue()
     store = CountingRateLimitStore()
     async with ai_api_client(limited, session_factory, tmp_path=tmp_path) as (
         client,
         application,
     ):
-        application.dependency_overrides[get_support_email_provider] = lambda: provider
+        application.dependency_overrides[get_transactional_email_queue] = lambda: queue
         application.dependency_overrides[get_auth_rate_limit_store] = lambda: store
         headers = await auth_headers(
             client,
@@ -296,20 +328,20 @@ async def test_support_submission_is_rate_limited_without_losing_first_request(
     assert first.status_code == 201
     assert limited_response.status_code == 429
     assert limited_response.headers["retry-after"] == "60"
-    assert len(provider.messages) == 1
+    assert len(queue.message_ids) == 1
 
 
 @pytest.mark.anyio
-async def test_support_resend_stops_at_the_configured_bound(
+async def test_support_resend_rejects_an_active_delivery(
     settings: Settings,
     session_factory: async_sessionmaker[AsyncSession],
     tmp_path,
 ) -> None:
-    provider = RecordingEmailProvider(fail=True)
+    queue = RecordingEmailQueue()
     async with ai_api_client(
         support_settings(settings), session_factory, tmp_path=tmp_path
     ) as (client, application):
-        application.dependency_overrides[get_support_email_provider] = lambda: provider
+        application.dependency_overrides[get_transactional_email_queue] = lambda: queue
         headers = await auth_headers(
             client,
             session_factory,
@@ -320,19 +352,11 @@ async def test_support_resend_stops_at_the_configured_bound(
             "/support/requests", json=support_payload(), headers=headers
         )
         request_id = created.json()["id"]
-        second = await client.post(
-            f"/support/requests/{request_id}/resend", headers=headers
-        )
-        third = await client.post(
-            f"/support/requests/{request_id}/resend", headers=headers
-        )
         rejected = await client.post(
             f"/support/requests/{request_id}/resend", headers=headers
         )
 
-    assert created.json()["delivery_attempts"] == 1
-    assert second.json()["delivery_attempts"] == 2
-    assert third.json()["delivery_attempts"] == 3
+    assert created.json()["delivery_attempts"] == 0
     assert rejected.status_code == 409
-    assert "retry limit" in rejected.json()["detail"].lower()
-    assert len(provider.messages) == 3
+    assert "already active" in rejected.json()["detail"].lower()
+    assert len(queue.message_ids) == 1

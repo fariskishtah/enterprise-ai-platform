@@ -17,12 +17,15 @@ email.
 ```dotenv
 EMAIL_PROVIDER=resend
 RESEND_API_KEY=<server-only-secret>
-EMAIL_FROM=support@verified.example
-SUPPORT_EMAIL_TO=<support-destination>
-SUPPORT_EMAIL_MAX_ATTEMPTS=3
+EMAIL_FROM_ADDRESS=support@verified.example
+EMAIL_FROM_NAME=FK SOLUTIONS
+EMAIL_REPLY_TO=support@verified.example
+SUPPORT_NOTIFICATION_EMAIL=<support-destination>
+EMAIL_MAX_RETRIES=3
+EMAIL_RETRY_BASE_SECONDS=5
 ```
 
-For the current controlled deployment, set `SUPPORT_EMAIL_TO` to the designated
+For the current controlled deployment, set `SUPPORT_NOTIFICATION_EMAIL` to the designated
 FK SOLUTIONS support mailbox supplied by the operator. The destination is never
 returned to the browser.
 
@@ -31,15 +34,17 @@ validated authenticated user email. Provider IDs are persisted; API keys,
 authorization headers, cookies, passwords, tokens, raw logs, attachments, and
 model payloads are never included.
 
-## Failure and retry behavior
+## Queue, failure, and retry behavior
 
-The request is committed with `submitted` status before delivery. A provider
-failure changes it to `delivery_failed` and the UI states that it was saved but
-not delivered. Administrators may retry up to the configured maximum. Delivered
-and closed requests cannot be resent. Each submission and retry is audited.
+The support request and outbound message are committed before its UUID is sent to
+Dramatiq. Retryable failures use bounded exponential backoff; permanent or
+exhausted failures change the request to `delivery_failed`. Administrators may
+restart a failed delivery. Delivered and closed requests cannot be resent. Each
+submission and explicit restart is audited. Local `capture` status is deliberately
+not reported as delivered.
 
 Rotate a Resend key in the provider console and deployment secret manager, then
-restart only the backend service. Treat any exposed key as compromised.
+restart the backend and worker services. Treat any exposed key as compromised.
 
 ## Testing
 

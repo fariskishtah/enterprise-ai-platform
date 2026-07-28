@@ -1,0 +1,1 @@
+"""Transactional email queue package."""
