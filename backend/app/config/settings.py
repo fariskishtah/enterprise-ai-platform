@@ -78,6 +78,7 @@ class Settings(BaseSettings):
     simplified_experience_enabled: bool = False
     operations_workflow_enabled: bool = False
     demo_tools_enabled: bool = False
+    enable_development_seed: bool = False
     auth_rate_limit_enabled: bool = True
     auth_rate_limit_requests: PositiveInt = Field(default=10, le=1000)
     auth_rate_limit_window_seconds: PositiveInt = Field(default=60, le=3600)
@@ -398,6 +399,8 @@ class Settings(BaseSettings):
             raise ValueError("enable_api_docs must be false in production.")
         if self.environment == "production" and self.demo_tools_enabled:
             raise ValueError("demo_tools_enabled must be false in production.")
+        if self.environment == "production" and self.enable_development_seed:
+            raise ValueError("enable_development_seed must be false in production.")
         if self.environment == "production" and any(
             urlsplit(origin).hostname in {"localhost", "127.0.0.1", "::1"}
             for origin in self.cors_allowed_origins

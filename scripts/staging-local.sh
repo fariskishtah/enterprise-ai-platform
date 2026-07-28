@@ -107,6 +107,7 @@ case "$action" in
       -e E2E_SMOKE_EMAIL -e E2E_PASSWORD \
       backend python - <"$REPO_ROOT/scripts/seed_staging_users.py"
     compose exec -T \
+      -e ENABLE_DEVELOPMENT_SEED=true \
       -e DEMO_API_BASE_URL=http://backend:8000 \
       -e DEMO_EMAIL="$E2E_ENGINEER_EMAIL" \
       -e DEMO_OPERATOR_EMAIL="$E2E_OPERATOR_EMAIL" \

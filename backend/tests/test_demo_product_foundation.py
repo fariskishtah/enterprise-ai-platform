@@ -69,6 +69,22 @@ def test_production_rejects_demo_tools(settings: Settings) -> None:
         Settings.model_validate(values)
 
 
+def test_production_rejects_development_seed(settings: Settings) -> None:
+    values = settings.model_dump()
+    values.update(
+        {
+            "environment": "production",
+            "enable_api_docs": False,
+            "cors_allowed_origins": ("https://manufacturing.example.com",),
+            "enable_development_seed": True,
+        }
+    )
+    with pytest.raises(
+        ValidationError, match="enable_development_seed must be false in production"
+    ):
+        Settings.model_validate(values)
+
+
 def test_app_env_alias_enforces_production_safeguards(
     settings: Settings, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -89,7 +105,11 @@ def test_app_env_alias_enforces_production_safeguards(
     ("environment", "password", "expected_message"),
     [
         ("production", "disposable-only", "demo seeding is disabled in production"),
-        ("staging", "", "DEMO_PASSWORD is required for local demo seeding"),
+        (
+            "staging",
+            "disposable-only",
+            "development seeding is disabled",
+        ),
     ],
 )
 def test_demo_seed_fails_closed_before_network_access(
@@ -99,6 +119,7 @@ def test_demo_seed_fails_closed_before_network_access(
         **os.environ,
         "APP_ENV": environment,
         "DEMO_PASSWORD": password,
+        "ENABLE_DEVELOPMENT_SEED": "false",
         "PYTHONPATH": str(REPOSITORY_ROOT / "backend"),
     }
     result = subprocess.run(
@@ -112,6 +133,28 @@ def test_demo_seed_fails_closed_before_network_access(
 
     assert result.returncode == 1
     assert expected_message in result.stderr
+    assert "http" not in result.stderr.lower()
+
+
+def test_demo_seed_requires_password_after_explicit_opt_in() -> None:
+    seed_environment = {
+        **os.environ,
+        "APP_ENV": "development",
+        "DEMO_PASSWORD": "",
+        "ENABLE_DEVELOPMENT_SEED": "true",
+        "PYTHONPATH": str(REPOSITORY_ROOT / "backend"),
+    }
+    result = subprocess.run(
+        [sys.executable, str(REPOSITORY_ROOT / "scripts" / "seed_demo.py")],
+        capture_output=True,
+        check=False,
+        env=seed_environment,
+        text=True,
+        timeout=15,
+    )
+
+    assert result.returncode == 1
+    assert "DEMO_PASSWORD is required" in result.stderr
     assert "http" not in result.stderr.lower()
 
 

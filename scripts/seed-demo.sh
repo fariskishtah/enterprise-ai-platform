@@ -19,6 +19,7 @@ fi
 : "${DEMO_PASSWORD:?Set DEMO_PASSWORD to a unique local-only password}"
 
 "${compose[@]}" exec -T \
+  -e ENABLE_DEVELOPMENT_SEED=true \
   -e DEMO_API_BASE_URL="${DEMO_API_BASE_URL:-http://backend:8000}" \
   -e DEMO_EMAIL \
   -e DEMO_PASSWORD \

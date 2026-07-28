@@ -1216,6 +1216,15 @@ def run() -> None:
     )
     if requested_environment == "production":
         raise DemoSeedError("demo seeding is disabled in production")
+    if os.getenv("ENABLE_DEVELOPMENT_SEED", "").strip().lower() not in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }:
+        raise DemoSeedError(
+            "development seeding is disabled; set ENABLE_DEVELOPMENT_SEED=true"
+        )
     if not DEMO_PASSWORD:
         raise DemoSeedError("DEMO_PASSWORD is required for local demo seeding")
     with ApiClient(base_url=API_BASE_URL, timeout=60.0) as anonymous:

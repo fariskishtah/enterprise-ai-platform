@@ -26,14 +26,6 @@ export interface RegisterRequest {
   readonly password: string;
 }
 
-export interface PublicDemoWorkspaceResult {
-  readonly factory_count: number;
-  readonly machine_count: number;
-  readonly reading_count: number;
-  readonly sensor_count: number;
-  readonly status: "ready";
-}
-
 export function registerAccount(payload: RegisterRequest): Promise<CurrentUser> {
   return apiRequest<CurrentUser>(
     "/auth/register",
@@ -47,13 +39,6 @@ export function login(payload: LoginRequest): Promise<TokenPair> {
     "/auth/login",
     { body: JSON.stringify(payload), method: "POST" },
     { authenticated: false },
-  );
-}
-
-export function preparePublicDemoWorkspace(): Promise<PublicDemoWorkspaceResult> {
-  return apiRequest<PublicDemoWorkspaceResult>(
-    "/product/public-demo-workspace/prepare",
-    { method: "POST" },
   );
 }
 

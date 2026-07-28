@@ -37,92 +37,10 @@ interface SimpleHomeData {
 
 export function HomePage(): ReactElement {
   const { features, mode } = useProductExperience();
-  const { role, user } = useAuth();
-  return (
-    <>
-      <DemoOnboarding role={role} userId={user?.id ?? null} />
-      {mode === "simple" && features.operations_workflow_enabled ? (
-        <SimpleHome />
-      ) : (
-        <Dashboard />
-      )}
-    </>
-  );
-}
-
-function DemoOnboarding({
-  role,
-  userId,
-}: {
-  readonly role: "admin" | "engineer" | "operator" | null;
-  readonly userId: string | null;
-}): ReactElement | null {
-  const storageKey = userId === null ? null : `fk-demo-onboarding:${userId}`;
-  const [visible, setVisible] = useState(
-    () => storageKey !== null && sessionStorage.getItem(storageKey) === "start",
-  );
-  if (!visible || storageKey === null) return null;
-  const steps =
-    role === "engineer"
-      ? [
-          ["Explore factory assets", "/factories"],
-          ["Inspect sensor data and quality", "/sensor-data"],
-          ["Register or review a dataset", "/datasets"],
-          ["Review training jobs and models", "/training"],
-          ["Run a governed prediction", "/predictions"],
-          ["Inspect monitoring evidence", "/monitoring"],
-        ]
-      : [
-          ["Explore factory assets", "/factories"],
-          ["Open a machine and its sensors", "/factories"],
-          ["Review your workspace settings", "/settings"],
-        ];
-  return (
-    <aside
-      aria-labelledby="demo-onboarding-heading"
-      className="mb-6 rounded-lg border border-purple-200 bg-card p-5 shadow-panel"
-    >
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-eyebrow">
-            Private synthetic workspace
-          </p>
-          <h2
-            className="mt-1 text-lg font-semibold text-foreground"
-            id="demo-onboarding-heading"
-          >
-            Start with Cairo Smart Plant
-          </h2>
-          <p className="mt-1 text-sm text-secondary-foreground">
-            Follow the workflow below. Every asset and reading in this workspace is
-            synthetic and isolated to your account.
-          </p>
-        </div>
-        <button
-          className="text-sm font-semibold text-link hover:underline"
-          onClick={() => {
-            sessionStorage.removeItem(storageKey);
-            setVisible(false);
-          }}
-          type="button"
-        >
-          Dismiss
-        </button>
-      </div>
-      <ol className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-        {steps.map(([label, path], index) => (
-          <li key={label}>
-            <Link
-              className="flex h-full gap-3 rounded-md border border-border bg-elevated p-3 text-sm font-semibold text-link hover:border-purple-300"
-              to={path}
-            >
-              <span aria-hidden="true">{index + 1}.</span>
-              {label}
-            </Link>
-          </li>
-        ))}
-      </ol>
-    </aside>
+  return mode === "simple" && features.operations_workflow_enabled ? (
+    <SimpleHome />
+  ) : (
+    <Dashboard />
   );
 }
 
