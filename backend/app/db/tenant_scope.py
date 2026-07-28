@@ -12,6 +12,14 @@ from app.models.ai_retraining import (
     ModelRetrainingRequest,
 )
 from app.models.automl import AutoMLStudy
+from app.models.billing import (
+    BillingAuditEvent,
+    InvoiceReference,
+    Payment,
+    PaymentProviderCustomer,
+    Subscription,
+    UsageCounter,
+)
 from app.models.datasets import Dataset
 from app.models.manufacturing import Company, Factory
 from app.models.mlops import Experiment
@@ -61,6 +69,12 @@ _SCOPED_MODELS = (
     MaintenanceFeedback,
     OperationalTimelineEvent,
     ShiftHandover,
+    Payment,
+    PaymentProviderCustomer,
+    Subscription,
+    InvoiceReference,
+    UsageCounter,
+    BillingAuditEvent,
 )
 
 

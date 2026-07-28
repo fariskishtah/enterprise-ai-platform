@@ -29,6 +29,13 @@ def test_billing_migration_round_trip(
                 "SELECT name FROM sqlite_master WHERE type = 'table'"
             )
         }
+        payment_columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(payments)")
+        }
+        webhook_columns = {
+            row[1]
+            for row in connection.execute("PRAGMA table_info(billing_webhook_events)")
+        }
     assert {
         "billing_plans",
         "plan_entitlements",
@@ -40,6 +47,15 @@ def test_billing_migration_round_trip(
         "usage_counters",
         "billing_audit_events",
     } <= tables
+    assert {
+        "provider_checkout_id",
+        "idempotency_key",
+        "plan_code",
+        "checkout_url",
+        "provider_occurred_at",
+        "updated_at",
+    } <= payment_columns
+    assert {"raw_provider_event_id", "safe_payload"} <= webhook_columns
 
     command.downgrade(config, "0022_add_public_demo_workspaces")
     with sqlite3.connect(database_path) as connection:

@@ -69,6 +69,22 @@ management uses the backend six-role permission matrix. Invitations are hashed,
 expiring, single-use, company-bound, and asynchronously delivered. MFA is not yet
 implemented.
 
+## Billing and hosted checkout
+
+```text
+GET  /billing/plans
+POST /billing/checkouts
+GET  /billing/payments/{payment_id}
+POST /billing/payments/{payment_id}/cancel
+POST /billing/webhooks/paymob?hmac=...
+```
+
+Plans are public and backend-authoritative. Checkout creation requires
+`billing.manage` and `Idempotency-Key`; it accepts no authoritative amount,
+currency, company, or card fields. Payment reads/cancellation are tenant-scoped.
+The Paymob callback is authenticated by provider HMAC rather than a user token,
+durably deduplicated, and queued for monotonic state processing.
+
 ## Manufacturing hierarchy
 
 ```text
@@ -193,7 +209,7 @@ See [Data Registry, RAG, and Chatbot Operations](data-rag-operations.md).
 
 - User/role administration beyond `/users/me`.
 - Password recovery/change, MFA, SSO/SAML/OIDC, SCIM, and session inventory.
-- Tenant provisioning, billing, entitlements, or customer administration.
+- Tenant provisioning, entitlement enforcement, or payment portal management.
 - Complete cross-domain audit-event query/export.
 - PDF/DOCX/OCR/connectors or arbitrary RAG URLs.
 - Automatic model promotion, arbitrary code execution, or online retraining.

@@ -6,6 +6,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import (
     JSON,
     Boolean,
+    CheckConstraint,
     Date,
     DateTime,
     ForeignKey,
@@ -140,7 +141,18 @@ class Payment(Base):
     __tablename__ = "payments"
     __table_args__ = (
         UniqueConstraint("provider", "provider_payment_id", name="uq_payment_external"),
+        UniqueConstraint(
+            "provider", "provider_checkout_id", name="uq_payment_checkout_external"
+        ),
+        UniqueConstraint(
+            "company_id", "idempotency_key", name="uq_payment_company_idempotency"
+        ),
         Index("ix_payments_company_time", "company_id", "created_at"),
+        CheckConstraint(
+            "status IN ('creating','pending','succeeded','failed','cancelled',"
+            "'refunded','reversed','provider_error')",
+            name="ck_payments_status",
+        ),
     )
     id: Mapped[UUID] = mapped_column(
         Uuid(as_uuid=True), primary_key=True, default=uuid4
@@ -154,13 +166,26 @@ class Payment(Base):
         Uuid(as_uuid=True), ForeignKey("subscriptions.id", ondelete="SET NULL")
     )
     provider: Mapped[str] = mapped_column(String(32), nullable=False)
-    provider_payment_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    provider_payment_id: Mapped[str | None] = mapped_column(String(255))
+    provider_checkout_id: Mapped[str | None] = mapped_column(String(255))
+    idempotency_key: Mapped[str | None] = mapped_column(String(128))
+    plan_code: Mapped[str | None] = mapped_column(String(32))
+    checkout_url: Mapped[str | None] = mapped_column(String(2048))
     amount_minor: Mapped[int] = mapped_column(Integer, nullable=False)
     currency: Mapped[str] = mapped_column(String(3), nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False)
     failure_code: Mapped[str | None] = mapped_column(String(80))
+    provider_occurred_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
     )
 
 
@@ -203,8 +228,10 @@ class BillingWebhookEvent(Base):
     )
     provider: Mapped[str] = mapped_column(String(32), nullable=False)
     provider_event_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    raw_provider_event_id: Mapped[str | None] = mapped_column(String(255))
     event_type: Mapped[str] = mapped_column(String(128), nullable=False)
     payload_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    safe_payload: Mapped[dict[str, object] | None] = mapped_column(JSON)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="received")
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     last_error: Mapped[str | None] = mapped_column(Text)

@@ -20,10 +20,12 @@ Alembic owns the ordered schema history.
 0011_adjust_automl_trial_uniqueness
 0012_add_dataset_registry
 0013_integrate_dataset_training
-0014_add_secure_rag_chat
+...
+0028_add_refresh_token_families
+0029_harden_payment_events
 ```
 
-Every revision has one predecessor; `0014_add_secure_rag_chat` is the sole head.
+Every revision has one predecessor; `0029_harden_payment_events` is the sole head.
 Historical revisions are not rewritten. Apply migrations before starting the
 new application revision:
 
@@ -105,6 +107,18 @@ Migration `0014` creates PostgreSQL extension `vector` and stores fixed-width
 unit/migration tests; it is not the production vector-query implementation.
 Production retrieval applies ownership, knowledge-base, active-build, attached
 version, and ready-state constraints before pgvector cosine ranking.
+
+### Billing and provider events
+
+- `billing_plans`, `plan_entitlements`, `subscriptions`
+- `payments`, `payment_provider_customers`, `invoice_references`
+- `billing_webhook_events`, `usage_counters`, `billing_audit_events`
+
+Migration `0029_harden_payment_events` adds provider checkout IDs, per-company
+idempotency keys, expected plan codes, hosted checkout URLs, provider event
+ordering timestamps, raw provider transaction IDs, and normalized card-free
+webhook work payloads. Unique constraints protect checkout/transaction identity;
+the worker locks event/payment rows before applying monotonic state.
 
 ## Consistency rules
 

@@ -56,6 +56,7 @@ from app.services.automl_execution import (
     AutoMLReconciler,
     AutoMLTrialWorker,
 )
+from app.services.billing import BillingWebhookProcessor
 from app.services.email import configured_email_provider
 from app.services.email_delivery import (
     EmailDeliveryWorker,
@@ -157,6 +158,25 @@ def deliver_transactional_email(message_id: str) -> None:
     )
     if outcome is EmailWorkerState.RETRY:
         raise RetryableEmailDeliveryError("Email delivery released for bounded retry.")
+
+
+@dramatiq.actor(
+    broker=broker,
+    queue_name=_settings.billing_webhook_queue_name,
+    max_retries=_settings.billing_webhook_max_retries,
+)
+@traced_operation("billing.webhook", attributes={"trigger": "background"})
+def process_billing_webhook(event_id: str) -> None:
+    """Apply one authenticated, persisted Paymob callback transactionally."""
+    try:
+        parsed_event_id = UUID(event_id)
+    except ValueError:
+        return
+    asyncio.run(
+        BillingWebhookProcessor(
+            _worker_session_factory(_settings.database_url), "paymob"
+        ).execute(parsed_event_id)
+    )
 
 
 @dramatiq.actor(broker=broker, queue_name=_settings.email_queue_name)

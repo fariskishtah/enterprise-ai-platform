@@ -146,6 +146,27 @@ class Settings(BaseSettings):
         "http://127.0.0.1:5173",
     )
     cors_allow_credentials: bool = True
+    payment_provider: Literal["disabled", "paymob"] = "disabled"
+    paymob_api_key: SecretStr | None = None
+    paymob_secret_key: SecretStr | None = None
+    paymob_public_key: SecretStr | None = None
+    paymob_hmac_secret: SecretStr | None = None
+    paymob_integration_id: PositiveInt | None = None
+    paymob_iframe_id: PositiveInt | None = None
+    paymob_base_url: str = "https://accept.paymob.com"
+    paymob_webhook_url: str | None = None
+    payment_success_url: str | None = None
+    payment_failure_url: str | None = None
+    payment_currency: Literal["EGP"] = "EGP"
+    payment_sandbox_mode: bool = True
+    payment_http_timeout_seconds: PositiveFloat = Field(default=10.0, le=30)
+    billing_webhook_queue_name: str = Field(
+        default="billing-webhooks",
+        min_length=1,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9_.-]+$",
+    )
+    billing_webhook_max_retries: PositiveInt = Field(default=5, le=20)
     structured_logging_enabled: bool = True
     log_format: LogFormat = "json"
     log_level: LogLevel = "INFO"
@@ -514,6 +535,71 @@ class Settings(BaseSettings):
                 raise ValueError("production email_provider must be resend or smtp.")
         if self.cookie_samesite == "none" and not self.cookie_secure:
             raise ValueError("cookie_secure must be true when cookie_samesite is none.")
+        paymob_base = urlsplit(self.paymob_base_url)
+        if (
+            paymob_base.scheme not in {"http", "https"}
+            or not paymob_base.hostname
+            or paymob_base.username is not None
+            or paymob_base.password is not None
+            or paymob_base.query
+            or paymob_base.fragment
+        ):
+            raise ValueError("paymob_base_url must be a credential-free HTTP(S) URL.")
+        if self.payment_provider == "paymob":
+            required_paymob_values = {
+                "paymob_secret_key": self.paymob_secret_key,
+                "paymob_public_key": self.paymob_public_key,
+                "paymob_hmac_secret": self.paymob_hmac_secret,
+                "paymob_integration_id": self.paymob_integration_id,
+                "paymob_webhook_url": self.paymob_webhook_url,
+                "payment_success_url": self.payment_success_url,
+                "payment_failure_url": self.payment_failure_url,
+            }
+            missing = sorted(
+                name for name, value in required_paymob_values.items() if value is None
+            )
+            if missing:
+                raise ValueError(
+                    "Paymob configuration is incomplete: " + ", ".join(missing)
+                )
+            assert self.paymob_public_key is not None
+            assert self.paymob_secret_key is not None
+            for name, value in (
+                ("paymob_webhook_url", self.paymob_webhook_url),
+                ("payment_success_url", self.payment_success_url),
+                ("payment_failure_url", self.payment_failure_url),
+            ):
+                parsed = urlsplit(value or "")
+                if (
+                    parsed.scheme not in {"http", "https"}
+                    or not parsed.hostname
+                    or parsed.username is not None
+                    or parsed.password is not None
+                    or parsed.fragment
+                ):
+                    raise ValueError(f"{name} must be a credential-free HTTP(S) URL.")
+            public_key = self.paymob_public_key.get_secret_value()
+            secret_key = self.paymob_secret_key.get_secret_value()
+            if self.payment_sandbox_mode and (
+                public_key.startswith("pk_live_") or secret_key.startswith("sk_live_")
+            ):
+                raise ValueError("Live Paymob keys cannot be used in sandbox mode.")
+            if not self.payment_sandbox_mode and (
+                public_key.startswith("pk_test_") or secret_key.startswith("sk_test_")
+            ):
+                raise ValueError("Test Paymob keys cannot be used in live mode.")
+        if self.environment == "production" and self.payment_provider == "paymob":
+            if self.payment_sandbox_mode:
+                raise ValueError("payment_sandbox_mode must be false in production.")
+            if paymob_base.scheme != "https":
+                raise ValueError("paymob_base_url must use HTTPS in production.")
+            for name, value in (
+                ("paymob_webhook_url", self.paymob_webhook_url),
+                ("payment_success_url", self.payment_success_url),
+                ("payment_failure_url", self.payment_failure_url),
+            ):
+                if urlsplit(value or "").scheme != "https":
+                    raise ValueError(f"{name} must use HTTPS in production.")
         if self.email_provider in {"capture", "resend", "smtp"} and (
             self.email_from is None
         ):
