@@ -25,6 +25,16 @@ const RegisterPage = lazy(() =>
     default: RegisterPage,
   })),
 );
+const ForgotPasswordPage = lazy(() =>
+  import("../pages/PasswordRecoveryPages").then(({ ForgotPasswordPage }) => ({
+    default: ForgotPasswordPage,
+  })),
+);
+const ResetPasswordPage = lazy(() =>
+  import("../pages/PasswordRecoveryPages").then(({ ResetPasswordPage }) => ({
+    default: ResetPasswordPage,
+  })),
+);
 const AuditLogsPage = lazy(() =>
   import("../pages/AuditLogsPage").then(({ AuditLogsPage }) => ({
     default: AuditLogsPage,
@@ -336,6 +346,8 @@ export const router = createBrowserRouter([
     children: [
       { element: <LoginPage />, path: "login" },
       { element: <RegisterPage />, path: "register" },
+      { element: <ForgotPasswordPage />, path: "forgot-password" },
+      { element: <ResetPasswordPage />, path: "reset-password" },
     ],
     element: <PublicOnlyRoute />,
     errorElement: <RouteErrorPage />,

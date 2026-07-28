@@ -26,6 +26,29 @@ export function NotFoundPage(): ReactElement {
   );
 }
 
+export function ForbiddenPage(): ReactElement {
+  return (
+    <section aria-labelledby="forbidden-heading" className="max-w-2xl">
+      <p className="text-sm font-semibold uppercase tracking-wider text-purple-700">
+        403
+      </p>
+      <h2
+        className="mt-2 text-3xl font-semibold tracking-tight text-neutral-950 dark:text-neutral-50"
+        id="forbidden-heading"
+      >
+        Access restricted
+      </h2>
+      <p className="mt-3 text-base leading-7 text-neutral-600 dark:text-neutral-300">
+        Your current company role does not permit this action. Ask a company
+        administrator if your responsibilities have changed.
+      </p>
+      <Link className={returnLinkClassName} to="/">
+        Return to Dashboard
+      </Link>
+    </section>
+  );
+}
+
 export function RouteErrorPage(): ReactElement {
   const error = useRouteError();
   const status = isRouteErrorResponse(error) ? error.status : 500;

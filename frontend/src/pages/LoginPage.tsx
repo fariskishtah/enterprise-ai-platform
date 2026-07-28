@@ -129,6 +129,14 @@ export function LoginPage(): ReactElement {
                 value={password}
               />
             </div>
+            <div className="-mt-2 text-right">
+              <Link
+                className="text-sm font-semibold text-purple-800 underline-offset-4 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-purple-700"
+                to="/forgot-password"
+              >
+                Forgot password?
+              </Link>
+            </div>
             <button
               className="flex w-full items-center justify-center rounded-md bg-purple-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-purple-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-purple-700 disabled:cursor-not-allowed"
               disabled={submitting}

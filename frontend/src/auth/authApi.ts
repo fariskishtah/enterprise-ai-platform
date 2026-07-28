@@ -26,6 +26,11 @@ export interface RegisterRequest {
   readonly password: string;
 }
 
+export interface PasswordResetRequestResponse {
+  readonly local_reset_token: string | null;
+  readonly message: string;
+}
+
 export function registerAccount(payload: RegisterRequest): Promise<CurrentUser> {
   return apiRequest<CurrentUser>(
     "/auth/register",
@@ -38,6 +43,27 @@ export function login(payload: LoginRequest): Promise<TokenPair> {
   return apiRequest<TokenPair>(
     "/auth/login",
     { body: JSON.stringify(payload), method: "POST" },
+    { authenticated: false },
+  );
+}
+
+export function requestPasswordReset(
+  email: string,
+): Promise<PasswordResetRequestResponse> {
+  return apiRequest<PasswordResetRequestResponse>(
+    "/auth/password-reset/request",
+    { body: JSON.stringify({ email }), method: "POST" },
+    { authenticated: false },
+  );
+}
+
+export function completePasswordReset(
+  token: string,
+  newPassword: string,
+): Promise<void> {
+  return apiRequest<void>(
+    "/auth/password-reset/complete",
+    { body: JSON.stringify({ new_password: newPassword, token }), method: "POST" },
     { authenticated: false },
   );
 }

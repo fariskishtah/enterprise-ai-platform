@@ -2,6 +2,7 @@ import type { ReactElement } from "react";
 import { Navigate, Outlet, useLocation } from "react-router-dom";
 
 import { useProductExperience } from "../product/productExperience";
+import { ForbiddenPage } from "../pages/RouteErrorPages";
 import { useAuth } from "./useAuth";
 
 export function AuthLoadingScreen(): ReactElement {
@@ -72,7 +73,7 @@ export function RoleRoute({
   return auth.role !== null && roles.includes(auth.role) ? (
     <Outlet />
   ) : (
-    <Navigate replace to="/" />
+    <ForbiddenPage />
   );
 }
 
