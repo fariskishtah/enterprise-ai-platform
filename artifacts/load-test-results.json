@@ -1,9 +1,106 @@
 {
-  "schema_version": 1,
-  "generated_at": "2026-07-28",
-  "status": "blocked",
-  "tool": "k6",
-  "reason": "k6 executable is not installed on the validation host",
-  "scenarios_executed": [],
-  "historical_results_reused": false
+  "schema_version": 2,
+  "generated_at": "2026-07-29",
+  "status": "passed_with_spike_capacity_limit",
+  "tool": "k6 2.1.0",
+  "target": "disposable local staging-like stack",
+  "provider_isolation": {
+    "email_provider": "disabled",
+    "payment_provider": "disabled",
+    "payment_sandbox_mode": false,
+    "billing_entitlements_enforced": false,
+    "rag_provider": "deterministic local"
+  },
+  "thresholds": {
+    "checks_rate_min": 0.99,
+    "request_failure_rate_max": 0.01,
+    "p95_ms_max": 1000,
+    "p99_ms_max": 2000
+  },
+  "profiles": [
+    {
+      "name": "smoke",
+      "status": "passed",
+      "max_vus": 1,
+      "duration_seconds": 10,
+      "requests": 98,
+      "requests_per_second": 7.8977,
+      "latency_ms": {"mean": 33.9471, "median": 6.9512, "p90": 45.2858, "p95": 83.8068, "p99": 870.5270},
+      "error_rate": 0.0,
+      "checks_rate": 1.0,
+      "iterations": 9,
+      "interrupted_iterations": 0
+    },
+    {
+      "name": "normal",
+      "status": "passed",
+      "max_vus": 5,
+      "duration_seconds": 50,
+      "requests": 1428,
+      "requests_per_second": 25.6442,
+      "latency_ms": {"mean": 46.4065, "median": 20.4250, "p90": 96.1892, "p95": 156.0387, "p99": 265.5546},
+      "error_rate": 0.0,
+      "checks_rate": 1.0,
+      "iterations": 142,
+      "interrupted_iterations": 0
+    },
+    {
+      "name": "stress",
+      "status": "passed",
+      "max_vus": 20,
+      "duration_seconds": 40,
+      "requests": 2038,
+      "requests_per_second": 48.0027,
+      "latency_ms": {"mean": 91.6362, "median": 17.3677, "p90": 264.4834, "p95": 381.9999, "p99": 886.0684},
+      "error_rate": 0.0,
+      "checks_rate": 1.0,
+      "iterations": 203,
+      "interrupted_iterations": 0
+    },
+    {
+      "name": "spike",
+      "status": "failed_p99_latency",
+      "max_vus": 20,
+      "duration_seconds": 18,
+      "requests": 788,
+      "requests_per_second": 38.0766,
+      "latency_ms": {"mean": 304.1416, "median": 184.6289, "p90": 662.4295, "p95": 949.0315, "p99": 3430.8151},
+      "error_rate": 0.0,
+      "checks_rate": 1.0,
+      "iterations": 76,
+      "interrupted_iterations": 2
+    },
+    {
+      "name": "soak",
+      "status": "passed",
+      "max_vus": 3,
+      "duration_seconds": 120,
+      "requests": 2588,
+      "requests_per_second": 21.1506,
+      "latency_ms": {"mean": 40.0915, "median": 16.3455, "p90": 88.9170, "p95": 150.1863, "p99": 236.0202},
+      "error_rate": 0.0,
+      "checks_rate": 1.0,
+      "iterations": 258,
+      "interrupted_iterations": 0
+    }
+  ],
+  "totals": {"requests": 6940, "checks": 6950, "failed_requests": 0},
+  "system_peaks": {
+    "samples": 37,
+    "backend": {"cpu_percent": 51.35, "memory_mib": 415.8},
+    "postgres": {"cpu_percent": 16.42, "memory_mib": 45.48},
+    "redis": {"cpu_percent": 2.08, "memory_mib": 9.645},
+    "worker": {"cpu_percent": 11.89, "memory_mib": 234.4},
+    "reverse_proxy": {"cpu_percent": 2.42, "memory_mib": 8.535},
+    "frontend": {"cpu_percent": 1.21, "memory_mib": 7.145}
+  },
+  "post_run": {
+    "container_restart_delta": 0,
+    "postgres_connections": {"maximum": 100, "observed_after": 12, "active_after": 1, "active_over_one_second": 0},
+    "redis": {"used_memory_mib": 1.77, "connected_clients": 21, "blocked_clients": 0},
+    "worker_queue_depth": 0,
+    "server_5xx": 0,
+    "error_level_logs": 0,
+    "historical_slow_query_extension_available": false
+  }
 }

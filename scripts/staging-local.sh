@@ -35,6 +35,7 @@ generate_environment() {
     printf 'ENVIRONMENT=staging\n'
     printf 'APP_ENV=staging\n'
     printf 'APP_BASE_URL=http://127.0.0.1:18080\n'
+    printf 'APP_PUBLIC_URL=http://127.0.0.1:18080\n'
     printf 'API_BASE_URL=http://127.0.0.1:18080/api\n'
     printf 'ALLOWED_HOSTS=["127.0.0.1","localhost"]\n'
     printf 'COOKIE_SECURE=false\n'
@@ -44,9 +45,14 @@ generate_environment() {
     printf 'DEMO_TOOLS_ENABLED=true\n'
     printf 'CORS_ALLOWED_ORIGINS=["http://127.0.0.1:18080"]\n'
     printf 'EMAIL_PROVIDER=disabled\n'
+    printf 'EMAIL_FROM_ADDRESS=no-reply@example.com\n'
+    printf 'SUPPORT_NOTIFICATION_EMAIL=support@example.com\n'
     printf 'RESEND_API_KEY=staging-disabled-provider-placeholder\n'
     printf 'EMAIL_FROM=support@example.com\n'
     printf 'SUPPORT_EMAIL_TO=support@example.com\n'
+    printf 'PAYMENT_PROVIDER=disabled\n'
+    printf 'PAYMENT_SANDBOX_MODE=false\n'
+    printf 'BILLING_ENTITLEMENTS_ENFORCED=false\n'
     printf 'TRUSTED_PROXY_IPS=*\n'
     printf 'PUBLIC_HTTP_PORT=18080\n'
     printf 'AI_DEFAULT_REGISTERED_MODEL_PREFIX=staging_validation\n'
@@ -58,7 +64,32 @@ generate_environment() {
   : >"$MARKER_FILE"
 }
 
+ensure_environment_contract() {
+  local entry name temporary_environment
+  local required_entries=(
+    "APP_PUBLIC_URL=http://127.0.0.1:18080"
+    "EMAIL_PROVIDER=disabled"
+    "EMAIL_FROM_ADDRESS=no-reply@example.com"
+    "SUPPORT_NOTIFICATION_EMAIL=support@example.com"
+    "PAYMENT_PROVIDER=disabled"
+    "PAYMENT_SANDBOX_MODE=false"
+    "BILLING_ENTITLEMENTS_ENFORCED=false"
+  )
+  umask 077
+  for entry in "${required_entries[@]}"; do
+    name="${entry%%=*}"
+    if ! grep -Fxq "$entry" "$ENV_FILE"; then
+      temporary_environment="${ENV_FILE}.next"
+      grep -v "^${name}=" "$ENV_FILE" >"$temporary_environment" || true
+      printf '%s\n' "$entry" >>"$temporary_environment"
+      chmod 600 "$temporary_environment"
+      mv -f -- "$temporary_environment" "$ENV_FILE"
+    fi
+  done
+}
+
 compose() {
+  ensure_environment_contract
   docker compose --project-name "$PROJECT_NAME" --env-file "$ENV_FILE" \
     -f "$REPO_ROOT/docker-compose.yml" \
     -f "$REPO_ROOT/docker-compose.prod.yml" \

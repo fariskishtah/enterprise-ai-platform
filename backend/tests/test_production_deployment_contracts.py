@@ -128,6 +128,8 @@ def test_backend_healthcheck_uses_the_configured_trusted_host() -> None:
     command = backend["healthcheck"]["test"][-1]
 
     assert "ALLOWED_HOSTS" in command
+    assert "json.loads(raw)" in command
+    assert "raw.split(',')" in command
     assert "ddnsgeek" not in command
     assert "example.com" not in command
 

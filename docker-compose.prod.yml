@@ -101,7 +101,7 @@ services:
         - CMD
         - python
         - -c
-        - import os,urllib.request; host=os.environ['ALLOWED_HOSTS'].split(',')[0].strip(); request=urllib.request.Request('http://127.0.0.1:8000/ready',headers={'Host':host}); response=urllib.request.urlopen(request,timeout=5); raise SystemExit(0 if response.status == 200 else 1)
+        - import json,os,urllib.request; raw=os.environ['ALLOWED_HOSTS']; hosts=json.loads(raw) if raw.lstrip().startswith('[') else raw.split(','); host=hosts[0].strip(); request=urllib.request.Request('http://127.0.0.1:8000/ready',headers={'Host':host}); response=urllib.request.urlopen(request,timeout=5); raise SystemExit(0 if response.status == 200 else 1)
       interval: 10s
       timeout: 5s
       retries: 12

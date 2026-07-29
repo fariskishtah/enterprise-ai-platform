@@ -2,6 +2,7 @@
 
 import asyncio
 import os
+from datetime import UTC, datetime
 from uuid import uuid4
 
 from sqlalchemy import select
@@ -62,6 +63,8 @@ async def seed() -> None:
                 values = {
                     "hashed_password": hasher.hash(password),
                     "is_active": True,
+                    "is_email_verified": True,
+                    "email_verified_at": datetime.now(UTC),
                     "role": role,
                     "company_id": company_id,
                 }
