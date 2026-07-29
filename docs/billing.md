@@ -176,3 +176,29 @@ Tenant admins can inspect `/billing/entitlements`, `/billing/usage`,
 `/billing/admin/entitlement-overrides/{key}`, require a reason, may expire, and
 always create a billing audit event. Migration `0031_entitlement_overrides`
 adds those exceptions and the metering idempotency ledger.
+
+## Billing management frontend
+
+`/pricing` renders the public backend catalogue. Owners and Admins can use
+`/settings/billing` to inspect the current subscription and effective access,
+usage thresholds, plan comparison, payment/invoice history, billing audit events,
+and durable provider callback status. Other roles receive the dedicated 403 view;
+navigation visibility is only a convenience and does not replace backend
+`billing.manage` authorization.
+
+Plan selection opens an authenticated billing-contact form and then redirects to
+the backend-returned Paymob Unified Checkout URL. A synchronous submission guard
+and stable `Idempotency-Key` cover rapid duplicate actions. Card or wallet data is
+never collected by the application.
+
+`/settings/billing/return?payment_id=...` reads only the payment reference, polls
+the authenticated tenant-scoped payment API, and renders `creating`, `pending`,
+`succeeded`, `failed`, `provider_error`, `cancelled`, `refunded`, or `reversed`
+from that response. Any `success`, status, price, plan, or company value included
+in the redirect URL is ignored. Pending checkout abandonment is recorded only
+through the authenticated cancellation API.
+
+The management view has state-specific past-due/grace, suspended/read-only,
+scheduled-cancellation, incomplete, cancelled, and expired guidance. It never
+shows proration because no authoritative proration quote exists. Receipt links
+appear only when returned by the invoice API.

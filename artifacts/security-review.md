@@ -1,42 +1,36 @@
 # Security review
 
-Reviewed: 2026-07-28. Status: **not approved for unrestricted production**.
+Reviewed: 2026-07-29. Status: **not approved for unrestricted production**.
 
-## Controls verified in source and tests
+## Verified controls
 
-- Argon2 password hashing, password strength validation, generic login/reset
-  responses, short-lived JWT access tokens, hashed rotating refresh tokens, and
-  session revocation.
-- Server-side role checks and company scoping across the existing manufacturing,
-  AI, operations, RAG, support, audit, and new billing persistence domains.
-- Request/correlation IDs, structured logging, sensitive-field redaction,
-  configurable exact CORS/host policy, request-size limits, security headers,
-  production API-docs denial, and production rejection of demo/seed controls.
-- Bounded upload/import paths, owner-scoped document/RAG records, safe report
-  spreadsheet cells, and non-root/read-only production application containers.
-- Billing prices/currency are backend-owned. No raw card endpoint or fake payment
-  success path was added. Provider/event uniqueness constraints establish an
-  idempotency foundation.
-- New accounts use digest-only, expiring, single-use email-verification tokens.
-  Production requires server-side enforcement while preserving login and resend;
-  token-bearing queued bodies are encrypted, provider delivery stays async, and
-  capture/disabled providers are rejected in production.
-- Six roles use one server-side permission matrix. Existing Admins migrate to
-  Owner; Admin cannot manage Owner, read-only roles cannot mutate through legacy
-  dependencies, and the final active Owner is protected transactionally.
-- Invitation tokens are digest-only, encrypted in queued mail, expiring,
-  single-use, cooldown-rotated, company-bound, and cannot move an existing user
-  across tenant ownership boundaries.
+- Argon2 passwords, short-lived access tokens, rotating/reuse-detecting refresh
+  families in Secure HttpOnly cookies with CSRF validation, session revocation,
+  generic recovery responses, and enforced email ownership.
+- Six-role centralized permissions, owner-only boundaries, last-owner protection,
+  tenant-scoped queries, and cross-company regression tests.
+- Digest-only expiring single-use verification/invitation/reset credentials and
+  encrypted token-bearing asynchronous email bodies.
+- Backend-owned plan, amount, EGP currency, company, entitlement, and payment
+  truth. Browser redirect parameters cannot activate a subscription.
+- Paymob hosted collection (no raw card endpoint), SHA-512 callback HMAC,
+  normalized card-free payload retention, transaction/event uniqueness, durable
+  queueing, row locking, idempotent processing, and terminal event precedence.
+- Central backend entitlement checks, atomic bounded metering, production-required
+  enforcement, structured quota errors, and audited expiring overrides.
+- Owner/Admin billing UI permission gates backed by server authorization,
+  duplicate-checkout prevention, allowlisted HTTP(S) redirect schemes, accessible
+  confirmations, and authenticated payment-status polling.
 
 ## Open findings
 
 | Severity | Finding | Required remediation |
 | --- | --- | --- |
-| Critical | Paymob checkout/webhook handling is not implemented. | Add hosted checkout, HMAC verification over exact raw payload, transactional idempotency, state transitions, and concurrency tests before enabling billing. |
-| High | Refresh tokens remain accessible to JavaScript in session storage. | Prefer same-site Secure HttpOnly refresh cookies with CSRF protection; retain short access tokens in memory. |
-| High | Login rate limiting exists, but there is no account-specific progressive lockout. | Add bounded failed-attempt state without enabling account enumeration or denial-of-service abuse. |
-| Medium | CSV/plain-text ingestion lacks a production malware scanner. | Add quarantine and an asynchronous scanner hook before marking uploads ready. |
-| Medium | Current dependency/container scans were not rerun in this change. | Run CI security workflow and review Bandit, pip-audit, npm audit, gitleaks, Semgrep, Trivy, SBOM, and licences. |
+| Critical release gate | No credential-backed Paymob sandbox/live transaction has been executed. | Complete merchant sandbox acceptance, signed callback, refund/reversal, and production-key ceremony using deployment-owned credentials. |
+| High | Login rate limiting exists without account-specific progressive lockout. | Add bounded lockout/backoff without enabling account enumeration or abusive lockout. |
+| High | Single-host deployment lacks HA and operator-proven off-host restore. | Use managed/redundant data services and complete a signed recovery exercise. |
+| Medium | CSV/plain-text ingestion lacks malware quarantine/scanning. | Add quarantine and an asynchronous scanner gate. |
+| Medium | Dependency/container/security workflows require current release review. | Run and review Bandit, pip-audit, npm audit, gitleaks, Semgrep, Trivy, SBOM, and licence results. |
 
-No secrets were added. Real provider credentials must be supplied through the
-deployment secret manager and must never use `.env.example` placeholder values.
+No credentials, raw payment data, or real customer data are stored in source or
+screenshots. Provider secrets must remain in the deployment secret manager.

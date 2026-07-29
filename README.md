@@ -19,8 +19,13 @@ yet licensed for commercial redistribution; see the
 
 ![Backend-authoritative EGP pricing catalogue](artifacts/screenshots/03-pricing.png)
 
-These captures use empty public forms and the checked-in plan catalogue; they do
-not contain customer data or represent a completed payment.
+| Billing administration | Mobile lifecycle warning |
+| --- | --- |
+| ![Owner billing workspace](artifacts/screenshots/phase-h-billing-overview.png) | ![Mobile billing workspace](artifacts/screenshots/phase-h-billing-mobile.png) |
+
+These captures use empty public forms or deterministic non-sensitive fixtures and
+the checked-in plan catalogue; they do not contain customer data or prove a real
+Paymob payment.
 
 ## Architecture
 
@@ -69,15 +74,17 @@ architecture, data-flow, deployment, and observability diagrams.
   export for critical identity, data, model, prediction, alert, and retraining
   actions.
 - Backend-authoritative Starter, Professional, and Enterprise EGP plan catalogue,
-  billing persistence migration, and responsive public pricing page. Payment
-  checkout/webhooks and entitlement enforcement remain disabled pending a
-  verified provider implementation; see [billing](docs/billing.md).
+  Paymob-hosted checkout, verified webhook subscription lifecycle, enforced plan
+  entitlements, and responsive public and administrative billing pages; see
+  [billing](docs/billing.md), the
+  [subscription lifecycle](docs/production/subscription-lifecycle.md), and
+  [entitlement enforcement](docs/production/entitlement-enforcement.md).
 - Docker Compose local/staging/single-host deployment, optional HTTPS, backup,
   isolated restore verification, rollback, smoke, and observability tooling.
 
 Enterprise identity federation and automated tenant provisioning, HA, off-host
-durable storage, semantic/LLM RAG, advanced document ingestion, payment-provider
-processing, and entitlement enforcement are explicitly outside this release.
+durable storage, semantic/LLM RAG, advanced document ingestion, and
+credential-backed Paymob sandbox/live verification are outside this release.
 
 ## Repository layout
 

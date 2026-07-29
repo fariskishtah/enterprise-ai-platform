@@ -76,6 +76,23 @@ GET  /billing/plans
 POST /billing/checkouts
 GET  /billing/payments/{payment_id}
 POST /billing/payments/{payment_id}/cancel
+GET  /billing/subscription
+POST /billing/subscription/upgrade
+POST /billing/subscription/downgrade
+POST /billing/subscription/cancel
+POST /billing/subscription/reactivate
+GET  /billing/history/payments
+GET  /billing/history/invoices
+GET  /billing/entitlements
+GET  /billing/usage
+GET  /billing/usage/breakdown
+GET  /billing/limits
+GET  /billing/recommendation
+GET  /billing/admin/usage
+GET  /billing/admin/events
+GET  /billing/admin/provider-events
+PUT  /billing/admin/entitlement-overrides/{key}
+DELETE /billing/admin/entitlement-overrides/{key}
 POST /billing/webhooks/paymob?hmac=...
 ```
 

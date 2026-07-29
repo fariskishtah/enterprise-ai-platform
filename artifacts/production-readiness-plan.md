@@ -61,7 +61,7 @@ their runtime acceptance tests pass with deployment-owned credentials.
 | Training | Dramatiq queues, retries, cancellation/reconciliation, metrics | Good pilot behavior; local CPU/ARM constraints must be reflected in current evidence | High |
 | Feedback/support | Durable support and outbound-email records, asynchronous Dramatiq delivery, capture/Resend/SMTP adapters | Feedback notification wiring and provider-credential staging proof remain | High |
 | Reporting | Executive summaries and CSV/XLSX/PDF generation | Existing routes are grouped in demo-named modules and need product-language separation | High |
-| Billing | None | Plans, subscriptions, payments, webhooks, usage, entitlements, UI, and tests are absent | Critical |
+| Billing | Server-owned EGP catalogue, Paymob hosted checkout/webhooks, lifecycle, entitlements, management UI | Credential-backed Paymob sandbox/live proof remains external | High |
 | Demo behavior | Feature flags reject demo tools in production; explicit seed script | Customer home/settings still contain demo onboarding; public-demo tables/routes/services remain; naming is mixed with real import/report features | Critical |
 | Observability | Full local stack, dashboards, alert rules, tracing, request IDs | Strong baseline; billing/email/auth metrics and dashboards do not exist | High |
 | Docker/deploy | Local, staging, production and HTTPS Compose; non-root/read-only production containers | Single-host only; deployment credentials/TLS/off-host storage remain operator responsibilities | High |
@@ -92,25 +92,25 @@ their runtime acceptance tests pass with deployment-owned credentials.
       SMTP, and provider-neutral templates.
 - [ ] Move support/feedback delivery off the request path while preserving the
       submitted record if delivery fails. Support is complete; feedback remains.
-- [ ] Add centralized plan catalogue and database-backed billing entities for
+- [x] Add centralized plan catalogue and database-backed billing entities for
       plans, entitlements, customers, subscriptions, payments, invoices, webhook
       events, usage counters, and billing audit events.
-- [ ] Implement backend-authoritative EGP prices (1,000 / 5,000 / 10,000), Paymob
+- [x] Implement backend-authoritative EGP prices (1,000 / 5,000 / 10,000), Paymob
       hosted-checkout abstraction, signature verification, idempotent/concurrent
       webhook processing, grace periods, and tenant-scoped management APIs.
-- [ ] Enforce plan limits on write paths; never trust frontend price, currency,
+- [x] Enforce plan limits on write paths; never trust frontend price, currency,
       company, or entitlement values.
-- [ ] Add tests for all requested auth, tenant, email, billing, idempotency, and
+- [x] Add tests for all requested auth, tenant, email, billing, idempotency, and
       concurrency cases; Critical status cannot close with failures.
 
 ## High-priority checklist
 
 - [x] Add forgot/reset/verify/invitation pages and accurate API-error messaging.
-- [ ] Add pricing, billing status, payment history, usage, plan warning, and admin
+- [x] Add pricing, billing status, payment history, usage, plan warning, and admin
       subscription pages with loading, empty, error, and success states.
 - [ ] Add notification preferences and company settings backed by real APIs.
 - [ ] Add explicit 403 and recoverable 500 pages; retain the 404 route.
-- [ ] Replace JavaScript token persistence with secure HttpOnly refresh-cookie
+- [x] Replace JavaScript token persistence with secure HttpOnly refresh-cookie
       mode where same-site deployment supports it; document fallback risk.
 - [ ] Add request idempotency to important creation endpoints and consistent
       error envelopes containing request/correlation IDs.
@@ -123,7 +123,7 @@ their runtime acceptance tests pass with deployment-owned credentials.
 - [ ] Add requested health/login/dashboard/machines/alerts/documents/RAG/feedback/
       reports/billing load scenarios under `tests/load/` (or retain k6 with a
       compatibility wrapper) and capture current JSON results.
-- [ ] Add full desktop/tablet/mobile Playwright route coverage, browser console
+- [x] Add billing desktop/mobile Playwright coverage, browser console
       and failed-request assertions, and safe screenshot fixtures.
 - [ ] Update CI, Makefile/task commands, `.env.example`, README, deployment guide,
       and provider setup documents.

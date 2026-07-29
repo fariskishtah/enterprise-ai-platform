@@ -1,118 +1,55 @@
 # Final implementation report
 
-Date: 2026-07-28  
+Date: 2026-07-29
 Branch: `feature/production-saas-upgrade`
 
-## Changes made
+## Delivered through Phase H
 
-- Added a prioritized repository audit and explicit production acceptance gates.
-- Removed synthetic/demo onboarding and workspace preparation from normal home
-  and settings flows; development seed execution now requires an explicit opt-in
-  and is rejected by production settings.
-- Added forgot-password and reset-password pages backed by the existing hashed,
-  expiring, single-use reset tokens. Added duplicate-submit protection, accurate
-  states, a login entry point, focused browser tests, and a real 403 view.
-- Added a backend-authoritative EGP catalogue: Starter 1,000, Professional 5,000,
-  Enterprise 10,000 per month, with exact centrally defined quotas.
-- Added migration `0023_add_billing_foundation` and ORM entities for plans,
-  entitlements, provider customers, subscriptions, payments, invoice references,
-  webhook events, usage counters, and billing audit events.
-- Added the public billing catalogue API and a responsive API-backed pricing page.
-  It does not claim checkout is available or fabricate payment success.
-- Added billing catalogue/migration tests, documentation, current security/model/
-  training/load evidence, and three reviewed non-sensitive screenshots.
-- Added migration `0024_add_transactional_email`, durable UUID-only Dramatiq
-  delivery, capture/Resend/SMTP adapters, bounded retry state, deduplication,
-  sanitized metrics/logging, and ten provider-neutral HTML/text templates.
-- Moved support email off the API request path while preserving the support
-  record and durable delivery state across provider or queue failures.
-- Added migration `0025_add_email_verification`, backfilled existing accounts,
-  and made new registrations unverified with digest-only, expiring, single-use
-  credentials, authenticated resend cooldown, audit events, and
-  production-required server enforcement that still permits login and recovery.
-- Queued verification, welcome, and password-reset messages asynchronously;
-  token-bearing outbound bodies are authenticated-encrypted at rest and raw
-  credentials remain available only behind explicit local/test flags.
-- Added the verification-pending frontend with verified, already-verified,
-  expired, invalid, used, resend, and cooldown states.
-- Added migration `0026_add_six_role_rbac`, converting existing administrators to
-  owners, plus an explicit Owner/Admin/Engineer/Operator/Analyst/Viewer permission
-  matrix, owner-only privilege boundaries, and last-owner protection. Legacy
-  route declarations now delegate to that matrix with read-only Analyst/Viewer
-  compatibility, and the team UI understands all six roles.
-- Added migration `0027_add_team_invitations` with company-bound digest-only
-  credentials, expiry, single use, revoke and resend state, cooldown rotation,
-  existing/new-account acceptance, cross-tenant rejection, audit events, and
-  encrypted asynchronous invitation delivery. The team page now lists and
-  manages pending invitations, and the public acceptance page handles account
-  creation or an existing same-tenant account.
-- Updated README scope and screenshot gallery.
+The production-SaaS work now includes durable provider-neutral email, enforced
+email ownership, six-role RBAC, tenant invitations, Secure HttpOnly rotating
+refresh-cookie sessions, a backend-authoritative EGP plan catalogue, Paymob
+Intention/Unified Checkout, signed durable webhooks, subscription lifecycle,
+central entitlement enforcement, and the owner/admin billing experience.
 
-## Bugs fixed
+Billing never accepts frontend prices, currency, company identity, plan truth, or
+payment status. Checkout only creates an incomplete subscription. Verified,
+amount-matched provider events grant access; terminal refund/reversal precedence,
+row locks, idempotency, audit history, and tenant scoping cover retries and
+out-of-order callbacks. Migrations `0030_subscription_lifecycle` and
+`0031_entitlement_overrides` extend the existing billing foundation.
 
-- Removed customer-facing demo onboarding and stale client-side demo preparation
-  code from production flows.
-- Prevented seed execution from relying only on environment naming.
-- Replaced silent role-denial redirects with an understandable 403 state.
-- Added missing customer UI for already-supported password reset APIs.
-- Corrected unavailable pricing entitlements to use neutral visual treatment.
+`EntitlementService` enforces every catalogue limit on relevant backend write
+paths, uses atomic period metering for RAG, exposes effective policy/usage, and
+supports audited expiring overrides. Production rejects disabled enforcement.
 
-## Verification summary
+The frontend now provides public pricing and protected subscription details,
+usage thresholds, plan comparison, hosted checkout, authoritative return polling,
+payment/invoice history, cancellation/reactivation, lifecycle warnings, audit and
+provider-event inspection, permission gates, and responsive mobile behavior.
 
-See `artifacts/final-test-report.md`. Final pytest: 856 passed, 3 skipped. Full
-fixture Playwright: 47 passed, 23 explicitly guarded real-backend skips. Frontend
-lint/format/type/build, backend changed-file lint/format, full mypy, Compose
-configuration, full mypy across 287 source files, and empty-database billing and
-transactional-email and verification migration round trips passed. The rebuilt
-local runtime is at migration `0027`; API health and billing catalogue probes
-returned HTTP 200.
+## Evidence
 
-## Required current environment variables
+See `artifacts/final-test-report.md` plus the Phase F, G, and H validation reports.
+Fifteen non-sensitive Phase H screenshots are under `artifacts/screenshots/`.
+Provider-flow browser tests use deterministic API fixtures and do not claim a real
+Paymob transaction.
 
-Use `.env.example` as the source of truth. Essential production values include
-`DATABASE_URL`, `REDIS_URL`, `SECRET_KEY`, JWT issuer/audience/expiry settings,
-HTTPS `APP_PUBLIC_URL`/`API_BASE_URL`, exact `ALLOWED_HOSTS` and
-`CORS_ALLOWED_ORIGINS`, secure cookie flags, observability endpoints, storage
-paths, PostgreSQL credentials, and non-default Grafana credentials. Resend support
-delivery additionally needs `EMAIL_PROVIDER=resend`, `RESEND_API_KEY`,
-`EMAIL_FROM_ADDRESS`, and `SUPPORT_NOTIFICATION_EMAIL`. `ENABLE_DEVELOPMENT_SEED` and
-`DEMO_TOOLS_ENABLED` must be false in production. Production also requires
-`EMAIL_VERIFICATION_REQUIRED=true` and forbids exposing local verification
-credentials.
+## Deployment inputs
 
-## Deployment
+Production must provide secret-managed database/Redis/JWT/cookie values, exact
+hosts and origins, TLS URLs, durable storage, and non-default observability
+credentials. Paymob additionally requires production-mode secret/public/HMAC
+keys, integration ID, public HTTPS webhook/success/failure URLs, merchant
+onboarding, and operational webhook monitoring. Entitlements must remain enabled.
 
-Copy `.env.example` to a secret-managed production environment file, replace all
-placeholders, validate `docker compose -f docker-compose.yml -f
-docker-compose.prod.yml config`, build pinned images, run `alembic upgrade head`,
-start the production topology, then execute the documented read-only smoke and
-backup/restore gates. Do not expose billing mutations or configure a Paymob
-production webhook on this revision.
+## Remaining limitations and risks
 
-## Remaining limitations
-
-This repository is **not production-ready for the full requested scope**.
-Progressive account lockout, HttpOnly
-refresh cookies, SES/SendGrid adapters and credential-backed provider proof,
-Paymob checkout/signature/webhook processing, subscription mutations, plan-limit
-enforcement, billing admin UI, notification preferences, current k6 load evidence,
-full real-backend browser rerun, and most requested authenticated screenshots
-remain incomplete. RAG remains deterministic lexical/extractive and accepts
-CSV/plain text. Deployment is single-host, and legal/commercial approval remains
-external.
-
-## Screenshots generated
-
-- `artifacts/screenshots/01-login.png`
-- `artifacts/screenshots/02-register.png`
-- `artifacts/screenshots/03-pricing.png`
-
-They contain empty forms and the source-controlled catalogue only.
-
-## Security considerations
-
-No secret or real customer/payment data was added. Prices are server-owned and no
-raw card endpoint exists. Provider integration must use hosted checkout, exact
-raw-body signature verification, transactional event idempotency, safe logs, and
-bounded asynchronous follow-up before activation. See
-`artifacts/security-review.md` for open findings.
+This repository is not yet approved for unrestricted production. Real Paymob
+sandbox/live transactions remain unverified because credentials are unavailable.
+Real email provider delivery, public DNS/TLS, off-host backups and restore-owner
+sign-off, dependency/container security workflow review, customer-scale capacity,
+legal/commercial approval, and production incident runbooks are deployment gates.
+Progressive account lockout and malware scanning remain application risks. RAG is
+still deterministic lexical/extractive over bounded CSV/plain text, not a
+production semantic LLM service. The supplied deployment remains single-host and
+does not provide HA or multi-region recovery.
