@@ -13,6 +13,8 @@ _BACKUP_SCRIPT = _ROOT / "scripts/backup-postgres.sh"
 _VERIFY_SCRIPT = _ROOT / "scripts/verify-postgres-backup.sh"
 _COMPOSE = _ROOT / "docker-compose.yml"
 _RUNBOOK = _ROOT / "docs/backups-and-disaster-recovery.md"
+_APPLICATION_BACKUP_SCRIPT = _ROOT / "scripts/backup-production.sh"
+_APPLICATION_RESTORE_SCRIPT = _ROOT / "scripts/restore-validation.sh"
 
 
 def _text(path: Path) -> str:
@@ -27,6 +29,16 @@ def test_backup_scripts_are_executable_and_use_strict_bash() -> None:
     for script in (_BACKUP_SCRIPT, _VERIFY_SCRIPT):
         assert script.is_file()
         assert script.stat().st_mode & stat.S_IXUSR
+
+
+def test_application_backup_scripts_support_no_optional_compose_arguments() -> None:
+    """Bash 3.2 + nounset cannot directly expand an unset empty array."""
+
+    safe_empty_array_expansion = (
+        '${compose_arguments[@]+"${compose_arguments[@]}"}'
+    )
+    for script in (_APPLICATION_BACKUP_SCRIPT, _APPLICATION_RESTORE_SCRIPT):
+        assert safe_empty_array_expansion in _text(script)
         assert _text(script).startswith("#!/usr/bin/env bash\nset -Eeuo pipefail\n")
 
 

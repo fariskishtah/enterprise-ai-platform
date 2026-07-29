@@ -47,7 +47,7 @@ if [[ -n "${BACKUP_COMPOSE_FILES:-}" ]]; then
 fi
 
 compose() {
-  docker compose "${compose_arguments[@]}" "$@"
+  docker compose ${compose_arguments[@]+"${compose_arguments[@]}"} "$@"
 }
 
 audit_result() {
@@ -160,13 +160,22 @@ restored_revision="$(docker exec "$postgres_name" psql -At \
   echo "Migration revision mismatch after restore." >&2
   exit 1
 }
-core_counts="$(docker exec "$postgres_name" psql -At \
+restored_counts="$(docker exec "$postgres_name" psql -At \
   -U restore_validation -d restore_validation \
   -c "SELECT 'companies='||count(*) FROM companies
       UNION ALL SELECT 'users='||count(*) FROM users
       UNION ALL SELECT 'factories='||count(*) FROM factories
       UNION ALL SELECT 'datasets='||count(*) FROM datasets
-      UNION ALL SELECT 'training_jobs='||count(*) FROM training_jobs")"
+      UNION ALL SELECT 'training_jobs='||count(*) FROM training_jobs
+      UNION ALL SELECT 'subscriptions='||count(*) FROM subscriptions
+      UNION ALL SELECT 'payments='||count(*) FROM payments
+      UNION ALL SELECT 'invoice_references='||count(*) FROM invoice_references
+      UNION ALL SELECT 'refresh_tokens='||count(*) FROM refresh_tokens
+      UNION ALL SELECT 'password_reset_tokens='||count(*) FROM password_reset_tokens
+      UNION ALL SELECT 'email_verification_tokens='||count(*) FROM email_verification_tokens
+      UNION ALL SELECT 'team_invitations='||count(*) FROM team_invitations
+      UNION ALL SELECT 'document_records='||count(*) FROM document_records
+      UNION ALL SELECT 'document_chunks='||count(*) FROM document_chunks")"
 
 for archive in datasets model-artifacts ai-artifacts mlflow; do
   tar -tzf "$payload_dir/$archive.tar.gz" |
@@ -249,7 +258,7 @@ mkdir -p -- "$evidence_dir"
   printf 'Restore validation: PASS\n'
   printf 'Validation ID: %s\nBackup ID: %s\n' "$validation_id" "$BACKUP_ID"
   printf 'Migration revision: %s\n' "$restored_revision"
-  printf '%s\n' "$core_counts"
+  printf '%s\n' "$restored_counts"
   printf 'Artifact archives: checksums and safe paths verified\n'
   printf 'Readiness: PASS\nAuthenticated smoke: PASS\n'
 } >"$evidence_file"

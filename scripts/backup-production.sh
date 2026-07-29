@@ -33,7 +33,7 @@ if [[ -n "${BACKUP_COMPOSE_FILES:-}" ]]; then
 fi
 
 compose() {
-  docker compose "${compose_arguments[@]}" "$@"
+  docker compose ${compose_arguments[@]+"${compose_arguments[@]}"} "$@"
 }
 
 audit_result() {
