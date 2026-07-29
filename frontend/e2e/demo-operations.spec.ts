@@ -7,6 +7,7 @@ const accounts = {
   admin: process.env.E2E_ADMIN_EMAIL,
   engineer: process.env.E2E_ENGINEER_EMAIL,
   operator: process.env.E2E_OPERATOR_EMAIL,
+  external: process.env.E2E_EXTERNAL_EMAIL,
 } as const;
 const namespace = (
   process.env.E2E_RESOURCE_NAMESPACE ??
@@ -15,7 +16,6 @@ const namespace = (
 )
   .replace(/[^A-Za-z0-9_.-]/g, "-")
   .slice(0, 40);
-const runIdentity = Date.now().toString(36);
 
 interface PageResponse<T> {
   readonly items: readonly T[];
@@ -474,18 +474,7 @@ test.describe("demo operations with real staging backend", () => {
   }) => {
     if (!action || !password)
       throw new Error("Cross-company setup prerequisites are missing.");
-    const externalEmail =
-      `external-${namespace}-${runIdentity}@example.com`.toLowerCase();
-    const registration = await page.request.post("/api/auth/register", {
-      data: {
-        company_name: `External Workspace ${namespace} ${runIdentity}`,
-        email: externalEmail,
-        name: "External Tenant Owner",
-        password,
-      },
-    });
-    expect([201, 409]).toContain(registration.status());
-    await login(page, externalEmail);
+    await login(page, accounts.external);
     const response = await page.request.get(`/api/operations/actions/${action.id}`, {
       headers: { Authorization: `Bearer ${await accessToken(page)}` },
     });

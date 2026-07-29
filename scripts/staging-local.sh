@@ -135,12 +135,12 @@ case "$action" in
     ;;
   seed)
     [[ -f "$ENV_FILE" ]] || { echo "Start the staging runtime first." >&2; exit 1; }
-    for variable in E2E_ADMIN_EMAIL E2E_ENGINEER_EMAIL E2E_OPERATOR_EMAIL E2E_SMOKE_EMAIL E2E_PASSWORD; do
+    for variable in E2E_ADMIN_EMAIL E2E_ENGINEER_EMAIL E2E_OPERATOR_EMAIL E2E_SMOKE_EMAIL E2E_EXTERNAL_EMAIL E2E_PASSWORD; do
       [[ -n "${!variable:-}" ]] || { echo "$variable is required." >&2; exit 2; }
     done
     compose exec -T \
       -e E2E_ADMIN_EMAIL -e E2E_ENGINEER_EMAIL -e E2E_OPERATOR_EMAIL \
-      -e E2E_SMOKE_EMAIL -e E2E_PASSWORD \
+      -e E2E_SMOKE_EMAIL -e E2E_EXTERNAL_EMAIL -e E2E_PASSWORD \
       backend python - <"$REPO_ROOT/scripts/seed_staging_users.py"
     compose exec -T \
       -e ENABLE_DEVELOPMENT_SEED=true \

@@ -218,6 +218,7 @@ export E2E_ADMIN_EMAIL="admin@release-validation.example"
 export E2E_ENGINEER_EMAIL="engineer@release-validation.example"
 export E2E_OPERATOR_EMAIL="operator@release-validation.example"
 export E2E_SMOKE_EMAIL="smoke@release-validation.example"
+export E2E_EXTERNAL_EMAIL="external@release-validation.example"
 E2E_PASSWORD="$(openssl rand -hex 18)Aa1!"
 export E2E_PASSWORD
 STAGING_STARTED=true

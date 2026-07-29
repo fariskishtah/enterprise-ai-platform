@@ -896,7 +896,7 @@ test.describe("real staging backend", () => {
     expect(errors).toEqual([]);
   });
 
-  test("account menu, profile, support failure, and explicit logout use the real backend", async ({
+  test("account menu, profile, pending support, and explicit logout use the real backend", async ({
     page,
   }) => {
     test.skip(
@@ -928,9 +928,7 @@ test.describe("real staging backend", () => {
     );
     await page.getByRole("button", { name: "Submit support request" }).click();
     expect((await supportResponse).status()).toBe(201);
-    await expect(page.getByRole("status")).toContainText(
-      "saved, but email delivery failed",
-    );
+    await expect(page.getByRole("status")).toContainText("awaiting delivery");
     await expect(page.getByRole("status")).toContainText("Request ID:");
 
     await accountButton.click();

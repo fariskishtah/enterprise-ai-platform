@@ -31,6 +31,7 @@ async def seed() -> None:
         (required("E2E_OPERATOR_EMAIL"), UserRole.OPERATOR),
         (required("E2E_SMOKE_EMAIL"), UserRole.ENGINEER),
     )
+    external_email = required("E2E_EXTERNAL_EMAIL")
     engine = create_async_engine(Settings().database_url)
     hasher = PasswordHasher()
     try:
@@ -78,9 +79,56 @@ async def seed() -> None:
                         .where(User.id == existing_id)
                         .values(**values)
                     )
+            external_company_name = "External Isolation Manufacturing"
+            external_company_id = (
+                await connection.execute(
+                    select(Company.id).where(
+                        Company.normalized_name == external_company_name.lower()
+                    )
+                )
+            ).scalar_one_or_none()
+            if external_company_id is None:
+                external_company_id = uuid4()
+                await connection.execute(
+                    Company.__table__.insert().values(
+                        id=external_company_id,
+                        name=external_company_name,
+                        normalized_name=external_company_name.lower(),
+                        description="Disposable tenant-isolation validation boundary.",
+                    )
+                )
+            normalized_external = normalize_email(external_email)
+            external_id = (
+                await connection.execute(
+                    select(User.id).where(User.email == normalized_external)
+                )
+            ).scalar_one_or_none()
+            external_values = {
+                "hashed_password": hasher.hash(password),
+                "is_active": True,
+                "is_email_verified": True,
+                "email_verified_at": datetime.now(UTC),
+                "role": UserRole.OWNER,
+                "company_id": external_company_id,
+            }
+            if external_id is None:
+                await connection.execute(
+                    User.__table__.insert().values(
+                        email=normalized_external, **external_values
+                    )
+                )
+            else:
+                await connection.execute(
+                    User.__table__.update()
+                    .where(User.id == external_id)
+                    .values(**external_values)
+                )
     finally:
         await engine.dispose()
-    print("Staging validation users are ready: admin, engineer, operator, smoke.")
+    print(
+        "Staging validation users are ready: admin, engineer, operator, smoke, "
+        "external tenant."
+    )
 
 
 if __name__ == "__main__":

@@ -42,5 +42,6 @@ def test_staging_load_fixture_disables_external_providers_and_verifies_users() -
     assert '"PAYMENT_PROVIDER=disabled"' in staging
     assert '"PAYMENT_SANDBOX_MODE=false"' in staging
     assert '"BILLING_ENTITLEMENTS_ENFORCED=false"' in staging
+    assert "E2E_EXTERNAL_EMAIL" in staging
     assert '"is_email_verified": True' in seed
     assert '"email_verified_at": datetime.now(UTC)' in seed
