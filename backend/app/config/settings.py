@@ -167,6 +167,9 @@ class Settings(BaseSettings):
         pattern=r"^[A-Za-z0-9_.-]+$",
     )
     billing_webhook_max_retries: PositiveInt = Field(default=5, le=20)
+    billing_grace_period_days: PositiveInt = Field(default=7, le=90)
+    billing_incomplete_expiry_hours: PositiveInt = Field(default=24, le=168)
+    billing_suspension_expiry_days: PositiveInt = Field(default=30, le=365)
     structured_logging_enabled: bool = True
     log_format: LogFormat = "json"
     log_level: LogLevel = "INFO"

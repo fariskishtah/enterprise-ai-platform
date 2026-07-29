@@ -136,7 +136,8 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.CheckConstraint(
-            "status IN ('trialing','active','past_due','suspended','cancelled','expired','incomplete')",
+            "status IN ('trialing','active','past_due','suspended','cancelled',"
+            "'expired','incomplete')",
             name="ck_subscriptions_status",
         ),
         sa.UniqueConstraint(

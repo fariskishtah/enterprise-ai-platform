@@ -18,26 +18,137 @@ from app.config.settings import Settings, get_settings
 from app.dependencies.auth import require_permissions
 from app.dependencies.billing import get_billing_webhook_queue, get_payment_provider
 from app.dependencies.database import get_db_session
+from app.models.billing import Payment, Subscription
 from app.models.user import User
 from app.permissions import Permission
 from app.repositories.billing import BillingRepository
 from app.schemas.billing import (
+    BillingAuditEventResponse,
+    BillingAuditHistoryResponse,
+    BillingProviderEventHistoryResponse,
+    BillingProviderEventResponse,
     CheckoutCreateRequest,
     CheckoutResponse,
+    InvoiceHistoryResponse,
+    InvoiceReferenceResponse,
+    PaymentHistoryResponse,
     PaymentStatusResponse,
     PlanListResponse,
     PlanResponse,
+    SubscriptionCancelRequest,
+    SubscriptionEnvelope,
+    SubscriptionResponse,
     WebhookAcceptedResponse,
 )
 from app.services.billing import (
     BillingConflictError,
     BillingDetails,
+    BillingError,
     BillingNotFoundError,
+    BillingPolicy,
     BillingService,
     BillingWebhookPayloadError,
+    CheckoutResult,
 )
 
 router = APIRouter(prefix="/billing", tags=["billing"])
+
+
+def _error_detail(exc: BillingError) -> dict[str, str]:
+    return {"code": exc.code, "message": str(exc)}
+
+
+def _service(
+    session: AsyncSession,
+    provider: PaymentProvider | None = None,
+    settings: Settings | None = None,
+) -> BillingService:
+    policy = (
+        BillingPolicy(
+            grace_period_days=settings.billing_grace_period_days,
+            incomplete_expiry_hours=settings.billing_incomplete_expiry_hours,
+            suspension_expiry_days=settings.billing_suspension_expiry_days,
+        )
+        if settings is not None
+        else None
+    )
+    return BillingService(session, provider, policy=policy)
+
+
+def _payment_response(payment: Payment) -> PaymentStatusResponse:
+    return PaymentStatusResponse(
+        payment_id=payment.id,
+        plan_code=payment.plan_code,
+        amount_minor=payment.amount_minor,
+        currency=payment.currency,
+        status=payment.status,
+        failure_code=payment.failure_code,
+        purpose=payment.purpose,
+        provider=payment.provider,
+        provider_payment_id=payment.provider_payment_id,
+        provider_checkout_id=payment.provider_checkout_id,
+        provider_occurred_at=payment.provider_occurred_at,
+        created_at=payment.created_at,
+        updated_at=payment.updated_at,
+    )
+
+
+def _checkout_response(
+    result: CheckoutResult, provider: PaymentProvider, settings: Settings
+) -> CheckoutResponse:
+    return CheckoutResponse(
+        payment_id=result.payment_id,
+        subscription_id=result.subscription_id,
+        provider=provider.name,
+        provider_checkout_id=result.checkout.provider_checkout_id,
+        checkout_url=result.checkout.checkout_url,
+        plan_code=result.plan.code,
+        amount_minor=result.plan.monthly_price_minor,
+        currency=result.plan.currency,
+        status=result.status,
+        reused=result.reused,
+        purpose=result.purpose,
+        failure_url=settings.payment_failure_url or "",
+    )
+
+
+async def _subscription_response(
+    repository: BillingRepository, subscription: Subscription
+) -> SubscriptionResponse:
+    plan = await repository.get_plan_by_id(subscription.plan_id)
+    pending = (
+        await repository.get_plan_by_id(subscription.pending_plan_id)
+        if subscription.pending_plan_id
+        else None
+    )
+    if plan is None:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"code": "subscription_plan_missing", "message": "Plan missing."},
+        )
+    actions: list[str] = []
+    if subscription.status in {"trialing", "active", "past_due"}:
+        actions.extend(["upgrade", "downgrade", "cancel"])
+        if subscription.cancel_at_period_end:
+            actions.append("reactivate")
+    elif subscription.status in {"cancelled", "expired", "suspended"}:
+        actions.append("checkout_to_reactivate")
+    elif subscription.status == "incomplete":
+        actions.append("complete_checkout")
+    return SubscriptionResponse(
+        subscription_id=subscription.id,
+        status=subscription.status,
+        plan_code=plan.code,
+        pending_plan_code=pending.code if pending else None,
+        current_period_start=subscription.current_period_start,
+        current_period_end=subscription.current_period_end,
+        grace_period_ends_at=subscription.grace_period_ends_at,
+        cancel_at_period_end=subscription.cancel_at_period_end,
+        suspended_at=subscription.suspended_at,
+        ended_at=subscription.ended_at,
+        version=subscription.version,
+        allowed_actions=actions,
+    )
 
 
 @router.get("/plans", response_model=PlanListResponse)
@@ -80,7 +191,7 @@ async def create_checkout(
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> CheckoutResponse:
     """Create or replay one backend-priced Paymob hosted checkout."""
-    service = BillingService(session, provider)
+    service = _service(session, provider, settings)
     try:
         result = await service.create_checkout(
             actor=actor,
@@ -90,11 +201,11 @@ async def create_checkout(
         )
     except BillingNotFoundError as exc:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+            status_code=status.HTTP_404_NOT_FOUND, detail=_error_detail(exc)
         ) from exc
     except BillingConflictError as exc:
         raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+            status_code=status.HTTP_409_CONFLICT, detail=_error_detail(exc)
         ) from exc
     except PaymentProviderConfigurationError as exc:
         raise HTTPException(
@@ -110,18 +221,7 @@ async def create_checkout(
         raise HTTPException(
             status_code=response_status, detail=str(exc), headers=headers
         ) from exc
-    return CheckoutResponse(
-        payment_id=result.payment_id,
-        provider=provider.name,
-        provider_checkout_id=result.checkout.provider_checkout_id,
-        checkout_url=result.checkout.checkout_url,
-        plan_code=result.plan.code,
-        amount_minor=result.plan.monthly_price_minor,
-        currency=result.plan.currency,
-        status=result.status,
-        reused=result.reused,
-        failure_url=settings.payment_failure_url or "",
-    )
+    return _checkout_response(result, provider, settings)
 
 
 @router.get("/payments/{payment_id}", response_model=PaymentStatusResponse)
@@ -137,14 +237,7 @@ async def get_payment_status(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="The payment does not exist."
         )
-    return PaymentStatusResponse(
-        payment_id=payment.id,
-        plan_code=payment.plan_code,
-        amount_minor=payment.amount_minor,
-        currency=payment.currency,
-        status=payment.status,
-        failure_code=payment.failure_code,
-    )
+    return _payment_response(payment)
 
 
 @router.post("/payments/{payment_id}/cancel", response_model=PaymentStatusResponse)
@@ -161,20 +254,301 @@ async def cancel_checkout(
         )
     except BillingNotFoundError as exc:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+            status_code=status.HTTP_404_NOT_FOUND, detail=_error_detail(exc)
         ) from exc
     except BillingConflictError as exc:
         raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+            status_code=status.HTTP_409_CONFLICT, detail=_error_detail(exc)
         ) from exc
-    return PaymentStatusResponse(
-        payment_id=payment.id,
-        plan_code=payment.plan_code,
-        amount_minor=payment.amount_minor,
-        currency=payment.currency,
-        status=payment.status,
-        failure_code=payment.failure_code,
+    return _payment_response(payment)
+
+
+@router.get("/subscription", response_model=SubscriptionEnvelope)
+async def get_current_subscription(
+    actor: Annotated[User, Depends(require_permissions(Permission.BILLING_MANAGE))],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> SubscriptionEnvelope:
+    subscription = await _service(session, settings=settings).current_subscription(
+        actor=actor
     )
+    if subscription is None:
+        return SubscriptionEnvelope(item=None)
+    return SubscriptionEnvelope(
+        item=await _subscription_response(BillingRepository(session), subscription)
+    )
+
+
+async def _change_plan(
+    *,
+    direction: str,
+    payload: CheckoutCreateRequest,
+    idempotency_key: str,
+    actor: User,
+    session: AsyncSession,
+    provider: PaymentProvider,
+    settings: Settings,
+) -> CheckoutResponse:
+    try:
+        result = await _service(session, provider, settings).create_checkout(
+            actor=actor,
+            plan_code=payload.plan_code,
+            billing_details=BillingDetails(**payload.billing_details.model_dump()),
+            idempotency_key=idempotency_key,
+            expected_change="upgrade" if direction == "upgrade" else "downgrade",
+        )
+    except BillingNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=_error_detail(exc)
+        ) from exc
+    except BillingConflictError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=_error_detail(exc)
+        ) from exc
+    except PaymentProviderError as exc:
+        raise HTTPException(
+            status_code=(
+                status.HTTP_503_SERVICE_UNAVAILABLE
+                if exc.retryable
+                else status.HTTP_502_BAD_GATEWAY
+            ),
+            detail={"code": "payment_provider_error", "message": str(exc)},
+        ) from exc
+    return _checkout_response(result, provider, settings)
+
+
+@router.post(
+    "/subscription/upgrade",
+    response_model=CheckoutResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def upgrade_subscription(
+    payload: CheckoutCreateRequest,
+    idempotency_key: Annotated[
+        str,
+        Header(
+            alias="Idempotency-Key",
+            min_length=16,
+            max_length=128,
+            pattern=r"^[A-Za-z0-9._:-]+$",
+        ),
+    ],
+    actor: Annotated[User, Depends(require_permissions(Permission.BILLING_MANAGE))],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+    provider: Annotated[PaymentProvider, Depends(get_payment_provider)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> CheckoutResponse:
+    return await _change_plan(
+        direction="upgrade",
+        payload=payload,
+        idempotency_key=idempotency_key,
+        actor=actor,
+        session=session,
+        provider=provider,
+        settings=settings,
+    )
+
+
+@router.post(
+    "/subscription/downgrade",
+    response_model=CheckoutResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def downgrade_subscription(
+    payload: CheckoutCreateRequest,
+    idempotency_key: Annotated[
+        str,
+        Header(
+            alias="Idempotency-Key",
+            min_length=16,
+            max_length=128,
+            pattern=r"^[A-Za-z0-9._:-]+$",
+        ),
+    ],
+    actor: Annotated[User, Depends(require_permissions(Permission.BILLING_MANAGE))],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+    provider: Annotated[PaymentProvider, Depends(get_payment_provider)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> CheckoutResponse:
+    return await _change_plan(
+        direction="downgrade",
+        payload=payload,
+        idempotency_key=idempotency_key,
+        actor=actor,
+        session=session,
+        provider=provider,
+        settings=settings,
+    )
+
+
+@router.post("/subscription/cancel", response_model=SubscriptionResponse)
+async def cancel_subscription(
+    payload: SubscriptionCancelRequest,
+    actor: Annotated[User, Depends(require_permissions(Permission.BILLING_MANAGE))],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> SubscriptionResponse:
+    service = _service(session, settings=settings)
+    try:
+        subscription = await service.cancel_subscription(
+            actor=actor, immediate=payload.mode == "immediate"
+        )
+    except BillingNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=_error_detail(exc)
+        ) from exc
+    except BillingConflictError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=_error_detail(exc)
+        ) from exc
+    return await _subscription_response(BillingRepository(session), subscription)
+
+
+@router.post("/subscription/reactivate", response_model=SubscriptionResponse)
+async def reactivate_subscription(
+    actor: Annotated[User, Depends(require_permissions(Permission.BILLING_MANAGE))],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> SubscriptionResponse:
+    service = _service(session, settings=settings)
+    try:
+        subscription = await service.reactivate_subscription(actor=actor)
+    except BillingNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=_error_detail(exc)
+        ) from exc
+    except BillingConflictError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=_error_detail(exc)
+        ) from exc
+    return await _subscription_response(BillingRepository(session), subscription)
+
+
+@router.get("/history/payments", response_model=PaymentHistoryResponse)
+async def list_payment_history(
+    actor: Annotated[User, Depends(require_permissions(Permission.BILLING_MANAGE))],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=100)] = 20,
+) -> PaymentHistoryResponse:
+    rows, total = await BillingRepository(session).list_company_payments(
+        actor.company_id, offset=(page - 1) * page_size, limit=page_size
+    )
+    return PaymentHistoryResponse(
+        items=[_payment_response(row) for row in rows],
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
+
+
+@router.get("/history/invoices", response_model=InvoiceHistoryResponse)
+async def list_invoice_history(
+    actor: Annotated[User, Depends(require_permissions(Permission.BILLING_MANAGE))],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=100)] = 20,
+) -> InvoiceHistoryResponse:
+    rows, total = await BillingRepository(session).list_company_invoices(
+        actor.company_id, offset=(page - 1) * page_size, limit=page_size
+    )
+    return InvoiceHistoryResponse(
+        items=[
+            InvoiceReferenceResponse(
+                invoice_id=row.id,
+                payment_id=row.payment_id,
+                provider=row.provider,
+                provider_invoice_id=row.provider_invoice_id,
+                receipt_url=row.receipt_url,
+                amount_minor=row.amount_minor,
+                currency=row.currency,
+                status=row.status,
+                issued_at=row.issued_at,
+            )
+            for row in rows
+        ],
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
+
+
+@router.get("/admin/events", response_model=BillingAuditHistoryResponse)
+async def list_billing_events(
+    actor: Annotated[User, Depends(require_permissions(Permission.BILLING_MANAGE))],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=100)] = 20,
+) -> BillingAuditHistoryResponse:
+    rows, total = await BillingRepository(session).list_company_audit_events(
+        actor.company_id, offset=(page - 1) * page_size, limit=page_size
+    )
+    return BillingAuditHistoryResponse(
+        items=[
+            BillingAuditEventResponse(
+                event_id=row.id,
+                actor_user_id=row.actor_user_id,
+                action=row.action,
+                result=row.result,
+                safe_metadata=row.safe_metadata,
+                created_at=row.created_at,
+            )
+            for row in rows
+        ],
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
+
+
+@router.get(
+    "/admin/provider-events", response_model=BillingProviderEventHistoryResponse
+)
+async def list_provider_events(
+    actor: Annotated[User, Depends(require_permissions(Permission.BILLING_MANAGE))],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=100)] = 20,
+) -> BillingProviderEventHistoryResponse:
+    rows, total = await BillingRepository(session).list_company_webhook_events(
+        actor.company_id, offset=(page - 1) * page_size, limit=page_size
+    )
+    return BillingProviderEventHistoryResponse(
+        items=[
+            BillingProviderEventResponse(
+                event_id=row.id,
+                provider=row.provider,
+                provider_event_id=row.provider_event_id,
+                event_type=row.event_type,
+                status=row.status,
+                attempts=row.attempts,
+                last_error=row.last_error,
+                received_at=row.received_at,
+                processed_at=row.processed_at,
+            )
+            for row in rows
+        ],
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
+
+
+@router.post("/admin/subscription/reconcile", response_model=SubscriptionResponse)
+async def reconcile_subscription(
+    actor: Annotated[User, Depends(require_permissions(Permission.BILLING_MANAGE))],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> SubscriptionResponse:
+    try:
+        subscription = await _service(
+            session, settings=settings
+        ).reconcile_subscription(actor=actor)
+    except BillingNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=_error_detail(exc)
+        ) from exc
+    return await _subscription_response(BillingRepository(session), subscription)
 
 
 @router.post(

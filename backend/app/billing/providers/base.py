@@ -7,7 +7,9 @@ from datetime import datetime
 from typing import Literal, Protocol
 from uuid import UUID
 
-PaymentState = Literal["pending", "succeeded", "failed", "refunded", "reversed"]
+PaymentState = Literal[
+    "pending", "succeeded", "failed", "cancelled", "refunded", "reversed"
+]
 
 
 class PaymentProviderError(RuntimeError):

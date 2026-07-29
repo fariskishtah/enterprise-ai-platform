@@ -1,5 +1,7 @@
 """Public and authenticated billing API schemas."""
 
+from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -42,6 +44,7 @@ class CheckoutCreateRequest(BaseModel):
 
 class CheckoutResponse(BaseModel):
     payment_id: UUID
+    subscription_id: UUID
     provider: str
     provider_checkout_id: str
     checkout_url: str
@@ -50,6 +53,7 @@ class CheckoutResponse(BaseModel):
     currency: str
     status: str
     reused: bool
+    purpose: str
     failure_url: str
 
 
@@ -60,6 +64,99 @@ class PaymentStatusResponse(BaseModel):
     currency: str
     status: str
     failure_code: str | None
+    purpose: str
+    provider: str
+    provider_payment_id: str | None
+    provider_checkout_id: str | None
+    provider_occurred_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class SubscriptionResponse(BaseModel):
+    subscription_id: UUID
+    status: str
+    plan_code: str
+    pending_plan_code: str | None
+    current_period_start: datetime | None
+    current_period_end: datetime | None
+    grace_period_ends_at: datetime | None
+    cancel_at_period_end: bool
+    suspended_at: datetime | None
+    ended_at: datetime | None
+    version: int
+    allowed_actions: list[str]
+
+
+class SubscriptionEnvelope(BaseModel):
+    item: SubscriptionResponse | None
+
+
+class SubscriptionCancelRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    mode: Literal["period_end", "immediate"] = "period_end"
+
+
+class PaymentHistoryResponse(BaseModel):
+    items: list[PaymentStatusResponse]
+    total: int
+    page: int
+    page_size: int
+
+
+class InvoiceReferenceResponse(BaseModel):
+    invoice_id: UUID
+    payment_id: UUID | None
+    provider: str
+    provider_invoice_id: str
+    receipt_url: str | None
+    amount_minor: int
+    currency: str
+    status: str
+    issued_at: datetime | None
+
+
+class InvoiceHistoryResponse(BaseModel):
+    items: list[InvoiceReferenceResponse]
+    total: int
+    page: int
+    page_size: int
+
+
+class BillingAuditEventResponse(BaseModel):
+    event_id: UUID
+    actor_user_id: UUID | None
+    action: str
+    result: str
+    safe_metadata: dict[str, object]
+    created_at: datetime
+
+
+class BillingAuditHistoryResponse(BaseModel):
+    items: list[BillingAuditEventResponse]
+    total: int
+    page: int
+    page_size: int
+
+
+class BillingProviderEventResponse(BaseModel):
+    event_id: UUID
+    provider: str
+    provider_event_id: str
+    event_type: str
+    status: str
+    attempts: int
+    last_error: str | None
+    received_at: datetime
+    processed_at: datetime | None
+
+
+class BillingProviderEventHistoryResponse(BaseModel):
+    items: list[BillingProviderEventResponse]
+    total: int
+    page: int
+    page_size: int
 
 
 class WebhookAcceptedResponse(BaseModel):

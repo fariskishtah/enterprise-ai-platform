@@ -92,8 +92,14 @@ class Subscription(Base):
     __tablename__ = "subscriptions"
     __table_args__ = (
         Index("ix_subscriptions_company_status", "company_id", "status"),
+        UniqueConstraint("company_id", name="uq_subscriptions_company"),
         UniqueConstraint(
             "provider", "provider_subscription_id", name="uq_subscription_external"
+        ),
+        CheckConstraint(
+            "status IN ('incomplete','trialing','active','past_due','suspended',"
+            "'cancelled','expired')",
+            name="ck_subscriptions_status",
         ),
     )
     id: Mapped[UUID] = mapped_column(
@@ -108,6 +114,14 @@ class Subscription(Base):
         Uuid(as_uuid=True),
         ForeignKey("billing_plans.id", ondelete="RESTRICT"),
         nullable=False,
+    )
+    pending_plan_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("billing_plans.id", ondelete="RESTRICT"),
+    )
+    latest_payment_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("payments.id", ondelete="SET NULL", use_alter=True),
     )
     provider_customer_id: Mapped[UUID | None] = mapped_column(
         Uuid(as_uuid=True),
@@ -126,6 +140,12 @@ class Subscription(Base):
     cancel_at_period_end: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False
     )
+    status_changed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    suspended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -170,6 +190,9 @@ class Payment(Base):
     provider_checkout_id: Mapped[str | None] = mapped_column(String(255))
     idempotency_key: Mapped[str | None] = mapped_column(String(128))
     plan_code: Mapped[str | None] = mapped_column(String(32))
+    purpose: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="initial"
+    )
     checkout_url: Mapped[str | None] = mapped_column(String(2048))
     amount_minor: Mapped[int] = mapped_column(Integer, nullable=False)
     currency: Mapped[str] = mapped_column(String(3), nullable=False)
@@ -206,6 +229,9 @@ class InvoiceReference(Base):
     subscription_id: Mapped[UUID | None] = mapped_column(
         Uuid(as_uuid=True), ForeignKey("subscriptions.id", ondelete="SET NULL")
     )
+    payment_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("payments.id", ondelete="SET NULL"), unique=True
+    )
     provider: Mapped[str] = mapped_column(String(32), nullable=False)
     provider_invoice_id: Mapped[str] = mapped_column(String(255), nullable=False)
     receipt_url: Mapped[str | None] = mapped_column(String(1024))
@@ -225,6 +251,11 @@ class BillingWebhookEvent(Base):
     )
     id: Mapped[UUID] = mapped_column(
         Uuid(as_uuid=True), primary_key=True, default=uuid4
+    )
+    company_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("companies.id", ondelete="SET NULL"),
+        index=True,
     )
     provider: Mapped[str] = mapped_column(String(32), nullable=False)
     provider_event_id: Mapped[str] = mapped_column(String(255), nullable=False)

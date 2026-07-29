@@ -45,9 +45,9 @@ the event. The worker locks each event and payment while applying it. Exact
 duplicates are no-ops; safe retries can reclaim an event if broker publication
 failed.
 
-State precedence is monotonic:
+Payment state precedence is monotonic:
 
-`pending < failed < cancelled < succeeded < reversed < refunded`
+`pending < failed < succeeded < provider cancellation < reversed < refunded`
 
 A higher-trust provider success can override a local cancellation, while a late
 failure cannot overwrite success. Refund and reversal flags supersede success.
@@ -90,6 +90,51 @@ hosted URL, provider ordering time, raw callback identifier, and normalized safe
 event data. Provider transaction and checkout identifiers are uniquely
 constrained. Company-scoped billing models participate in the ORM tenant guard.
 
-Subscription activation and recurring lifecycle behavior belong to Phase F. A
-verified Paymob payment currently changes only the payment record; it does not
-silently create an active subscription.
+Migration `0030_subscription_lifecycle` seeds the backend catalogue and adds one
+subscription per company, pending plan changes, the exact payment that last
+granted access, lifecycle timestamps/versioning, payment purpose, payment-linked
+invoice references, and tenant attribution for webhook inspection.
+
+## Subscription lifecycle
+
+Checkout creates or reuses the company's subscription in `incomplete` state.
+Only a verified, amount-and-currency-matched provider success changes it to
+`active`. Redirect parameters and client polling never grant access. Supported
+states are:
+
+`incomplete`, `trialing`, `active`, `past_due`, `suspended`, `cancelled`, and
+`expired`.
+
+Successful renewals extend from the later of the current period end or provider
+event time. A failed renewal enters `past_due` for
+`BILLING_GRACE_PERIOD_DAYS` (default 7); reconciliation then suspends access.
+Incomplete checkouts expire after `BILLING_INCOMPLETE_EXPIRY_HOURS` (default
+24), and long-running suspension expires after
+`BILLING_SUSPENSION_EXPIRY_DAYS` (default 30). Temporal reconciliation runs on
+subscription reads and through the explicit tenant-admin reconcile endpoint.
+
+Upgrade and downgrade checkouts record `pending_plan_id`; the current plan stays
+authoritative until verified payment. This release intentionally resets the
+billing period on a successful paid plan change—there is no invented proration.
+Cancellation defaults to period end. The explicitly requested `immediate` mode
+ends access now. Reactivation before period end removes scheduled cancellation;
+reactivating a cancelled, expired, or suspended subscription requires a new
+verified checkout.
+
+Refund, reversal, or provider cancellation suspends only when it targets the
+payment that currently grants access. A later success for that terminal payment
+cannot reactivate the subscription. Every transition and privileged billing
+action writes a tenant-scoped, card-free audit event.
+
+## Authenticated billing APIs
+
+- `GET /billing/subscription`
+- `POST /billing/subscription/upgrade` and `/downgrade`
+- `POST /billing/subscription/cancel` and `/reactivate`
+- `GET /billing/history/payments` and `/history/invoices`
+- `GET /billing/admin/events` and `/admin/provider-events`
+- `POST /billing/admin/subscription/reconcile`
+
+All authenticated records are derived from the access token's `company_id`.
+Company IDs are never accepted from route parameters or request bodies. Billing
+domain errors use a stable `{code, message}` response detail.
