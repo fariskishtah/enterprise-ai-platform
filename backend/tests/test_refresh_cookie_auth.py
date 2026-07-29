@@ -41,12 +41,12 @@ async def test_login_cookie_attributes_and_no_refresh_token_exposure(
     assert "refresh_token" not in response.json()
     assert "HttpOnly" in refresh
     assert "HttpOnly" not in csrf
-    assert "Path=/auth" in refresh
+    assert "Path=/;" in refresh
     assert "SameSite=lax" in refresh
     assert "Max-Age=2592000" in refresh
 
 
-def test_production_cookie_configuration_emits_secure_scoped_flags(
+def test_production_cookie_configuration_emits_secure_proxy_compatible_flags(
     settings: Settings,
 ) -> None:
     production_cookie_settings = settings.model_copy(
@@ -69,7 +69,7 @@ def test_production_cookie_configuration_emits_secure_scoped_flags(
     assert "Secure" in refresh
     assert "SameSite=strict" in refresh
     assert "Domain=platform.example" in refresh
-    assert "Path=/auth" in refresh
+    assert "Path=/;" in refresh
 
 
 @pytest.mark.anyio

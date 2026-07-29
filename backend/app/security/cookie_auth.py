@@ -9,7 +9,10 @@ from fastapi import HTTPException, Request, Response, status
 
 from app.config.settings import Settings
 
-REFRESH_COOKIE_PATH = "/auth"
+# The public reverse proxy exposes backend auth routes below `/api/auth`, while
+# direct development clients use `/auth`. A same-origin root path is therefore
+# required for one cookie contract to work through both supported ingress paths.
+REFRESH_COOKIE_PATH = "/"
 CSRF_COOKIE_PATH = "/"
 CSRF_HEADER = "X-CSRF-Token"
 REFRESH_COOKIE_NAME = "factorymind_refresh"

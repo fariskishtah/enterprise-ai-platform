@@ -24,6 +24,7 @@ done
 work_dir="$(mktemp -d)"
 trap 'rm -rf -- "$work_dir"' EXIT
 response_file="$work_dir/response.json"
+cookie_file="$work_dir/cookies.txt"
 
 pass() { printf 'PASS  %s\n' "$1"; }
 fail() { printf 'FAIL  %s\n' "$1" >&2; exit 1; }
@@ -67,11 +68,23 @@ print(json.dumps({"email": os.environ["SMOKE_EMAIL"], "password": os.environ["SM
 PY
 )"
 status="$(request_status --header 'Content-Type: application/json' \
-  --data "$login_payload" "$API_BASE_URL/auth/login")"
+  --cookie-jar "$cookie_file" --data "$login_payload" "$API_BASE_URL/auth/login")"
 [[ "$status" == "200" ]] || fail "login returned $status"
 access_token="$(json_field access_token)" || fail "login response omitted access_token"
-refresh_token="$(json_field refresh_token)" || fail "login response omitted refresh_token"
+grep -q $'\tfactorymind_refresh\t' "$cookie_file" || \
+  fail "login response omitted protected refresh cookie"
+csrf_token="$(awk '$6 == "factorymind_csrf" {print $7}' "$cookie_file")"
+[[ -n "$csrf_token" ]] || fail "login response omitted CSRF cookie"
 pass "login"
+
+status="$(request_status --request POST --cookie "$cookie_file" \
+  --cookie-jar "$cookie_file" --header "X-CSRF-Token: $csrf_token" \
+  "$API_BASE_URL/auth/refresh")"
+[[ "$status" == "200" ]] || fail "refresh returned $status"
+access_token="$(json_field access_token)" || fail "refresh response omitted access_token"
+csrf_token="$(awk '$6 == "factorymind_csrf" {print $7}' "$cookie_file")"
+[[ -n "$csrf_token" ]] || fail "refresh response omitted rotated CSRF cookie"
+pass "refresh-cookie rotation"
 
 status="$(request_status --header "Authorization: Bearer $access_token" "$API_BASE_URL/users/me")"
 [[ "$status" == "200" ]] || fail "/users/me returned $status"
@@ -106,9 +119,12 @@ else
   printf 'SKIP  prediction (explicit opt-in required)\n'
 fi
 
-logout_payload="$(python3 -c 'import json,sys; print(json.dumps({"refresh_token": sys.argv[1]}))' "$refresh_token")"
-status="$(request_status --header 'Content-Type: application/json' \
-  --data "$logout_payload" "$API_BASE_URL/auth/logout")"
+status="$(request_status --request POST --cookie "$cookie_file" \
+  --cookie-jar "$cookie_file" --header "X-CSRF-Token: $csrf_token" \
+  "$API_BASE_URL/auth/logout")"
 [[ "$status" == "204" ]] || fail "logout returned $status"
+if grep -q $'\tfactorymind_refresh\t' "$cookie_file"; then
+  fail "logout did not clear protected refresh cookie"
+fi
 pass "logout"
 printf 'Production smoke checks completed successfully.\n'
