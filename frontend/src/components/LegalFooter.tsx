@@ -5,7 +5,7 @@ import { legalLinks } from "./legalLinks";
 
 export function LegalFooter(): ReactElement {
   return (
-    <footer className="border-t border-neutral-200 bg-white px-5 py-5 text-neutral-600">
+    <footer className="border-t border-neutral-200 bg-[var(--surface)] px-5 py-5 text-neutral-600">
       <nav
         aria-label="Legal and policy documents"
         className="mx-auto flex max-w-screen-2xl flex-wrap justify-center gap-x-5 gap-y-2 text-xs"
