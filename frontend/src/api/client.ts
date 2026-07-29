@@ -62,6 +62,17 @@ function errorMessage(payload: unknown, fallback: string): string {
     typeof payload === "object" &&
     payload !== null &&
     "detail" in payload &&
+    typeof payload.detail === "object" &&
+    payload.detail !== null &&
+    "message" in payload.detail &&
+    typeof payload.detail.message === "string"
+  ) {
+    return payload.detail.message;
+  }
+  if (
+    typeof payload === "object" &&
+    payload !== null &&
+    "detail" in payload &&
     Array.isArray(payload.detail)
   ) {
     const issue = payload.detail.find(

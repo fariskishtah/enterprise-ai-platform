@@ -78,7 +78,7 @@ export function Sidebar({
                       : "text-neutral-300 hover:bg-[var(--sidebar-secondary)] hover:text-white",
                   ].join(" ")
                 }
-                end={item.path === "/"}
+                end={item.path === "/" || item.path === "/settings"}
                 onClick={onNavigate}
                 title={collapsed ? item.label : undefined}
                 to={item.path}

@@ -3,16 +3,21 @@ import { Link } from "react-router-dom";
 
 import { listBillingPlans, type BillingPlan } from "../api/billing";
 import { isRequestCancelled } from "../api/client";
+import { hasLegacyRoleAccess } from "../auth/permissions";
+import { useAuth } from "../auth/useAuth";
 
 const entitlementLabels: Readonly<Record<string, string>> = {
   advanced_reports: "Advanced reports",
   audit_log: "Audit log",
   document_storage_gb: "GB document storage",
+  documents: "Documents",
   factories: "Factories",
   machines: "Machines",
   model_training: "Model training",
   monthly_rag_queries: "Monthly AI assistant queries",
+  scheduled_reports: "Scheduled reports",
   team_members: "Team members",
+  training_concurrency: "Concurrent training jobs",
 };
 
 function Price({ plan }: { readonly plan: BillingPlan }): ReactElement {
@@ -27,13 +32,18 @@ function Price({ plan }: { readonly plan: BillingPlan }): ReactElement {
 }
 
 export function PricingPage(): ReactElement {
+  const { isAuthenticated, role } = useAuth();
   const [plans, setPlans] = useState<readonly BillingPlan[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [revision, setRevision] = useState(0);
 
   useEffect(() => {
     const controller = new AbortController();
     listBillingPlans(controller.signal)
-      .then((response) => setPlans(response.items))
+      .then((response) => {
+        setPlans(response.items);
+        setError(null);
+      })
       .catch((caught: unknown) => {
         if (!isRequestCancelled(caught, controller.signal)) {
           setError(
@@ -44,7 +54,9 @@ export function PricingPage(): ReactElement {
         }
       });
     return () => controller.abort();
-  }, []);
+  }, [revision]);
+
+  const canManageBilling = role !== null && hasLegacyRoleAccess(role, ["admin"]);
 
   return (
     <main className="min-h-screen bg-stone-50 px-5 py-10 text-neutral-950 sm:px-8 lg:px-12">
@@ -57,9 +69,9 @@ export function PricingPage(): ReactElement {
         </Link>
         <Link
           className="rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-semibold hover:border-purple-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-purple-700"
-          to="/login"
+          to={isAuthenticated ? "/" : "/login"}
         >
-          Sign in
+          {isAuthenticated ? "Open workspace" : "Sign in"}
         </Link>
       </header>
       <section
@@ -86,7 +98,18 @@ export function PricingPage(): ReactElement {
           className="mx-auto mt-10 max-w-2xl rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-800"
           role="alert"
         >
-          {error}
+          <p>{error}</p>
+          <button
+            className="mt-3 font-semibold underline"
+            onClick={() => {
+              setError(null);
+              setPlans([]);
+              setRevision((value) => value + 1);
+            }}
+            type="button"
+          >
+            Try again
+          </button>
         </div>
       ) : null}
       {!error && plans.length === 0 ? (
@@ -131,9 +154,19 @@ export function PricingPage(): ReactElement {
             </ul>
             <Link
               className="mt-8 flex w-full justify-center rounded-md bg-purple-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-purple-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-purple-700"
-              to="/register"
+              to={
+                canManageBilling
+                  ? `/settings/billing/checkout/${plan.code}`
+                  : isAuthenticated
+                    ? "/settings"
+                    : "/register"
+              }
             >
-              Create workspace
+              {canManageBilling
+                ? `Choose ${plan.name}`
+                : isAuthenticated
+                  ? "Contact your administrator"
+                  : "Create workspace"}
             </Link>
           </article>
         ))}

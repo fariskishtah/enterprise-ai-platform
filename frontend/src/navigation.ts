@@ -257,6 +257,14 @@ export const navigationItems: readonly NavigationItem[] = [
     path: "/settings",
   },
   {
+    description: "Subscription, plan limits, payments, and invoices.",
+    icon: "audit",
+    label: "Billing",
+    motion: "flow",
+    path: "/settings/billing",
+    roles: ["admin"],
+  },
+  {
     description: "Control deterministic, bounded factory demonstration scenarios.",
     feature: "demo",
     icon: "factories",

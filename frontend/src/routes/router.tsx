@@ -50,6 +50,21 @@ const PricingPage = lazy(() =>
     default: PricingPage,
   })),
 );
+const BillingOverviewPage = lazy(() =>
+  import("../pages/billing/BillingOverviewPage").then(({ BillingOverviewPage }) => ({
+    default: BillingOverviewPage,
+  })),
+);
+const BillingCheckoutPage = lazy(() =>
+  import("../pages/billing/BillingCheckoutPage").then(({ BillingCheckoutPage }) => ({
+    default: BillingCheckoutPage,
+  })),
+);
+const BillingReturnPage = lazy(() =>
+  import("../pages/billing/BillingReturnPage").then(({ BillingReturnPage }) => ({
+    default: BillingReturnPage,
+  })),
+);
 const AuditLogsPage = lazy(() =>
   import("../pages/AuditLogsPage").then(({ AuditLogsPage }) => ({
     default: AuditLogsPage,
@@ -560,6 +575,20 @@ export const router = createBrowserRouter([
             element: <ExpertModeRoute />,
           },
           { element: <SettingsPage />, path: "settings" },
+          {
+            children: [
+              { element: <BillingOverviewPage />, path: "settings/billing" },
+              {
+                element: <BillingCheckoutPage />,
+                path: "settings/billing/checkout/:planCode",
+              },
+              {
+                element: <BillingReturnPage />,
+                path: "settings/billing/return",
+              },
+            ],
+            element: <RoleRoute roles={["admin"]} />,
+          },
           { element: <MyProfilePage />, path: "profile" },
           { element: <ContactSupportPage />, path: "support" },
           {

@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent, type ReactElement } from "react";
+import { Link } from "react-router-dom";
 import {
   changePassword,
   listSessions,
@@ -8,6 +9,7 @@ import {
 } from "../api/account";
 import { isRequestCancelled } from "../api/client";
 import { useAuth } from "../auth/useAuth";
+import { hasLegacyRoleAccess } from "../auth/permissions";
 import {
   primaryButtonClassName,
   secondaryButtonClassName,
@@ -85,6 +87,27 @@ export function SettingsPage(): ReactElement {
         title="Settings"
         description="Personal display preferences and account information supported by the current platform."
       />
+      {user && hasLegacyRoleAccess(user.role, ["admin"]) ? (
+        <section
+          className={`${panelClassName} mt-6 flex flex-wrap items-center justify-between gap-4`}
+          aria-labelledby="billing-settings-heading"
+        >
+          <div>
+            <h3
+              className="text-lg font-semibold text-foreground"
+              id="billing-settings-heading"
+            >
+              Billing & subscription
+            </h3>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Review your plan, workspace limits, usage, payments, and invoices.
+            </p>
+          </div>
+          <Link className={primaryButtonClassName} to="/settings/billing">
+            Manage billing
+          </Link>
+        </section>
+      ) : null}
       <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
         <section className={panelClassName} aria-labelledby="appearance-heading">
           <h3 className="text-lg font-semibold text-foreground" id="appearance-heading">
