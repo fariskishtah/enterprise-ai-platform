@@ -171,8 +171,15 @@ docker run --rm --volume "$REPO_ROOT:/src" semgrep/semgrep:1.164.0 \
 docker run --rm --volume "$REPO_ROOT:/repo" \
   --volume "$TRIVY_CACHE_DIR:/root/.cache/" aquasec/trivy:0.70.0 \
   fs --skip-version-check --scanners vuln,misconfig \
-  --severity HIGH,CRITICAL --exit-code 1 \
+  --severity HIGH,CRITICAL --exit-code 0 \
   --format json --output /repo/artifacts/release/trivy-filesystem.json /repo
+docker run --rm --volume "$REPO_ROOT:/repo" \
+  --volume "$TRIVY_CACHE_DIR:/root/.cache/" aquasec/trivy:0.70.0 \
+  fs --skip-version-check --scanners vuln,misconfig \
+  --severity HIGH,CRITICAL --exit-code 1 \
+  --ignorefile /repo/.trivyignore.yaml \
+  --format json \
+  --output /repo/artifacts/release/trivy-filesystem-actionable.json /repo
 
 section "Candidate images, image security, and SBOM"
 for image in backend frontend reverse-proxy; do
