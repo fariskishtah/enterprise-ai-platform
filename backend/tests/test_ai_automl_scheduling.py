@@ -2,7 +2,12 @@
 
 from threading import Event
 
-from app.ml.jobs.automl_scheduling import AutoMLReconciliationSchedulerMiddleware
+from app.email.scheduling import EmailReconciliationSchedulerMiddleware
+from app.ml.jobs.automl_scheduling import (
+    AutoMLReconciliationSchedulerMiddleware,
+    DatasetReconciliationSchedulerMiddleware,
+    RAGReconciliationSchedulerMiddleware,
+)
 
 
 class FakeRedis:
@@ -15,6 +20,21 @@ class FakeRedis:
 
     def close(self) -> None:
         self.closed = True
+
+
+def test_reconciliation_schedulers_have_unique_concrete_middleware_types() -> None:
+    scheduler_types = {
+        AutoMLReconciliationSchedulerMiddleware,
+        DatasetReconciliationSchedulerMiddleware,
+        EmailReconciliationSchedulerMiddleware,
+        RAGReconciliationSchedulerMiddleware,
+    }
+
+    assert len(scheduler_types) == 4
+    assert all(
+        issubclass(scheduler_type, AutoMLReconciliationSchedulerMiddleware)
+        for scheduler_type in scheduler_types
+    )
 
 
 def test_scheduler_enqueues_after_distributed_lock() -> None:

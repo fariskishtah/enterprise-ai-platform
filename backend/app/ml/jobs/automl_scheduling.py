@@ -99,3 +99,13 @@ class AutoMLReconciliationSchedulerMiddleware(Middleware):
 
         with suppress(RedisError):
             self._client.close()
+
+
+class DatasetReconciliationSchedulerMiddleware(
+    AutoMLReconciliationSchedulerMiddleware
+):
+    """Keep dataset reconciliation distinct in Dramatiq's middleware registry."""
+
+
+class RAGReconciliationSchedulerMiddleware(AutoMLReconciliationSchedulerMiddleware):
+    """Keep RAG reconciliation distinct in Dramatiq's middleware registry."""

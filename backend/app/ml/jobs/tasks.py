@@ -25,7 +25,11 @@ from app.ml.composition import (
     create_ai_model_registry,
     create_ai_tracked_training_service,
 )
-from app.ml.jobs.automl_scheduling import AutoMLReconciliationSchedulerMiddleware
+from app.ml.jobs.automl_scheduling import (
+    AutoMLReconciliationSchedulerMiddleware,
+    DatasetReconciliationSchedulerMiddleware,
+    RAGReconciliationSchedulerMiddleware,
+)
 from app.ml.jobs.exceptions import RetryableTrainingJobError
 from app.ml.jobs.worker import (
     TrainingJobWorker,
@@ -441,7 +445,7 @@ broker.add_middleware(
     )
 )
 broker.add_middleware(
-    AutoMLReconciliationSchedulerMiddleware(
+    DatasetReconciliationSchedulerMiddleware(
         enabled=_settings.dataset_reconciliation_scheduling_enabled,
         interval_seconds=_settings.dataset_reconciliation_interval_seconds,
         redis_url=_settings.redis_url,
@@ -451,7 +455,7 @@ broker.add_middleware(
     )
 )
 broker.add_middleware(
-    AutoMLReconciliationSchedulerMiddleware(
+    RAGReconciliationSchedulerMiddleware(
         enabled=_settings.rag_reconciliation_scheduling_enabled,
         interval_seconds=_settings.rag_reconciliation_interval_seconds,
         redis_url=_settings.redis_url,
