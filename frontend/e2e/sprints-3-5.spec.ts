@@ -29,6 +29,11 @@ interface Sensor {
 }
 
 const browserErrors = new WeakMap<Page, string[]>();
+const accessTokens = new WeakMap<Page, string>();
+
+interface LoginResponse {
+  readonly access_token: string;
+}
 
 async function login(page: Page, email: string | undefined): Promise<void> {
   if (!email || !password) throw new Error("Real-backend credentials are required.");
@@ -41,17 +46,17 @@ async function login(page: Page, email: string | undefined): Promise<void> {
       value.url().includes("/auth/login") && value.request().method() === "POST",
   );
   await page.getByRole("button", { name: "Sign in" }).click();
-  expect((await response).status()).toBe(200);
+  const loginResponse = await response;
+  expect(loginResponse.status()).toBe(200);
+  const tokens = (await loginResponse.json()) as LoginResponse;
+  accessTokens.set(page, tokens.access_token);
   await expect(page.getByRole("button", { name: /Open account menu/ })).toBeVisible();
 }
 
 async function token(page: Page): Promise<string> {
-  return page.evaluate(async () => {
-    const { readStoredTokens } = await import("/src/api/tokenStore.ts");
-    const tokens = readStoredTokens();
-    if (!tokens) throw new Error("Browser access token is missing.");
-    return tokens.accessToken;
-  });
+  const accessToken = accessTokens.get(page);
+  if (!accessToken) throw new Error("Browser access token is missing.");
+  return accessToken;
 }
 
 async function api<T>(page: Page, path: string): Promise<T> {
@@ -103,9 +108,22 @@ test.describe("Sprints 3-5 real-backend acceptance", () => {
     const errors: string[] = [];
     browserErrors.set(page, errors);
     page.on("console", (entry) => {
-      if (entry.type() === "error") errors.push(entry.text());
+      if (
+        entry.type() === "error" &&
+        !entry.text().startsWith("Failed to load resource: the server responded")
+      )
+        errors.push(entry.text());
     });
     page.on("pageerror", (error) => errors.push(error.message));
+    page.on("response", (response) => {
+      const expectedMissingSession =
+        response.url().includes("/auth/refresh") &&
+        [401, 403].includes(response.status());
+      if (response.status() >= 400 && !expectedMissingSession)
+        errors.push(
+          `${response.status()} ${response.request().method()} ${response.url()}`,
+        );
+    });
   });
   test.afterEach(async ({ page }) => {
     expect(browserErrors.get(page) ?? []).toEqual([]);

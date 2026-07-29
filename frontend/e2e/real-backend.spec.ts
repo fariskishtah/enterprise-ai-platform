@@ -85,6 +85,12 @@ interface LocatedKnowledgeBase {
   readonly knowledgeBase: KnowledgeBaseSummary;
 }
 
+interface LoginResponse {
+  readonly access_token: string;
+}
+
+const accessTokens = new WeakMap<Page, string>();
+
 async function login(page: Page, email: string): Promise<void> {
   if (!email || !password) {
     throw new Error(
@@ -108,10 +114,15 @@ async function login(page: Page, email: string): Promise<void> {
   await page.getByRole("button", { name: "Sign in" }).click();
   const response = await responsePromise;
 
-  if (response !== null && !response.ok()) {
+  if (response === null) {
+    throw new Error(`Login for ${email} did not return an HTTP response.`);
+  }
+  if (!response.ok()) {
     const body = await response.text().catch(() => "");
     throw new Error(`Login for ${email} failed HTTP ${response.status()}: ${body}`);
   }
+  const tokens = (await response.json()) as LoginResponse;
+  accessTokens.set(page, tokens.access_token);
 
   const alert = page.getByRole("alert");
   if (await alert.isVisible({ timeout: 1000 }).catch(() => false)) {
@@ -125,19 +136,29 @@ async function login(page: Page, email: string): Promise<void> {
 function collectUnexpectedBrowserErrors(page: Page): string[] {
   const errors: string[] = [];
   page.on("console", (message) => {
-    if (message.type() === "error") errors.push(message.text());
+    if (
+      message.type() === "error" &&
+      !message.text().startsWith("Failed to load resource: the server responded")
+    )
+      errors.push(message.text());
   });
   page.on("pageerror", (error) => errors.push(error.message));
+  page.on("response", (response) => {
+    const expectedMissingSession =
+      response.url().includes("/auth/refresh") &&
+      [401, 403].includes(response.status());
+    if (response.status() >= 400 && !expectedMissingSession)
+      errors.push(
+        `${response.status()} ${response.request().method()} ${response.url()}`,
+      );
+  });
   return errors;
 }
 
 async function accessToken(page: Page): Promise<string> {
-  return page.evaluate(async () => {
-    const { readStoredTokens } = await import("/src/api/tokenStore.ts");
-    const tokens = readStoredTokens();
-    if (!tokens) throw new Error("The authenticated browser session is missing.");
-    return tokens.accessToken;
-  });
+  const token = accessTokens.get(page);
+  if (!token) throw new Error("The authenticated browser session is missing.");
+  return token;
 }
 
 async function apiGet<T>(page: Page, path: string): Promise<T> {
