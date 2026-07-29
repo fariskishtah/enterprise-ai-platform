@@ -123,6 +123,15 @@ def test_production_secrets_are_required_without_working_fallbacks() -> None:
     assert backend_environment["ENABLE_API_DOCS"] == "false"
 
 
+def test_backend_healthcheck_uses_the_configured_trusted_host() -> None:
+    backend = _yaml(_PRODUCTION_COMPOSE)["services"]["backend"]
+    command = backend["healthcheck"]["test"][-1]
+
+    assert "ALLOWED_HOSTS" in command
+    assert "ddnsgeek" not in command
+    assert "example.com" not in command
+
+
 def test_nginx_routes_only_to_valid_application_upstreams() -> None:
     routes = _text(_NGINX_ROUTES)
     http = _text(_NGINX_HTTP)
