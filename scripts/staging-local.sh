@@ -58,6 +58,10 @@ generate_environment() {
     printf 'AI_DEFAULT_REGISTERED_MODEL_PREFIX=staging_validation\n'
     printf 'ACCESS_TOKEN_EXPIRE_MINUTES=15\n'
     printf 'REFRESH_TOKEN_EXPIRE_DAYS=1\n'
+    # The serial browser acceptance run creates many independent sessions from
+    # one loopback address. Keep the limiter enabled, but avoid treating that
+    # synthetic concentration as a production brute-force signal.
+    printf 'AUTH_RATE_LIMIT_REQUESTS=100\n'
     printf 'GRAFANA_ADMIN_USER=staging-validation\n'
     printf 'GRAFANA_ADMIN_PASSWORD=%s\n' "$(openssl rand -hex 24)"
   } >"$ENV_FILE"
@@ -74,6 +78,7 @@ ensure_environment_contract() {
     "PAYMENT_PROVIDER=disabled"
     "PAYMENT_SANDBOX_MODE=false"
     "BILLING_ENTITLEMENTS_ENFORCED=false"
+    "AUTH_RATE_LIMIT_REQUESTS=100"
   )
   umask 077
   for entry in "${required_entries[@]}"; do
