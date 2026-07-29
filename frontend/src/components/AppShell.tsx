@@ -4,6 +4,7 @@ import { Outlet, useLocation } from "react-router-dom";
 import { getNavigationItem } from "../navigation";
 import { Sidebar } from "./Sidebar";
 import { Topbar } from "./Topbar";
+import { LegalFooter } from "./LegalFooter";
 
 export function AppShell(): ReactElement {
   const location = useLocation();
@@ -85,6 +86,7 @@ export function AppShell(): ReactElement {
             <Outlet />
           </div>
         </main>
+        <LegalFooter />
       </div>
     </div>
   );

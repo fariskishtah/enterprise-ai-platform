@@ -25,6 +25,11 @@ const RegisterPage = lazy(() =>
     default: RegisterPage,
   })),
 );
+const LegalPage = lazy(() =>
+  import("../pages/LegalPage").then(({ LegalPage }) => ({
+    default: LegalPage,
+  })),
+);
 const EmailVerificationPage = lazy(() =>
   import("../pages/EmailVerificationPage").then(({ EmailVerificationPage }) => ({
     default: EmailVerificationPage,
@@ -372,6 +377,11 @@ const ReportDetailPage = lazy(() =>
 );
 
 export const router = createBrowserRouter([
+  {
+    element: <LegalPage />,
+    errorElement: <RouteErrorPage />,
+    path: "/legal/:documentSlug",
+  },
   {
     element: <InvitationAcceptancePage />,
     errorElement: <RouteErrorPage />,
