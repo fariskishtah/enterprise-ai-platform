@@ -39,7 +39,7 @@ cd backend
 3. Set `PAYMENT_PROVIDER=paymob`, the four test credential values,
    `PAYMOB_BASE_URL=https://accept.paymob.com`, `PAYMENT_CURRENCY=EGP`, and
    `PAYMENT_SANDBOX_MODE=true`. Set HTTPS success/failure browser URLs.
-4. Upgrade the database to `0029_harden_payment_events`, restart the backend and
+4. Upgrade the database through `0031_entitlement_overrides`, restart the backend and
    worker, and confirm both are healthy.
 5. Sign in as an Owner or Admin and call `POST /billing/checkouts` with a fresh
    `Idempotency-Key`, a catalogue plan code, and valid billing contact details.
@@ -49,8 +49,8 @@ cd backend
    card from Paymob's [official integration wizard](https://wizard.paymob.com/).
    Confirm card data is entered only on Paymob's page.
 7. Complete a successful test. Confirm one `billing_webhook_events` row reaches
-   `processed`, its raw transaction ID is present, and the local payment reaches
-   `succeeded`. Confirm no subscription becomes active yet.
+   `processed`, its raw transaction ID is present, the local payment reaches
+   `succeeded`, and the subscription becomes active only after this verified event.
 8. Repeat with Paymob's current decline test case. Confirm the payment reaches
    `failed`, with no success or subscription activation.
 9. Use Paymob's webhook testing tool to resend the identical success callback
