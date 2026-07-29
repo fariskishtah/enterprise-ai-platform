@@ -101,9 +101,7 @@ class AutoMLReconciliationSchedulerMiddleware(Middleware):
             self._client.close()
 
 
-class DatasetReconciliationSchedulerMiddleware(
-    AutoMLReconciliationSchedulerMiddleware
-):
+class DatasetReconciliationSchedulerMiddleware(AutoMLReconciliationSchedulerMiddleware):
     """Keep dataset reconciliation distinct in Dramatiq's middleware registry."""
 
 

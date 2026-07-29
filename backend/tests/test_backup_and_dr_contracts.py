@@ -34,9 +34,7 @@ def test_backup_scripts_are_executable_and_use_strict_bash() -> None:
 def test_application_backup_scripts_support_no_optional_compose_arguments() -> None:
     """Bash 3.2 + nounset cannot directly expand an unset empty array."""
 
-    safe_empty_array_expansion = (
-        '${compose_arguments[@]+"${compose_arguments[@]}"}'
-    )
+    safe_empty_array_expansion = '${compose_arguments[@]+"${compose_arguments[@]}"}'
     for script in (_APPLICATION_BACKUP_SCRIPT, _APPLICATION_RESTORE_SCRIPT):
         assert safe_empty_array_expansion in _text(script)
         assert _text(script).startswith("#!/usr/bin/env bash\nset -Eeuo pipefail\n")
