@@ -7,10 +7,8 @@ Reviewed: 2026-07-29. Status: **release candidate only**.
 - `pip-audit`: 93 production-lock dependencies, 0 known vulnerabilities.
 - Bandit: 57,516 lines, 0 medium/high findings (30 low-severity observations
   excluded by the `-ll` release threshold).
-- Semgrep: 225 Python/TypeScript rules over 446 tracked files, 0 findings. It
-  emitted one partial-parse warning for JSX text in `BillingOverviewPage.tsx`;
-  TypeScript and the production Vite build parsed that file successfully.
-- Gitleaks: 141 commits and approximately 6.48 MB scanned, 0 leaks.
+- Semgrep: 225 Python/TypeScript rules over 449 targets, 0 findings.
+- Gitleaks: 153 commits and approximately 6.57 MB scanned, 0 leaks.
 - Trivy filesystem: one HIGH React Router advisory covered by the bounded
   `SEC-2026-003` exception; 0 Dockerfile misconfigurations.
 - Candidate-image Trivy: frontend and reverse proxy have 0 HIGH/CRITICAL
@@ -59,7 +57,6 @@ scanner output. The reviewed summaries below are committed.
 | High | Login throttling has no account-specific progressive lockout. | Add bounded backoff/lockout without enumeration or attacker-controlled denial of service. |
 | High | Single-host architecture lacks HA; off-host backup publication is unproved. | Configure deployment-owned immutable off-host storage and prove restore from that object. |
 | Medium | CSV/plain-text ingestion has no malware quarantine/scanner. | Add quarantine and asynchronous scanner before accepting untrusted public uploads. |
-| Medium | Semgrep partially parsed two JSX text locations. | Track scanner parser compatibility; TypeScript build is the compensating syntax check. |
 | Low | Bandit recorded 30 low-severity observations below the release threshold. | Retain raw report and reassess when touched; no medium/high Bandit findings. |
 
 No unsafe automatic upgrades were performed. Exceptions remain visible in

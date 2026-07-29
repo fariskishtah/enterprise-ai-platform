@@ -29,7 +29,7 @@ requires a coordinated React/runtime migration; no unsafe major upgrade was
 applied in this hardening pass. Every other HIGH/CRITICAL advisory remains a
 blocking audit failure.
 
-The release build passed at 302,728 initial JavaScript bytes (93.49 KB gzip),
-43.67 KB CSS (9.57 KB gzip), and 346,404 total initial asset bytes. Bundle text
+The final release build passed at 303,911 initial JavaScript bytes,
+44,040 CSS bytes, and 347,958 total initial asset bytes. Bundle text
 inspection found no credential markers. `VITE_API_BASE_URL` is the sole public
 application build variable.

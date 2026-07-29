@@ -6,6 +6,11 @@ implementation connects industrial hierarchy and sensor workflows to immutable
 datasets, governed model training, prediction monitoring, controlled retraining,
 and citation-aware answers over registered documents.
 
+Current validation classification: **release candidate only — production not
+approved**. See the
+[final production acceptance report](artifacts/final-production-acceptance-report.md)
+for passed repository gates and deployment-owned blockers.
+
 The exact supported and deferred capabilities are defined in the
 [controlled-pilot scope](docs/release/supported-scope.md). This repository is not
 yet licensed for commercial redistribution; see the
@@ -259,6 +264,9 @@ Local volumes are not off-host backups. Follow
 - [Legal readiness](docs/release/legal-readiness-checklist.md)
 - [Release checklist](docs/release-checklist.md)
 - [Validation evidence](docs/release/release-validation-report.md)
+- [Final production acceptance](artifacts/final-production-acceptance-report.md)
+- [Final implementation report](artifacts/final-implementation-report.md)
+- [Final test report](artifacts/final-test-report.md)
 
 The root `VERSION` file is canonical. Final tags use `vX.Y.Z`; Docker images are
 not currently published by repository automation.
