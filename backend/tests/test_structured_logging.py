@@ -395,6 +395,8 @@ def test_worker_keeps_valid_retry_correlation_and_maps_all_actors() -> None:
     assert {
         worker_job_name(name)
         for name in (
+            "deliver_transactional_email",
+            "process_billing_webhook",
             "execute_training_job",
             "execute_scheduled_monitoring",
             "execute_prediction_event_retention",
@@ -404,6 +406,8 @@ def test_worker_keeps_valid_retry_correlation_and_maps_all_actors() -> None:
             "execute_stale_alert_reconciliation",
         )
     } == {
+        "transactional_email",
+        "billing_webhook",
         "training",
         "monitoring_evaluation",
         "prediction_event_retention",

@@ -50,6 +50,46 @@ groups:
           runbook_url: docs/runbooks/background-job-failures.md
           dashboard_url: http://localhost:3000/d/ai-operations
 
+      - alert: PaymentWebhookFailures
+        expr: |
+          sum by (service, environment) (
+            increase(background_jobs_processed_total{
+              job_name="billing_webhook",final_status="failed"
+            }[15m])
+          ) > 0
+        for: 2m
+        labels:
+          severity: critical
+          service: '{{ $labels.service }}'
+          component: billing-webhook
+          team: platform
+          slo: background-job-success
+        annotations:
+          summary: Verified payment callbacks are failing during processing
+          description: At least one durable billing webhook actor failed in the last fifteen minutes.
+          runbook_url: docs/runbooks/background-job-failures.md
+          dashboard_url: http://localhost:3000/d/ai-operations
+
+      - alert: TransactionalEmailDeliveryFailures
+        expr: |
+          sum by (service, environment, provider) (
+            increase(transactional_email_delivery_total{
+              final_status=~"retry|failed"
+            }[15m])
+          ) >= 3
+        for: 5m
+        labels:
+          severity: warning
+          service: '{{ $labels.service }}'
+          component: transactional-email
+          team: platform
+          slo: background-job-success
+        annotations:
+          summary: Transactional email delivery is repeatedly failing
+          description: Three or more retry or terminal-failure outcomes occurred in fifteen minutes.
+          runbook_url: docs/runbooks/background-job-failures.md
+          dashboard_url: http://localhost:3000/d/ai-operations
+
       - alert: TrainingFailures
         expr: |
           sum by (service, environment) (

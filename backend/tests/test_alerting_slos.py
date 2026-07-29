@@ -202,6 +202,20 @@ def test_alert_and_recording_rule_names_are_unique() -> None:
     assert len(recording_names) == len(set(recording_names))
 
 
+def test_production_provider_and_infrastructure_alerts_are_present() -> None:
+    alert_names = {rule["alert"] for rule in _alert_rules()}
+
+    assert {
+        "PostgresUnavailable",
+        "RedisUnavailable",
+        "ContainerFilesystemPressure",
+        "PaymentWebhookFailures",
+        "TransactionalEmailDeliveryFailures",
+        "APILatencyDegradation",
+        "APIHighErrorRate",
+    } <= alert_names
+
+
 def test_each_primary_slo_has_four_paired_burn_alerts() -> None:
     config = _yaml(_RULES / "slo-burn-rate-alerts.yml")
     rules = config["groups"][0]["rules"]

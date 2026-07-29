@@ -47,6 +47,21 @@ groups:
           runbook_url: docs/runbooks/postgres-issues.md
           dashboard_url: http://localhost:3000/d/platform-overview
 
+      - alert: PostgresUnavailable
+        expr: pg_up == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: postgres
+          component: database
+          team: platform
+          slo: infrastructure
+        annotations:
+          summary: PostgreSQL is unavailable to its exporter
+          description: PostgreSQL connectivity has failed continuously for two minutes.
+          runbook_url: docs/runbooks/postgres-issues.md
+          dashboard_url: http://localhost:3000/d/platform-overview
+
       - alert: RedisExporterDown
         expr: up{job="redis-exporter"} == 0
         for: 5m
@@ -59,6 +74,21 @@ groups:
         annotations:
           summary: Redis telemetry is unavailable
           description: Prometheus cannot scrape redis-exporter; broker and cache health alerts may be blind.
+          runbook_url: docs/runbooks/redis-issues.md
+          dashboard_url: http://localhost:3000/d/platform-overview
+
+      - alert: RedisUnavailable
+        expr: redis_up == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: redis
+          component: broker-cache
+          team: platform
+          slo: infrastructure
+        annotations:
+          summary: Redis is unavailable to its exporter
+          description: Redis connectivity has failed continuously for two minutes.
           runbook_url: docs/runbooks/redis-issues.md
           dashboard_url: http://localhost:3000/d/platform-overview
 
@@ -140,5 +170,33 @@ groups:
         annotations:
           summary: Container is consuming more than 90% of its memory limit
           description: Sustained memory-limit pressure increases the risk of an OOM kill.
+          runbook_url: docs/runbooks/container-resource-pressure.md
+          dashboard_url: http://localhost:3000/d/platform-overview
+
+      - alert: ContainerFilesystemPressure
+        expr: |
+          (
+            max by (container_label_com_docker_compose_service) (
+              container_fs_usage_bytes{
+                container_label_com_docker_compose_project="ai-manufacturing-platform"
+              }
+            )
+            /
+            max by (container_label_com_docker_compose_service) (
+              container_fs_limit_bytes{
+                container_label_com_docker_compose_project="ai-manufacturing-platform"
+              } > 0
+            )
+          ) > 0.85
+        for: 10m
+        labels:
+          severity: warning
+          service: '{{ $labels.container_label_com_docker_compose_service }}'
+          component: container-filesystem
+          team: platform
+          slo: infrastructure
+        annotations:
+          summary: Container filesystem use is above 85%
+          description: Sustained filesystem pressure can stop database, Redis, upload, or artifact writes.
           runbook_url: docs/runbooks/container-resource-pressure.md
           dashboard_url: http://localhost:3000/d/platform-overview
