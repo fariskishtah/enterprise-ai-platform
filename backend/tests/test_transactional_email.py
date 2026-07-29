@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import smtplib
 from dataclasses import dataclass, field
+from email.message import EmailMessage
 from uuid import uuid4
 
+import httpx
 import pytest
 from app.config.settings import Settings
 from app.models.email import (
@@ -135,6 +138,126 @@ def test_all_transactional_template_types_have_html_and_text_fallbacks() -> None
         assert "FK SOLUTIONS" in rendered.text
         assert "&lt;care&gt;" in rendered.html
         assert "<care>" not in rendered.html
+
+
+@pytest.mark.anyio
+async def test_resend_contract_persists_provider_id_and_classifies_failures(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    responses = [
+        httpx.Response(202, json={"id": "resend-message-123"}),
+        httpx.Response(429, json={"message": "rate limited"}),
+        httpx.Response(422, json={"message": "invalid recipient"}),
+    ]
+    requests: list[dict[str, object]] = []
+
+    class FakeClient:
+        def __init__(self, *, timeout: float) -> None:
+            assert timeout == 10.0
+
+        async def __aenter__(self) -> FakeClient:
+            return self
+
+        async def __aexit__(self, *_args: object) -> None:
+            return None
+
+        async def post(self, url: str, **kwargs: object) -> httpx.Response:
+            assert url == "https://api.resend.com/emails"
+            requests.append(kwargs)
+            return responses.pop(0)
+
+    monkeypatch.setattr(httpx, "AsyncClient", FakeClient)
+    provider = ResendEmailProvider("provider-secret-not-for-logs")
+    result = await provider.send(sample_email())
+    assert result.provider_message_id == "resend-message-123"
+    payload = requests[0]["json"]
+    assert isinstance(payload, dict)
+    assert payload["text"] == "safe body"
+    assert payload["html"] == "<p>safe body</p>"
+    assert payload["reply_to"] == "reply@example.test"
+    assert "provider-secret-not-for-logs" not in str(payload)
+    with pytest.raises(EmailDeliveryError, match="temporarily unavailable") as retry:
+        await provider.send(sample_email())
+    assert retry.value.retryable is True
+    with pytest.raises(EmailDeliveryError, match="rejected") as permanent:
+        await provider.send(sample_email())
+    assert permanent.value.retryable is False
+
+
+@pytest.mark.anyio
+async def test_smtp_contract_builds_multipart_message_and_rejects_recipient(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    delivered: list[EmailMessage] = []
+    refused: dict[str, tuple[int, bytes]] = {}
+
+    class FakeSMTP:
+        def __init__(self, host: str, port: int, *, timeout: float) -> None:
+            assert (host, port, timeout) == ("smtp.example.test", 587, 4.0)
+
+        def __enter__(self) -> FakeSMTP:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def ehlo(self) -> None:
+            return None
+
+        def starttls(self) -> None:
+            return None
+
+        def login(self, username: str, password: str) -> None:
+            assert username == "smtp-user"
+            assert password == "smtp-password"
+
+        def send_message(self, message: EmailMessage) -> dict[str, tuple[int, bytes]]:
+            delivered.append(message)
+            return refused
+
+    monkeypatch.setattr(smtplib, "SMTP", FakeSMTP)
+    provider = SMTPEmailProvider(
+        host="smtp.example.test",
+        port=587,
+        username="smtp-user",
+        password="smtp-password",
+        use_tls=True,
+        timeout_seconds=4.0,
+    )
+    result = await provider.send(sample_email())
+    assert result.provider_message_id.startswith("smtp-")
+    assert delivered[0].is_multipart()
+    assert delivered[0]["Reply-To"] == "reply@example.test"
+    assert {part.get_content_type() for part in delivered[0].walk()} >= {
+        "text/plain",
+        "text/html",
+    }
+    refused["recipient@example.test"] = (550, b"invalid recipient")
+    with pytest.raises(EmailDeliveryError, match="rejected a recipient") as error:
+        await provider.send(sample_email())
+    assert error.value.retryable is False
+
+
+@pytest.mark.anyio
+async def test_smtp_temporary_transport_failure_is_retryable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FailingSMTP:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            raise OSError("private transport failure")
+
+    monkeypatch.setattr(smtplib, "SMTP", FailingSMTP)
+    provider = SMTPEmailProvider(
+        host="smtp.example.test",
+        port=587,
+        username=None,
+        password=None,
+        use_tls=True,
+        timeout_seconds=4.0,
+    )
+    with pytest.raises(EmailDeliveryError, match="temporarily unavailable") as error:
+        await provider.send(sample_email())
+    assert error.value.retryable is True
 
 
 async def persisted_message(
