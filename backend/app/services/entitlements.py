@@ -98,9 +98,9 @@ class QuotaExceededError(EntitlementError):
             "entitlement": self.key,
             "current": self.current,
             "maximum": self.maximum,
-            "period_start": self.period_start.isoformat()
-            if self.period_start
-            else None,
+            "period_start": (
+                self.period_start.isoformat() if self.period_start else None
+            ),
             "period_end": self.period_end.isoformat() if self.period_end else None,
             "recommended_plan": self.recommended_plan,
         }
@@ -166,18 +166,14 @@ class EntitlementService:
         values = await self._effective_values(company_id, plan)
         items = tuple(
             [
-                await self._value_snapshot(
-                    company_id, key, value, source=source
-                )
+                await self._value_snapshot(company_id, key, value, source=source)
                 for key, (value, source) in sorted(values.items())
             ]
         )
         access_mode = (
             "full"
             if subscription.status in {"active", "trialing", "past_due"}
-            else "read_only"
-            if subscription.status == "suspended"
-            else "blocked"
+            else "read_only" if subscription.status == "suspended" else "blocked"
         )
         return EntitlementSnapshot(
             company_id=company_id,
@@ -206,9 +202,7 @@ class EntitlementService:
             return None
         if increment < 0:
             raise ValueError("increment cannot be negative")
-        _subscription, plan, values = await self._access_context(
-            company_id, lock=True
-        )
+        _subscription, plan, values = await self._access_context(company_id, lock=True)
         configured = values.get(key)
         if configured is None or isinstance(configured[0], bool):
             raise FeatureNotEntitledError(
@@ -249,9 +243,7 @@ class EntitlementService:
             return None
         if key not in _METERED_KEYS or quantity <= 0:
             raise ValueError("Unsupported metered entitlement increment.")
-        _subscription, plan, values = await self._access_context(
-            company_id, lock=True
-        )
+        _subscription, plan, values = await self._access_context(company_id, lock=True)
         configured = values.get(key)
         if configured is None or isinstance(configured[0], bool):
             raise FeatureNotEntitledError(
@@ -291,27 +283,13 @@ class EntitlementService:
             "WHERE usage_counters.quantity + :quantity <= :maximum "
             "RETURNING quantity"
         ).bindparams(
-            bindparam(
-                "id", value=counter_id, type_=Uuid(as_uuid=True)
-            ),
-            bindparam(
-                "company_id", value=company_id, type_=Uuid(as_uuid=True)
-            ),
-            bindparam(
-                "metric", value=key, type_=String(64)
-            ),
-            bindparam(
-                "period_start", value=period_start, type_=Date()
-            ),
-            bindparam(
-                "period_end", value=period_end, type_=Date()
-            ),
-            bindparam(
-                "quantity", value=quantity, type_=Integer()
-            ),
-            bindparam(
-                "maximum", value=maximum, type_=Integer()
-            ),
+            bindparam("id", value=counter_id, type_=Uuid(as_uuid=True)),
+            bindparam("company_id", value=company_id, type_=Uuid(as_uuid=True)),
+            bindparam("metric", value=key, type_=String(64)),
+            bindparam("period_start", value=period_start, type_=Date()),
+            bindparam("period_end", value=period_end, type_=Date()),
+            bindparam("quantity", value=quantity, type_=Integer()),
+            bindparam("maximum", value=maximum, type_=Integer()),
         )
         updated = (await self._session.execute(statement)).scalar_one_or_none()
         if updated is None:
@@ -348,16 +326,12 @@ class EntitlementService:
             return None
         if incoming_bytes < 0:
             raise ValueError("incoming_bytes cannot be negative")
-        _subscription, plan, values = await self._access_context(
-            company_id, lock=True
-        )
+        _subscription, plan, values = await self._access_context(company_id, lock=True)
         configured = values.get("document_storage_gb")
         if configured is None or isinstance(configured[0], bool):
             raise FeatureNotEntitledError(
                 "document_storage_bytes",
-                recommended_plan=self._recommend_for_key(
-                    plan, "document_storage_gb"
-                ),
+                recommended_plan=self._recommend_for_key(plan, "document_storage_gb"),
             )
         maximum = int(configured[0]) * 1024**3
         current = await self._storage_bytes(company_id)
@@ -468,9 +442,7 @@ class EntitlementService:
 
     async def _access_context(
         self, company_id: UUID, *, lock: bool
-    ) -> tuple[
-        Subscription, PlanDefinition, dict[str, tuple[int | bool, str]]
-    ]:
+    ) -> tuple[Subscription, PlanDefinition, dict[str, tuple[int | bool, str]]]:
         subscription = await self._billing.get_company_subscription(
             company_id, lock=lock
         )
@@ -567,15 +539,17 @@ class EntitlementService:
         if key == "team_members":
             users = int(
                 await self._session.scalar(
-                    select(func.count()).select_from(User).where(
-                        User.company_id == company_id, User.is_active
-                    )
+                    select(func.count())
+                    .select_from(User)
+                    .where(User.company_id == company_id, User.is_active)
                 )
                 or 0
             )
             pending = int(
                 await self._session.scalar(
-                    select(func.count()).select_from(TeamInvitation).where(
+                    select(func.count())
+                    .select_from(TeamInvitation)
+                    .where(
                         TeamInvitation.company_id == company_id,
                         TeamInvitation.accepted_at.is_(None),
                         TeamInvitation.revoked_at.is_(None),
@@ -588,7 +562,9 @@ class EntitlementService:
         if key == "factories":
             return int(
                 await self._session.scalar(
-                    select(func.count()).select_from(Factory).where(
+                    select(func.count())
+                    .select_from(Factory)
+                    .where(
                         Factory.company_id == company_id,
                         Factory.deleted_at.is_(None),
                     )
@@ -628,7 +604,9 @@ class EntitlementService:
         if key == "training_concurrency":
             return int(
                 await self._session.scalar(
-                    select(func.count()).select_from(TrainingJob).where(
+                    select(func.count())
+                    .select_from(TrainingJob)
+                    .where(
                         TrainingJob.company_id == company_id,
                         TrainingJob.status.in_(("queued", "running")),
                     )
@@ -638,9 +616,9 @@ class EntitlementService:
         if key == "scheduled_reports":
             return int(
                 await self._session.scalar(
-                    select(func.count()).select_from(ReportSchedule).where(
-                        ReportSchedule.company_id == company_id
-                    )
+                    select(func.count())
+                    .select_from(ReportSchedule)
+                    .where(ReportSchedule.company_id == company_id)
                 )
                 or 0
             )

@@ -184,9 +184,9 @@ async def _entitlement_response(
                 remaining=item.remaining,
                 over_limit=item.over_limit,
                 source=item.source,
-                period_start=item.period_start.isoformat()
-                if item.period_start
-                else None,
+                period_start=(
+                    item.period_start.isoformat() if item.period_start else None
+                ),
                 period_end=item.period_end.isoformat() if item.period_end else None,
             )
             for item in snapshot.items

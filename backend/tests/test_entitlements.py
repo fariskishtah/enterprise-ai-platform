@@ -73,9 +73,7 @@ async def test_all_catalogue_plans_resolve_exact_entitlements(
     session_factory: async_sessionmaker[AsyncSession], plan_code: str
 ) -> None:
     actor = await _actor(session_factory)
-    await _activate(
-        session_factory, company_id=actor.company_id, plan_code=plan_code
-    )
+    await _activate(session_factory, company_id=actor.company_id, plan_code=plan_code)
     async with session_factory() as session:
         snapshot = await EntitlementService(session).snapshot(actor.company_id)
     definition = get_plan(plan_code)
@@ -84,9 +82,7 @@ async def test_all_catalogue_plans_resolve_exact_entitlements(
     assert snapshot.plan_code == plan_code
     assert snapshot.access_mode == "full"
     for key, configured in definition.entitlements.items():
-        response_key = (
-            "document_storage_bytes" if key == "document_storage_gb" else key
-        )
+        response_key = "document_storage_bytes" if key == "document_storage_gb" else key
         assert response_key in resolved
         item = resolved[response_key]
         if isinstance(configured, bool):
@@ -102,9 +98,7 @@ async def test_exact_resource_boundary_and_structured_quota_error(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     actor = await _actor(session_factory)
-    await _activate(
-        session_factory, company_id=actor.company_id, plan_code="starter"
-    )
+    await _activate(session_factory, company_id=actor.company_id, plan_code="starter")
     async with session_factory() as session:
         company = await session.get(Company, actor.company_id)
         assert company is not None
@@ -125,9 +119,7 @@ async def test_rag_meter_is_atomic_idempotent_and_rejects_overage(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     actor = await _actor(session_factory)
-    await _activate(
-        session_factory, company_id=actor.company_id, plan_code="starter"
-    )
+    await _activate(session_factory, company_id=actor.company_id, plan_code="starter")
     async with session_factory() as session:
         service = EntitlementService(session)
         first = await service.consume(
@@ -168,9 +160,7 @@ async def test_monthly_usage_resets_without_mutating_prior_period(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     actor = await _actor(session_factory)
-    await _activate(
-        session_factory, company_id=actor.company_id, plan_code="starter"
-    )
+    await _activate(session_factory, company_id=actor.company_id, plan_code="starter")
     now = datetime.now(UTC)
     current_start = now.replace(day=1).date()
     prior_end = current_start - timedelta(days=1)
@@ -241,9 +231,7 @@ async def test_usage_and_overrides_are_cross_tenant_isolated(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     actor = await _actor(session_factory)
-    await _activate(
-        session_factory, company_id=actor.company_id, plan_code="starter"
-    )
+    await _activate(session_factory, company_id=actor.company_id, plan_code="starter")
     company_b_id = uuid4()
     async with session_factory() as session:
         session.add(
@@ -320,9 +308,7 @@ async def test_starter_training_denial_and_audited_manual_override(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     actor = await _actor(session_factory)
-    await _activate(
-        session_factory, company_id=actor.company_id, plan_code="starter"
-    )
+    await _activate(session_factory, company_id=actor.company_id, plan_code="starter")
     async with session_factory() as session:
         service = EntitlementService(session)
         with pytest.raises(FeatureNotEntitledError) as captured:
@@ -385,9 +371,7 @@ async def test_downgrade_overage_is_read_only_and_never_deletes_resources(
                 actor.company_id, "factories"
             )
         assert (
-            await session.scalar(
-                select(Factory).where(Factory.name == "Factory A")
-            )
+            await session.scalar(select(Factory).where(Factory.name == "Factory A"))
             is not None
         )
 
@@ -415,9 +399,7 @@ async def test_entitlement_api_enforces_quota_and_audited_override(
             )
             assert actor is not None
             company_id = actor.company_id
-        await _activate(
-            session_factory, company_id=company_id, plan_code="starter"
-        )
+        await _activate(session_factory, company_id=company_id, plan_code="starter")
 
         snapshot = await client.get("/billing/entitlements", headers=headers)
         first = await client.post(

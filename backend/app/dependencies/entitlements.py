@@ -16,9 +16,7 @@ def get_entitlement_service(
     session: Annotated[AsyncSession, Depends(get_db_session)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> EntitlementService:
-    return EntitlementService(
-        session, enforced=settings.billing_entitlements_enforced
-    )
+    return EntitlementService(session, enforced=settings.billing_entitlements_enforced)
 
 
 def entitlement_http_error(exc: EntitlementError) -> HTTPException:
@@ -34,9 +32,7 @@ async def require_model_training_entitlement(
 ) -> None:
     try:
         await entitlements.require_feature(actor.company_id, "model_training")
-        await entitlements.require_capacity(
-            actor.company_id, "training_concurrency"
-        )
+        await entitlements.require_capacity(actor.company_id, "training_concurrency")
     except EntitlementError as exc:
         raise entitlement_http_error(exc) from exc
 

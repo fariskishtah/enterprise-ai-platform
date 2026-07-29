@@ -416,9 +416,11 @@ class BillingService:
                 action="subscription.cancellation_scheduled",
                 metadata={
                     "subscription_id": str(subscription.id),
-                    "effective_at": subscription.current_period_end.isoformat()
-                    if subscription.current_period_end
-                    else None,
+                    "effective_at": (
+                        subscription.current_period_end.isoformat()
+                        if subscription.current_period_end
+                        else None
+                    ),
                 },
             )
         await self._session.commit()
@@ -523,8 +525,7 @@ class BillingService:
         if (
             subscription.status == "suspended"
             and suspended_at is not None
-            and suspended_at
-            + timedelta(days=self._policy.suspension_expiry_days)
+            and suspended_at + timedelta(days=self._policy.suspension_expiry_days)
             <= now
         ):
             self._transition(

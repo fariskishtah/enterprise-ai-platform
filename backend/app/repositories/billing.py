@@ -62,8 +62,8 @@ class BillingRepository:
             Payment | None,
             await self._session.scalar(
                 select(Payment).where(
-                Payment.company_id == company_id,
-                Payment.idempotency_key == idempotency_key,
+                    Payment.company_id == company_id,
+                    Payment.idempotency_key == idempotency_key,
                 )
             ),
         )
@@ -242,8 +242,8 @@ class BillingRepository:
             BillingWebhookEvent | None,
             await self._session.scalar(
                 select(BillingWebhookEvent).where(
-                BillingWebhookEvent.provider == provider,
-                BillingWebhookEvent.provider_event_id == provider_event_id,
+                    BillingWebhookEvent.provider == provider,
+                    BillingWebhookEvent.provider_event_id == provider_event_id,
                 )
             ),
         )
@@ -256,9 +256,7 @@ class BillingRepository:
         ).where(BillingWebhookEvent.id == event_id)
         if lock:
             statement = statement.with_for_update()
-        return cast(
-            BillingWebhookEvent | None, await self._session.scalar(statement)
-        )
+        return cast(BillingWebhookEvent | None, await self._session.scalar(statement))
 
     def add_event(self, event: BillingWebhookEvent) -> None:
         self._session.add(event)

@@ -190,9 +190,7 @@ class Payment(Base):
     provider_checkout_id: Mapped[str | None] = mapped_column(String(255))
     idempotency_key: Mapped[str | None] = mapped_column(String(128))
     plan_code: Mapped[str | None] = mapped_column(String(32))
-    purpose: Mapped[str] = mapped_column(
-        String(32), nullable=False, default="initial"
-    )
+    purpose: Mapped[str] = mapped_column(String(32), nullable=False, default="initial")
     checkout_url: Mapped[str | None] = mapped_column(String(2048))
     amount_minor: Mapped[int] = mapped_column(Integer, nullable=False)
     currency: Mapped[str] = mapped_column(String(3), nullable=False)
