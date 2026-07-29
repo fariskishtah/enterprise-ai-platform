@@ -26,6 +26,7 @@ from app.datasets.service import (
 )
 from app.dependencies.auth import require_roles
 from app.dependencies.datasets import get_dataset_service
+from app.dependencies.entitlements import require_model_training_entitlement
 from app.dependencies.operational import require_training_worker_available
 from app.dependencies.public_demo import (
     is_public_demo_account,
@@ -157,6 +158,7 @@ def list_algorithms(
     dependencies=[
         Depends(enforce_mutation_rate_limit),
         Depends(require_training_worker_available),
+        Depends(require_model_training_entitlement),
     ],
     response_model=TrainingJobSubmissionResponse,
     status_code=status.HTTP_202_ACCEPTED,
@@ -346,6 +348,7 @@ async def submit_generic_training_job(
     dependencies=[
         Depends(enforce_mutation_rate_limit),
         Depends(require_training_worker_available),
+        Depends(require_model_training_entitlement),
     ],
     response_model=TrainingJobSubmissionResponse,
     status_code=status.HTTP_202_ACCEPTED,
@@ -421,6 +424,7 @@ async def submit_random_forest_regression_job(
     dependencies=[
         Depends(enforce_mutation_rate_limit),
         Depends(require_training_worker_available),
+        Depends(require_model_training_entitlement),
     ],
     response_model=TrainingJobSubmissionResponse,
     status_code=status.HTTP_202_ACCEPTED,

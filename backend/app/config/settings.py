@@ -170,6 +170,7 @@ class Settings(BaseSettings):
     billing_grace_period_days: PositiveInt = Field(default=7, le=90)
     billing_incomplete_expiry_hours: PositiveInt = Field(default=24, le=168)
     billing_suspension_expiry_days: PositiveInt = Field(default=30, le=365)
+    billing_entitlements_enforced: bool = False
     structured_logging_enabled: bool = True
     log_format: LogFormat = "json"
     log_level: LogLevel = "INFO"
@@ -603,6 +604,10 @@ class Settings(BaseSettings):
             ):
                 if urlsplit(value or "").scheme != "https":
                     raise ValueError(f"{name} must use HTTPS in production.")
+        if self.environment == "production" and not self.billing_entitlements_enforced:
+            raise ValueError(
+                "billing_entitlements_enforced must be true in production."
+            )
         if self.email_provider in {"capture", "resend", "smtp"} and (
             self.email_from is None
         ):

@@ -3,7 +3,16 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, status
+from fastapi import (
+    APIRouter,
+    Body,
+    Depends,
+    Header,
+    HTTPException,
+    Query,
+    Response,
+    status,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.billing.catalog import PLAN_CATALOG
@@ -18,6 +27,7 @@ from app.config.settings import Settings, get_settings
 from app.dependencies.auth import require_permissions
 from app.dependencies.billing import get_billing_webhook_queue, get_payment_provider
 from app.dependencies.database import get_db_session
+from app.dependencies.entitlements import get_entitlement_service
 from app.models.billing import Payment, Subscription
 from app.models.user import User
 from app.permissions import Permission
@@ -29,6 +39,10 @@ from app.schemas.billing import (
     BillingProviderEventResponse,
     CheckoutCreateRequest,
     CheckoutResponse,
+    EntitlementItemResponse,
+    EntitlementOverrideRequest,
+    EntitlementOverrideResponse,
+    EntitlementSnapshotResponse,
     InvoiceHistoryResponse,
     InvoiceReferenceResponse,
     PaymentHistoryResponse,
@@ -38,6 +52,7 @@ from app.schemas.billing import (
     SubscriptionCancelRequest,
     SubscriptionEnvelope,
     SubscriptionResponse,
+    UpgradeRecommendationResponse,
     WebhookAcceptedResponse,
 )
 from app.services.billing import (
@@ -50,6 +65,7 @@ from app.services.billing import (
     BillingWebhookPayloadError,
     CheckoutResult,
 )
+from app.services.entitlements import EntitlementOverrideError, EntitlementService
 
 router = APIRouter(prefix="/billing", tags=["billing"])
 
@@ -148,6 +164,34 @@ async def _subscription_response(
         ended_at=subscription.ended_at,
         version=subscription.version,
         allowed_actions=actions,
+    )
+
+
+async def _entitlement_response(
+    service: EntitlementService, company_id: UUID
+) -> EntitlementSnapshotResponse:
+    snapshot = await service.snapshot(company_id)
+    return EntitlementSnapshotResponse(
+        subscription_status=snapshot.subscription_status,
+        access_mode=snapshot.access_mode,
+        plan_code=snapshot.plan_code,
+        items=[
+            EntitlementItemResponse(
+                key=item.key,
+                enabled=item.enabled,
+                limit=item.limit,
+                used=item.used,
+                remaining=item.remaining,
+                over_limit=item.over_limit,
+                source=item.source,
+                period_start=item.period_start.isoformat()
+                if item.period_start
+                else None,
+                period_end=item.period_end.isoformat() if item.period_end else None,
+            )
+            for item in snapshot.items
+        ],
+        recommended_plan=snapshot.recommended_plan,
     )
 
 
@@ -471,6 +515,104 @@ async def list_invoice_history(
         page=page,
         page_size=page_size,
     )
+
+
+@router.get("/entitlements", response_model=EntitlementSnapshotResponse)
+async def current_entitlements(
+    actor: Annotated[User, Depends(require_permissions(Permission.BILLING_MANAGE))],
+    entitlements: Annotated[EntitlementService, Depends(get_entitlement_service)],
+) -> EntitlementSnapshotResponse:
+    return await _entitlement_response(entitlements, actor.company_id)
+
+
+@router.get("/usage", response_model=EntitlementSnapshotResponse)
+@router.get("/usage/breakdown", response_model=EntitlementSnapshotResponse)
+@router.get("/limits", response_model=EntitlementSnapshotResponse)
+async def current_usage_and_limits(
+    actor: Annotated[User, Depends(require_permissions(Permission.BILLING_MANAGE))],
+    entitlements: Annotated[EntitlementService, Depends(get_entitlement_service)],
+) -> EntitlementSnapshotResponse:
+    return await _entitlement_response(entitlements, actor.company_id)
+
+
+@router.get("/recommendation", response_model=UpgradeRecommendationResponse)
+async def upgrade_recommendation(
+    actor: Annotated[User, Depends(require_permissions(Permission.BILLING_MANAGE))],
+    entitlements: Annotated[EntitlementService, Depends(get_entitlement_service)],
+) -> UpgradeRecommendationResponse:
+    snapshot = await entitlements.snapshot(actor.company_id)
+    return UpgradeRecommendationResponse(
+        current_plan=snapshot.plan_code,
+        recommended_plan=snapshot.recommended_plan,
+        over_limit_entitlements=[
+            item.key for item in snapshot.items if item.over_limit
+        ],
+    )
+
+
+@router.get("/admin/usage", response_model=EntitlementSnapshotResponse)
+async def admin_usage_inspection(
+    actor: Annotated[User, Depends(require_permissions(Permission.BILLING_MANAGE))],
+    entitlements: Annotated[EntitlementService, Depends(get_entitlement_service)],
+) -> EntitlementSnapshotResponse:
+    return await _entitlement_response(entitlements, actor.company_id)
+
+
+@router.put(
+    "/admin/entitlement-overrides/{key}",
+    response_model=EntitlementOverrideResponse,
+)
+async def set_entitlement_override(
+    key: str,
+    payload: EntitlementOverrideRequest,
+    actor: Annotated[User, Depends(require_permissions(Permission.BILLING_MANAGE))],
+    entitlements: Annotated[EntitlementService, Depends(get_entitlement_service)],
+) -> EntitlementOverrideResponse:
+    try:
+        override = await entitlements.set_override(
+            company_id=actor.company_id,
+            actor_user_id=actor.id,
+            key=key,
+            integer_limit=payload.integer_limit,
+            enabled=payload.enabled,
+            reason=payload.reason,
+            expires_at=payload.expires_at,
+        )
+    except EntitlementOverrideError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=exc.as_detail(),
+        ) from exc
+    return EntitlementOverrideResponse(
+        override_id=override.id,
+        key=override.key,
+        integer_limit=override.integer_limit,
+        enabled=override.enabled,
+        reason=override.reason,
+        expires_at=override.expires_at,
+        created_by_user_id=override.created_by_user_id,
+        created_at=override.created_at,
+        updated_at=override.updated_at,
+    )
+
+
+@router.delete(
+    "/admin/entitlement-overrides/{key}", status_code=status.HTTP_204_NO_CONTENT
+)
+async def delete_entitlement_override(
+    key: str,
+    actor: Annotated[User, Depends(require_permissions(Permission.BILLING_MANAGE))],
+    entitlements: Annotated[EntitlementService, Depends(get_entitlement_service)],
+) -> Response:
+    deleted = await entitlements.delete_override(
+        company_id=actor.company_id, actor_user_id=actor.id, key=key
+    )
+    if not deleted:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "override_not_found", "message": "Override not found."},
+        )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/admin/events", response_model=BillingAuditHistoryResponse)

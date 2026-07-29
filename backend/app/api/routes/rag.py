@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Sequence
 from typing import Annotated
 from uuid import UUID
@@ -11,6 +12,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies.auth import require_roles
 from app.dependencies.database import get_db_session
+from app.dependencies.entitlements import (
+    entitlement_http_error,
+    get_entitlement_service,
+)
 from app.dependencies.operational import require_training_worker_available
 from app.dependencies.rate_limit import enforce_mutation_rate_limit
 from app.dependencies.services import get_audit_service
@@ -46,6 +51,7 @@ from app.schemas.rag import (
     RetrievalSearchResponse,
 )
 from app.services.audit import AuditService
+from app.services.entitlements import EntitlementError, EntitlementService
 from app.services.rag import (
     KnowledgeBaseDetail,
     RAGConflictError,
@@ -538,8 +544,18 @@ async def submit_message(
     payload: MessageSubmitRequest,
     current_user: AuthorizedUser,
     session: Session,
+    entitlements: Annotated[EntitlementService, Depends(get_entitlement_service)],
 ) -> MessageExchangeResponse:
     try:
+        meter_key = hashlib.sha256(
+            f"{conversation_id}:{payload.idempotency_key}".encode()
+        ).hexdigest()
+        await entitlements.consume(
+            current_user.company_id,
+            "monthly_rag_queries",
+            quantity=1,
+            idempotency_key=meter_key,
+        )
         result = await _service(session).submit_message(
             conversation_id=conversation_id,
             user_id=current_user.id,
@@ -549,6 +565,8 @@ async def submit_message(
         )
     except RAGServiceError as exc:
         raise _http_error(exc) from exc
+    except EntitlementError as exc:
+        raise entitlement_http_error(exc) from exc
     return MessageExchangeResponse(
         user_message=_message_response(result.user_message),
         assistant_message=_message_response(result.assistant_message),

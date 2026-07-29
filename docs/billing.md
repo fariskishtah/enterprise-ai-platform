@@ -138,3 +138,41 @@ action writes a tenant-scoped, card-free audit event.
 All authenticated records are derived from the access token's `company_id`.
 Company IDs are never accepted from route parameters or request bodies. Billing
 domain errors use a stable `{code, message}` response detail.
+
+## Entitlements and metering
+
+`EntitlementService` is the central decision point for subscription access,
+catalogue limits, tenant overrides, current resource counts, and metered usage.
+Production startup rejects `BILLING_ENTITLEMENTS_ENFORCED=false`; local and test
+environments may explicitly leave enforcement disabled for legacy fixtures.
+
+The service enforces team members (including pending invitations), factories,
+machines, document count, exact stored bytes, monthly grounded RAG queries,
+model-training access and queued/running concurrency, advanced reports, and
+report schedules. RAG increments use a per-tenant idempotency ledger and an
+atomic upsert bounded by the effective monthly limit. Monthly counters use UTC
+calendar periods and retain prior periods as history.
+
+`active`, `trialing`, and in-grace `past_due` subscriptions may mutate within
+their limits. Suspended subscriptions remain visible but read-only; incomplete,
+cancelled, and expired subscriptions are blocked. Downgrading never deletes
+resources. Existing over-limit resources remain readable while new creation is
+denied with:
+
+```json
+{
+  "code": "quota_exceeded",
+  "current": 1,
+  "maximum": 1,
+  "period_start": null,
+  "period_end": null,
+  "recommended_plan": "professional"
+}
+```
+
+Tenant admins can inspect `/billing/entitlements`, `/billing/usage`,
+`/billing/usage/breakdown`, `/billing/limits`, and
+`/billing/recommendation`. Manual exceptions are available only through
+`/billing/admin/entitlement-overrides/{key}`, require a reason, may expire, and
+always create a billing audit event. Migration `0031_entitlement_overrides`
+adds those exceptions and the metering idempotency ledger.

@@ -16,6 +16,11 @@ from app.config.settings import Settings, get_settings
 from app.dependencies.auth import require_roles
 from app.dependencies.database import get_db_session
 from app.dependencies.datasets import get_dataset_storage
+from app.dependencies.entitlements import (
+    entitlement_http_error,
+    get_entitlement_service,
+    require_advanced_reports_entitlement,
+)
 from app.dependencies.rate_limit import enforce_mutation_rate_limit
 from app.dependencies.services import get_audit_service
 from app.ml.monitoring.evaluation_models import (
@@ -44,6 +49,7 @@ from app.schemas.demo_experience import (
     ReportScheduleResponse,
 )
 from app.services.audit import AuditService
+from app.services.entitlements import EntitlementError, EntitlementService
 from app.services.reporting import report_payload
 from app.utils.security import as_utc, utc_now
 
@@ -259,7 +265,10 @@ async def executive_dashboard(
     "/reports",
     response_model=ReportResponse,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(enforce_mutation_rate_limit)],
+    dependencies=[
+        Depends(enforce_mutation_rate_limit),
+        Depends(require_advanced_reports_entitlement),
+    ],
 )
 async def create_report(
     payload: ReportCreate,
@@ -431,7 +440,12 @@ async def create_schedule(
     user: Annotated[User, Depends(require_roles(UserRole.ADMIN))],
     session: Annotated[AsyncSession, Depends(get_db_session)],
     audit: Annotated[AuditService, Depends(get_audit_service)],
+    entitlements: Annotated[EntitlementService, Depends(get_entitlement_service)],
 ) -> ReportScheduleResponse:
+    try:
+        await entitlements.require_capacity(user.company_id, "scheduled_reports")
+    except EntitlementError as exc:
+        raise entitlement_http_error(exc) from exc
     await _factory_scope(session, user.company_id, payload.factory_id)
     existing = await session.scalar(
         select(ReportSchedule).where(

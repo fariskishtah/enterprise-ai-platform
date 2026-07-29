@@ -35,6 +35,10 @@ from app.datasets.service import (
 from app.dependencies.auth import require_roles
 from app.dependencies.database import get_db_session
 from app.dependencies.datasets import get_dataset_queue, get_dataset_storage
+from app.dependencies.entitlements import (
+    entitlement_http_error,
+    get_entitlement_service,
+)
 from app.dependencies.operational import require_training_worker_available
 from app.dependencies.rate_limit import enforce_mutation_rate_limit
 from app.dependencies.services import get_audit_service
@@ -53,6 +57,7 @@ from app.schemas.datasets import (
     DocumentResponse,
 )
 from app.services.audit import AuditService
+from app.services.entitlements import EntitlementError, EntitlementService
 
 router = APIRouter(prefix="/ai/datasets", tags=["AI Datasets"])
 
@@ -269,11 +274,17 @@ async def create_dataset_version(
     settings: Annotated[Settings, Depends(get_settings)],
     queue: Annotated[DatasetProcessingQueue, Depends(get_dataset_queue)],
     audit: Annotated[AuditService, Depends(get_audit_service)],
+    entitlements: Annotated[EntitlementService, Depends(get_entitlement_service)],
     target_column: Annotated[str | None, Form(min_length=1, max_length=128)] = None,
     split_column: Annotated[str | None, Form(min_length=1, max_length=128)] = None,
     evaluation_fraction: Annotated[float, Form(ge=0.1, le=0.4)] = 0.2,
 ) -> DatasetVersionResponse:
     try:
+        await entitlements.require_storage_bytes(
+            current_user.company_id, incoming_bytes=file.size or 0
+        )
+        if (file.content_type or "") not in {"text/csv", "application/csv"}:
+            await entitlements.require_capacity(current_user.company_id, "documents")
         value = await _service(session, settings, queue).create_version(
             dataset_id=dataset_id,
             owner_id=_scope(current_user),
@@ -295,6 +306,8 @@ async def create_dataset_version(
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
     except DatasetQueueError as exc:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
+    except EntitlementError as exc:
+        raise entitlement_http_error(exc) from exc
     finally:
         await file.close()
     await audit.record(

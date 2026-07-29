@@ -6,11 +6,16 @@ from urllib.parse import urlencode
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config.settings import Settings, get_settings
 from app.dependencies.auth import require_permissions
 from app.dependencies.database import get_db_session
+from app.dependencies.entitlements import (
+    entitlement_http_error,
+    get_entitlement_service,
+)
 from app.dependencies.rate_limit import (
     enforce_auth_rate_limit,
     enforce_mutation_rate_limit,
@@ -35,11 +40,13 @@ from app.schemas.user import UserResponse
 from app.services.audit import AuditService
 from app.services.email import transactional_email
 from app.services.email_delivery import persist_email
+from app.services.entitlements import EntitlementError, EntitlementService
 from app.services.exceptions import (
     InvalidInvitationTokenError,
     InvitationLifecycleError,
 )
 from app.services.invitations import InvitationService, IssuedInvitation
+from app.utils.security import hash_token
 
 router = APIRouter(prefix="/team/invitations", tags=["team"])
 
@@ -135,8 +142,10 @@ async def create_invitation(
     session: Annotated[AsyncSession, Depends(get_db_session)],
     queue: Annotated[TransactionalEmailQueue, Depends(get_transactional_email_queue)],
     audit: Annotated[AuditService, Depends(get_audit_service)],
+    entitlements: Annotated[EntitlementService, Depends(get_entitlement_service)],
 ) -> InvitationResponse:
     try:
+        await entitlements.require_capacity(actor.company_id, "team_members")
         issued = await service.create(
             actor=actor,
             email=str(payload.email),
@@ -146,6 +155,8 @@ async def create_invitation(
         )
     except InvitationLifecycleError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    except EntitlementError as exc:
+        raise entitlement_http_error(exc) from exc
     await _queue_invitation_email(
         issued=issued, settings=settings, session=session, queue=queue
     )
@@ -254,8 +265,19 @@ async def accept_invitation(
     payload: InvitationAcceptRequest,
     service: Annotated[InvitationService, Depends(get_invitation_service)],
     audit: Annotated[AuditService, Depends(get_audit_service)],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+    entitlements: Annotated[EntitlementService, Depends(get_entitlement_service)],
 ) -> InvitationAcceptResponse:
     try:
+        pending = await session.scalar(
+            select(TeamInvitation).where(
+                TeamInvitation.token_hash == hash_token(payload.token)
+            )
+        )
+        if pending is not None:
+            await entitlements.require_capacity(
+                pending.company_id, "team_members", increment=0
+            )
         invitation, user, created = await service.accept(
             token=payload.token,
             full_name=payload.full_name,
@@ -268,6 +290,8 @@ async def accept_invitation(
             status.HTTP_410_GONE if "expired" in str(exc) else status.HTTP_409_CONFLICT
         )
         raise HTTPException(code, str(exc)) from exc
+    except EntitlementError as exc:
+        raise entitlement_http_error(exc) from exc
     await audit.record(
         company_id=invitation.company_id,
         actor=user,

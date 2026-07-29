@@ -159,6 +159,53 @@ class BillingProviderEventHistoryResponse(BaseModel):
     page_size: int
 
 
+class EntitlementItemResponse(BaseModel):
+    key: str
+    enabled: bool | None
+    limit: int | None
+    used: int | None
+    remaining: int | None
+    over_limit: bool
+    source: str
+    period_start: str | None
+    period_end: str | None
+
+
+class EntitlementSnapshotResponse(BaseModel):
+    subscription_status: str | None
+    access_mode: str
+    plan_code: str | None
+    items: list[EntitlementItemResponse]
+    recommended_plan: str | None
+
+
+class UpgradeRecommendationResponse(BaseModel):
+    current_plan: str | None
+    recommended_plan: str | None
+    over_limit_entitlements: list[str]
+
+
+class EntitlementOverrideRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    integer_limit: int | None = Field(default=None, ge=0)
+    enabled: bool | None = None
+    reason: str = Field(min_length=3, max_length=500)
+    expires_at: datetime | None = None
+
+
+class EntitlementOverrideResponse(BaseModel):
+    override_id: UUID
+    key: str
+    integer_limit: int | None
+    enabled: bool | None
+    reason: str
+    expires_at: datetime | None
+    created_by_user_id: UUID
+    created_at: datetime
+    updated_at: datetime
+
+
 class WebhookAcceptedResponse(BaseModel):
     accepted: bool = True
     duplicate: bool

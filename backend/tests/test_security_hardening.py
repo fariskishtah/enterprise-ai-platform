@@ -39,6 +39,7 @@ def _validated_settings(settings: Settings, **updates: object) -> Settings:
                 "email_provider": "smtp",
                 "email_from": "accounts@platform.example",
                 "smtp_host": "smtp.platform.example",
+                "billing_entitlements_enforced": True,
             }
         )
         values.update(updates)

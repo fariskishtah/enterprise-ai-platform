@@ -14,11 +14,13 @@ from app.models.ai_retraining import (
 from app.models.automl import AutoMLStudy
 from app.models.billing import (
     BillingAuditEvent,
+    EntitlementOverride,
     InvoiceReference,
     Payment,
     PaymentProviderCustomer,
     Subscription,
     UsageCounter,
+    UsageLedgerEvent,
 )
 from app.models.datasets import Dataset
 from app.models.manufacturing import Company, Factory
@@ -74,7 +76,9 @@ _SCOPED_MODELS = (
     Subscription,
     InvoiceReference,
     UsageCounter,
+    UsageLedgerEvent,
     BillingAuditEvent,
+    EntitlementOverride,
 )
 
 

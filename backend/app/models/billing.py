@@ -303,6 +303,82 @@ class UsageCounter(Base):
     )
 
 
+class EntitlementOverride(Base):
+    """Audited tenant-specific exception to one catalogue entitlement."""
+
+    __tablename__ = "entitlement_overrides"
+    __table_args__ = (
+        UniqueConstraint(
+            "company_id", "key", name="uq_entitlement_overrides_company_key"
+        ),
+        Index("ix_entitlement_overrides_company_expiry", "company_id", "expires_at"),
+        CheckConstraint(
+            "integer_limit IS NOT NULL OR enabled IS NOT NULL",
+            name="ck_entitlement_overrides_value",
+        ),
+        CheckConstraint(
+            "integer_limit IS NULL OR integer_limit >= 0",
+            name="ck_entitlement_overrides_nonnegative",
+        ),
+    )
+    id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), primary_key=True, default=uuid4
+    )
+    company_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("companies.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    key: Mapped[str] = mapped_column(String(64), nullable=False)
+    integer_limit: Mapped[int | None] = mapped_column(Integer)
+    enabled: Mapped[bool | None] = mapped_column(Boolean)
+    reason: Mapped[str] = mapped_column(String(500), nullable=False)
+    created_by_user_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class UsageLedgerEvent(Base):
+    """Idempotency ledger for metered usage increments."""
+
+    __tablename__ = "usage_ledger_events"
+    __table_args__ = (
+        UniqueConstraint(
+            "company_id",
+            "metric",
+            "idempotency_key",
+            name="uq_usage_ledger_company_metric_key",
+        ),
+        Index("ix_usage_ledger_company_period", "company_id", "period_start"),
+        CheckConstraint("quantity > 0", name="ck_usage_ledger_quantity"),
+    )
+    id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), primary_key=True, default=uuid4
+    )
+    company_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("companies.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    metric: Mapped[str] = mapped_column(String(64), nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False)
+    period_start: Mapped[date] = mapped_column(Date, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
 class BillingAuditEvent(Base):
     __tablename__ = "billing_audit_events"
     __table_args__ = (

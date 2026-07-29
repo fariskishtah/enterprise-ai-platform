@@ -8,6 +8,7 @@ from pydantic import ValidationError
 
 from app.config.settings import Settings, get_settings
 from app.dependencies.auth import require_roles
+from app.dependencies.entitlements import require_model_training_entitlement
 from app.dependencies.public_demo import (
     ensure_public_demo_model_scope,
     is_public_demo_account,
@@ -253,7 +254,10 @@ not assign aliases, promote models, download artifacts, or change registry state
 
 @router.post(
     "/training/random-forest/regression",
-    dependencies=[Depends(require_non_public_demo_account)],
+    dependencies=[
+        Depends(require_non_public_demo_account),
+        Depends(require_model_training_entitlement),
+    ],
     response_model=AITrainingResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Train and register a Random Forest regressor",
@@ -348,7 +352,10 @@ def train_random_forest_regression(
 
 @router.post(
     "/training/random-forest/classification",
-    dependencies=[Depends(require_non_public_demo_account)],
+    dependencies=[
+        Depends(require_non_public_demo_account),
+        Depends(require_model_training_entitlement),
+    ],
     response_model=AITrainingResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Train and register a Random Forest classifier",

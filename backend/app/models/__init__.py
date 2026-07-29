@@ -12,12 +12,14 @@ from app.models.billing import (
     BillingAuditEvent,
     BillingPlan,
     BillingWebhookEvent,
+    EntitlementOverride,
     InvoiceReference,
     Payment,
     PaymentProviderCustomer,
     PlanEntitlement,
     Subscription,
     UsageCounter,
+    UsageLedgerEvent,
 )
 from app.models.datasets import (
     Dataset,
@@ -111,6 +113,7 @@ __all__ = [
     "EmailDeliveryStatus",
     "EmailMessageType",
     "EmailVerificationToken",
+    "EntitlementOverride",
     "Experiment",
     "Factory",
     "FactoryLayout",
@@ -168,6 +171,7 @@ __all__ = [
     "UploadJob",
     "UploadJobStatus",
     "UsageCounter",
+    "UsageLedgerEvent",
     "User",
     "UserRole",
 ]

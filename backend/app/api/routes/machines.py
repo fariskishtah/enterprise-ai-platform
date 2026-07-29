@@ -6,6 +6,10 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 
 from app.dependencies.auth import require_roles
+from app.dependencies.entitlements import (
+    entitlement_http_error,
+    get_entitlement_service,
+)
 from app.dependencies.services import get_audit_service, get_manufacturing_service
 from app.models.user import User, UserRole
 from app.schemas.common import PaginatedResponse, SortOrder
@@ -16,6 +20,7 @@ from app.schemas.manufacturing import (
     MachineUpdate,
 )
 from app.services.audit import AuditService
+from app.services.entitlements import EntitlementError, EntitlementService
 from app.services.exceptions import RelatedResourceNotFoundError, ResourceNotFoundError
 from app.services.manufacturing import MachineUpdateFields, ManufacturingService
 
@@ -86,12 +91,14 @@ async def create_machine(
     ],
     service: Annotated[ManufacturingService, Depends(get_manufacturing_service)],
     audit: Annotated[AuditService, Depends(get_audit_service)],
+    entitlements: Annotated[EntitlementService, Depends(get_entitlement_service)],
 ) -> MachineResponse:
     """Create a machine."""
     try:
         factory = await service.get_factory_for_company(
             payload.factory_id, current_user.company_id
         )
+        await entitlements.require_capacity(current_user.company_id, "machines")
         machine = await service.create_machine(
             factory_id=factory.id,
             name=payload.name,
@@ -101,6 +108,8 @@ async def create_machine(
         )
     except RelatedResourceNotFoundError as exc:
         raise _related_not_found(exc) from exc
+    except EntitlementError as exc:
+        raise entitlement_http_error(exc) from exc
     except ResourceNotFoundError as exc:
         raise _related_not_found(
             RelatedResourceNotFoundError("Factory does not exist."),
