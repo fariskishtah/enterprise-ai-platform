@@ -1,0 +1,5 @@
+services:
+  reverse-proxy:
+    volumes:
+      - ./.deployment/https/certs/fullchain.pem:/etc/letsencrypt/live/factorymind.ddnsgeek.com/fullchain.pem:ro
+      - ./.deployment/https/certs/privkey.pem:/etc/letsencrypt/live/factorymind.ddnsgeek.com/privkey.pem:ro
