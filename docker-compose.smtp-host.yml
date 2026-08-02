@@ -1,0 +1,8 @@
+services:
+  backend:
+    extra_hosts:
+      - "smtp-relay.brevo.com:1.179.118.1"
+
+  training-worker:
+    extra_hosts:
+      - "smtp-relay.brevo.com:1.179.118.1"
