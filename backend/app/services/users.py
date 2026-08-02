@@ -14,9 +14,11 @@ from app.services.exceptions import (
     DuplicateCompanyNameError,
     DuplicateEmailError,
     ExpiredEmailVerificationTokenError,
+    ExpiredPasswordResetTokenError,
     InvalidEmailVerificationTokenError,
     InvalidPasswordResetTokenError,
     UsedEmailVerificationTokenError,
+    UsedPasswordResetTokenError,
 )
 from app.utils.passwords import PasswordHasher, validate_password_strength
 from app.utils.security import as_utc, hash_token, normalize_email, utc_now
@@ -201,16 +203,28 @@ class UserService:
         await self._repository.commit()
 
     async def initiate_password_reset(
-        self, *, email: str, expiry_minutes: int
+        self, *, email: str, expiry_minutes: int, cooldown_seconds: int = 60
     ) -> tuple[User | None, str | None]:
         user = await self._repository.get_by_email(normalize_email(email))
         if user is None or not user.is_active:
             return None, None
+        now = utc_now()
+        latest = await self._repository.latest_password_reset_token(user.id)
+        if latest is not None:
+            available_at = as_utc(latest.created_at) + timedelta(
+                seconds=cooldown_seconds
+            )
+            if (
+                latest.used_at is None
+                and as_utc(latest.expires_at) > now
+                and available_at > now
+            ):
+                return user, None
         token = secrets.token_urlsafe(48)
         await self._repository.create_password_reset_token(
             user_id=user.id,
             token_hash=hash_token(token),
-            expires_at=utc_now() + timedelta(minutes=expiry_minutes),
+            expires_at=now + timedelta(minutes=expiry_minutes),
         )
         await self._repository.commit()
         return user, token
@@ -285,24 +299,24 @@ class UserService:
     async def complete_password_reset(self, *, token: str, new_password: str) -> User:
         entity = await self._repository.get_password_reset_token(hash_token(token))
         now = utc_now()
-        if (
-            entity is None
-            or entity.used_at is not None
-            or as_utc(entity.expires_at) <= now
-        ):
-            raise InvalidPasswordResetTokenError(
-                "Password reset token is invalid or expired."
+        if entity is None:
+            raise InvalidPasswordResetTokenError("Password reset token is invalid.")
+        if entity.used_at is not None:
+            raise UsedPasswordResetTokenError(
+                "Password reset token has already been used."
             )
+        if as_utc(entity.expires_at) <= now:
+            raise ExpiredPasswordResetTokenError("Password reset token has expired.")
         user = await self._repository.get_by_id(entity.user_id)
         if user is None or not user.is_active:
-            raise InvalidPasswordResetTokenError(
-                "Password reset token is invalid or expired."
-            )
+            raise InvalidPasswordResetTokenError("Password reset token is invalid.")
         validate_password_strength(new_password)
         await self._repository.update_password(
             user, self._password_hasher.hash(new_password)
         )
-        entity.used_at = now
+        await self._repository.mark_password_reset_tokens_used(
+            user_id=user.id, used_at=now
+        )
         await self._repository.revoke_user_refresh_tokens(
             user_id=user.id, revoked_at=now
         )

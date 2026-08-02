@@ -216,8 +216,8 @@ def configured_email_provider(settings: Settings) -> EmailProvider:
 _TEMPLATE_TITLES = {
     EmailMessageType.EMAIL_VERIFICATION: "Verify your email address",
     EmailMessageType.PASSWORD_RESET: "Reset your password",
-    EmailMessageType.WELCOME: "Welcome to FK SOLUTIONS",
-    EmailMessageType.TEAM_INVITATION: "You are invited to join your team",
+    EmailMessageType.WELCOME: "Welcome to FactoryMind",
+    EmailMessageType.TEAM_INVITATION: "You are invited to FactoryMind",
     EmailMessageType.FEEDBACK_RECEIVED: "We received your feedback",
     EmailMessageType.SUPPORT_REQUEST_RECEIVED: "Support request received",
     EmailMessageType.SUBSCRIPTION_CONFIRMATION: "Subscription confirmed",
@@ -238,6 +238,7 @@ def transactional_email(
     details: tuple[tuple[str, str], ...] = (),
     action_label: str | None = None,
     action_url: str | None = None,
+    security_note: str | None = None,
 ) -> OutboundEmail:
     """Render one branded, escaped, responsive HTML email and text fallback."""
     title = _TEMPLATE_TITLES[message_type]
@@ -245,60 +246,139 @@ def transactional_email(
     text_lines.extend(f"{label}: {value}" for label, value in details)
     if action_label and action_url:
         text_lines.extend(("", f"{action_label}: {action_url}"))
-    text_lines.extend(("", "FK SOLUTIONS · AI Manufacturing Platform"))
+    if security_note:
+        text_lines.extend(("", f"Security note: {security_note}"))
+    text_lines.extend(
+        (
+            "",
+            "Need help? Reply to this email or contact your workspace administrator.",
+            "FactoryMind · Secure manufacturing intelligence by FK Solutions",
+        )
+    )
 
     root = Element(
         "div",
         {
             "style": (
-                "max-width:640px;margin:0 auto;padding:32px 20px;"
-                "font-family:Arial,sans-serif;color:#172033;line-height:1.55"
+                "margin:0;padding:32px 16px;background:#f3f0f9;"
+                "font-family:Arial,sans-serif;color:#171a2b;line-height:1.55"
             )
         },
     )
-    brand = SubElement(
+    container = SubElement(
         root,
-        "p",
-        {"style": "font-weight:700;color:#155eef;letter-spacing:.04em"},
+        "div",
+        {
+            "style": (
+                "max-width:600px;margin:0 auto;overflow:hidden;background:#ffffff;"
+                "border:1px solid #ddd7e8;border-radius:14px"
+            )
+        },
     )
-    brand.text = "FK SOLUTIONS"
-    heading = SubElement(root, "h1", {"style": "font-size:26px;margin:12px 0"})
+    header = SubElement(
+        container,
+        "div",
+        {"style": "padding:22px 28px;background:#0b1023;color:#ffffff"},
+    )
+    brand = SubElement(
+        header,
+        "p",
+        {"style": "margin:0;font-size:16px;font-weight:700;letter-spacing:.02em"},
+    )
+    brand.text = "FactoryMind"
+    byline = SubElement(
+        header,
+        "p",
+        {"style": "margin:3px 0 0;color:#c4b5fd;font-size:12px"},
+    )
+    byline.text = "by FK Solutions"
+    content = SubElement(container, "div", {"style": "padding:30px 28px"})
+    heading = SubElement(
+        content,
+        "h1",
+        {"style": "font-size:25px;line-height:1.25;margin:0 0 14px;color:#171a2b"},
+    )
     heading.text = title
-    paragraph = SubElement(root, "p")
+    paragraph = SubElement(
+        content,
+        "p",
+        {"style": "margin:0 0 18px;color:#4c5065;font-size:15px"},
+    )
     paragraph.text = intro
     if details:
         table = SubElement(
-            root, "table", {"style": "width:100%;border-collapse:collapse"}
+            content,
+            "table",
+            {
+                "role": "presentation",
+                "style": (
+                    "width:100%;margin:4px 0 18px;border-collapse:collapse;"
+                    "font-size:14px"
+                ),
+            },
         )
         for label, value in details:
             row = SubElement(table, "tr")
             key = SubElement(
                 row,
                 "th",
-                {"style": "text-align:left;padding:6px 12px 6px 0"},
+                {
+                    "scope": "row",
+                    "style": (
+                        "width:36%;text-align:left;padding:7px 12px 7px 0;"
+                        "color:#62667b;font-weight:600;vertical-align:top"
+                    ),
+                },
             )
             key.text = label
-            cell = SubElement(row, "td", {"style": "padding:6px 0"})
+            cell = SubElement(
+                row,
+                "td",
+                {"style": "padding:7px 0;color:#24283b;vertical-align:top"},
+            )
             cell.text = value
     if action_label and action_url:
         action = SubElement(
-            root,
+            content,
             "a",
             {
                 "href": action_url,
                 "style": (
-                    "display:inline-block;margin:20px 0;padding:12px 18px;"
-                    "background:#155eef;color:#fff;text-decoration:none;border-radius:6px"
+                    "display:inline-block;margin:4px 0 20px;padding:12px 18px;"
+                    "background:#6d4aff;color:#ffffff;text-decoration:none;"
+                    "border-radius:8px;font-size:14px;font-weight:700"
                 ),
             },
         )
         action.text = action_label
+    if security_note:
+        note = SubElement(
+            content,
+            "p",
+            {
+                "style": (
+                    "margin:2px 0 0;padding:14px;border-radius:8px;background:#f3f0f9;"
+                    "color:#4c5065;font-size:13px"
+                )
+            },
+        )
+        strong = SubElement(note, "strong")
+        strong.text = "Security note: "
+        strong.tail = security_note
     footer = SubElement(
-        root,
+        container,
         "p",
-        {"style": "margin-top:28px;color:#667085;font-size:13px"},
+        {
+            "style": (
+                "margin:0;padding:18px 28px;border-top:1px solid #ece8f4;"
+                "color:#71758a;font-size:12px"
+            )
+        },
     )
-    footer.text = "FK SOLUTIONS · AI Manufacturing Platform"
+    footer.text = (
+        "Need help? Reply to this email or contact your workspace administrator. "
+        "FactoryMind · Secure manufacturing intelligence by FK Solutions"
+    )
     return OutboundEmail(
         to=recipient,
         from_address=from_address,
