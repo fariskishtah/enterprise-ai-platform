@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent, type ReactElement } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactElement } from "react";
 import { Link } from "react-router-dom";
 import {
   changePassword,
@@ -7,7 +7,7 @@ import {
   revokeOtherSessions,
   type ActiveSession,
 } from "../api/account";
-import { isRequestCancelled } from "../api/client";
+import { ApiError, isRequestCancelled } from "../api/client";
 import { useAuth } from "../auth/useAuth";
 import { hasLegacyRoleAccess } from "../auth/permissions";
 import {
@@ -15,8 +15,9 @@ import {
   secondaryButtonClassName,
 } from "../components/hierarchy/ResourceStates";
 import { KeyValues, panelClassName } from "../components/intelligence/IntelligenceUi";
-import { formatDate, inputClassName } from "../components/intelligence/IntelligenceUi";
+import { formatDate } from "../components/intelligence/IntelligenceUi";
 import { PageHeader } from "../components/ui/PageHeader";
+import { PasswordField, PasswordGuidance } from "../components/auth/AuthUi";
 import { useTheme, type ThemePreference } from "../theme/ThemeContext";
 
 const themeOptions: readonly { label: string; value: ThemePreference }[] = [
@@ -32,7 +33,11 @@ export function SettingsPage(): ReactElement {
   const [sessionError, setSessionError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [busy, setBusy] = useState(false);
+  const passwordRequestRef = useRef(false);
   const [revision, setRevision] = useState(0);
 
   useEffect(() => {
@@ -53,30 +58,40 @@ export function SettingsPage(): ReactElement {
 
   const submitPassword = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
-    const form = event.currentTarget;
-    const data = new FormData(form);
-    const newPassword = String(data.get("newPassword"));
-    if (newPassword !== String(data.get("confirmPassword"))) {
+    if (passwordRequestRef.current) return;
+    if (newPassword.length < 12 || newPassword.length > 128) {
+      setPasswordError("Use a new password between 12 and 128 characters.");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
       setPasswordError("New password confirmation does not match.");
       return;
     }
+    passwordRequestRef.current = true;
     setBusy(true);
     setPasswordError(null);
     void changePassword({
-      current_password: String(data.get("currentPassword")),
+      current_password: currentPassword,
       new_password: newPassword,
     })
       .then(async () => {
-        form.reset();
+        setCurrentPassword("");
+        setNewPassword("");
+        setConfirmPassword("");
         setMessage("Password changed. Sign in again with the new password.");
         await logout();
       })
       .catch((caught: unknown) =>
         setPasswordError(
-          caught instanceof Error ? caught.message : "Password could not be changed.",
+          caught instanceof ApiError && caught.status === 422
+            ? "The current password is incorrect, or the new password is not allowed."
+            : "The password could not be changed. Please try again.",
         ),
       )
-      .finally(() => setBusy(false));
+      .finally(() => {
+        passwordRequestRef.current = false;
+        setBusy(false);
+      });
   };
 
   return (
@@ -175,35 +190,44 @@ export function SettingsPage(): ReactElement {
             Changing your password revokes all refresh sessions.
           </p>
           <form className="mt-5 space-y-4" onSubmit={submitPassword}>
-            <label className="block text-sm font-medium">
-              Current password
-              <input
-                className={inputClassName}
-                name="currentPassword"
-                required
-                type="password"
-              />
-            </label>
-            <label className="block text-sm font-medium">
-              New password
-              <input
-                className={inputClassName}
-                minLength={12}
-                name="newPassword"
-                required
-                type="password"
-              />
-            </label>
-            <label className="block text-sm font-medium">
-              Confirm new password
-              <input
-                className={inputClassName}
-                minLength={12}
-                name="confirmPassword"
-                required
-                type="password"
-              />
-            </label>
+            <PasswordField
+              autoComplete="current-password"
+              disabled={busy}
+              label="Current password"
+              maxLength={128}
+              onChange={(event) => setCurrentPassword(event.target.value)}
+              required
+              value={currentPassword}
+            />
+            <PasswordField
+              autoComplete="new-password"
+              disabled={busy}
+              label="New password"
+              maxLength={128}
+              minLength={12}
+              onChange={(event) => setNewPassword(event.target.value)}
+              required
+              value={newPassword}
+            />
+            <PasswordGuidance password={newPassword} />
+            <PasswordField
+              aria-invalid={
+                confirmPassword.length > 0 && newPassword !== confirmPassword
+              }
+              autoComplete="new-password"
+              disabled={busy}
+              hint={
+                confirmPassword.length > 0 && newPassword !== confirmPassword
+                  ? "The two passwords do not match yet."
+                  : undefined
+              }
+              label="Confirm new password"
+              maxLength={128}
+              minLength={12}
+              onChange={(event) => setConfirmPassword(event.target.value)}
+              required
+              value={confirmPassword}
+            />
             {passwordError ? (
               <p className="text-sm text-red-700" role="alert">
                 {passwordError}

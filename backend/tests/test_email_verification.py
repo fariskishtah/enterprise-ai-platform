@@ -269,6 +269,10 @@ async def test_password_reset_uses_private_durable_email_and_generic_response(
             "/auth/password-reset/request",
             json={"email": "reset-delivery@example.com"},
         )
+        duplicate = await client.post(
+            "/auth/password-reset/request",
+            json={"email": "reset-delivery@example.com"},
+        )
         unknown = await client.post(
             "/auth/password-reset/request",
             json={"email": "unknown-reset@example.com"},
@@ -278,6 +282,9 @@ async def test_password_reset_uses_private_durable_email_and_generic_response(
     assert known.json()["message"] == unknown.json()["message"]
     raw_token = known.json()["local_reset_token"]
     assert isinstance(raw_token, str)
+    assert duplicate.status_code == 200
+    assert duplicate.json()["message"] == known.json()["message"]
+    assert duplicate.json()["local_reset_token"] is None
     assert unknown.json()["local_reset_token"] is None
     assert len(queue.message_ids) == 2  # registration verification plus known reset
     async with session_factory() as session:
@@ -299,3 +306,5 @@ async def test_password_reset_uses_private_durable_email_and_generic_response(
     ).execute(message.id)
     assert result is EmailWorkerState.CAPTURED
     assert raw_token in provider.messages[0].html
+    assert "30 minutes" in provider.messages[0].text
+    assert "Security note:" in provider.messages[0].text

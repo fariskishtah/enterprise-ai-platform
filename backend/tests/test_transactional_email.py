@@ -135,9 +135,35 @@ def test_all_transactional_template_types_have_html_and_text_fallbacks() -> None
             action_url="https://platform.example/action?token=opaque",
         )
         assert rendered.subject
-        assert "FK SOLUTIONS" in rendered.text
+        assert "FactoryMind" in rendered.text
+        assert "Need help?" in rendered.text
+        assert "FactoryMind" in rendered.html
         assert "&lt;care&gt;" in rendered.html
         assert "<care>" not in rendered.html
+
+
+def test_security_email_template_includes_expiry_and_safe_guidance() -> None:
+    rendered = transactional_email(
+        EmailMessageType.PASSWORD_RESET,
+        recipient="recipient@example.test",
+        from_address="sender@example.test",
+        from_name="FactoryMind by FK Solutions",
+        reply_to="support@example.test",
+        intro="A password reset was requested for your account.",
+        details=(("Link expires", "30 minutes"),),
+        action_label="Reset password",
+        action_url="https://factorymind.example/reset-password?token=opaque",
+        security_note="Ignore this email if you did not request a reset.",
+    )
+
+    assert "Link expires: 30 minutes" in rendered.text
+    assert "Security note:" in rendered.text
+    assert "https://factorymind.example/reset-password?token=opaque" in rendered.text
+    assert (
+        'href="https://factorymind.example/reset-password?token=opaque"'
+        in rendered.html
+    )
+    assert "Ignore this email" in rendered.html
 
 
 @pytest.mark.anyio

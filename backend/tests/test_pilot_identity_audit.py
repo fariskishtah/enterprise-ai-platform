@@ -141,16 +141,36 @@ async def test_company_user_password_session_and_audit_lifecycle(
         assert reset.status_code == 200, reset.text
         reset_token = reset.json()["local_reset_token"]
         assert isinstance(reset_token, str)
+        async with session_factory() as session:
+            first_reset = await session.scalar(
+                select(PasswordResetToken).where(
+                    PasswordResetToken.token_hash.is_not(None),
+                    PasswordResetToken.user_id == UUID(engineer_id),
+                )
+            )
+            assert first_reset is not None
+            first_reset.created_at = utc_now() - timedelta(minutes=2)
+            await session.commit()
+        newer_reset = await client.post(
+            f"/users/{engineer_id}/password-reset", headers=admin_headers
+        )
+        newer_token = newer_reset.json()["local_reset_token"]
+        assert isinstance(newer_token, str)
         completed = await client.post(
             "/auth/password-reset/complete",
-            json={"token": reset_token, "new_password": VALID_PASSWORD},
+            json={"token": newer_token, "new_password": VALID_PASSWORD},
         )
         assert completed.status_code == 204, completed.text
         reused = await client.post(
             "/auth/password-reset/complete",
+            json={"token": newer_token, "new_password": NEW_PASSWORD},
+        )
+        assert reused.status_code == 409
+        older = await client.post(
+            "/auth/password-reset/complete",
             json={"token": reset_token, "new_password": NEW_PASSWORD},
         )
-        assert reused.status_code == 422
+        assert older.status_code == 409
 
         cross_company_update = await client.patch(
             f"/users/{user_b.id}",
@@ -180,15 +200,19 @@ async def test_company_user_password_session_and_audit_lifecycle(
         assert "hashed_password" not in audit.text
 
     async with session_factory() as session:
-        persisted = (
+        persisted = list(
             await session.execute(
                 select(PasswordResetToken).where(
                     PasswordResetToken.user_id == UUID(engineer_id)
                 )
             )
-        ).scalar_one()
-        assert persisted.token_hash != reset_token
-        assert persisted.used_at is not None
+        )
+        reset_rows = [row[0] for row in persisted]
+        assert len(reset_rows) == 2
+        assert all(
+            row.token_hash not in {reset_token, newer_token} for row in reset_rows
+        )
+        assert all(row.used_at is not None for row in reset_rows)
         assert (
             await session.scalar(
                 select(AuditEvent.id).where(AuditEvent.company_id == company_b.id)
@@ -247,7 +271,9 @@ async def test_reset_privacy_expiry_session_revocation_and_deactivation(
                 password_hasher=PasswordHasher(),
             )
             _, expired_token = await service.initiate_password_reset(
-                email="lifecycle-operator@example.com", expiry_minutes=10
+                email="lifecycle-operator@example.com",
+                expiry_minutes=10,
+                cooldown_seconds=0,
             )
             assert expired_token is not None
             entity = (
@@ -268,7 +294,7 @@ async def test_reset_privacy_expiry_session_revocation_and_deactivation(
             "/auth/password-reset/complete",
             json={"token": expired_token, "new_password": NEW_PASSWORD},
         )
-        assert expired.status_code == 422
+        assert expired.status_code == 410
 
         first = await _login(client, "lifecycle-operator@example.com")
         second = await _login(client, "lifecycle-operator@example.com")

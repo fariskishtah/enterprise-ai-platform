@@ -1,10 +1,35 @@
-import { useState, type FormEvent, type ReactElement } from "react";
+import { useRef, useState, type FormEvent, type ReactElement } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
 import { ApiError } from "../api/client";
-import fkLoginBackground from "../assets/fk-login-background.webp";
 import { useAuth } from "../auth/useAuth";
-import { LegalFooter } from "../components/LegalFooter";
+import {
+  AuthHeader,
+  AuthMessage,
+  AuthShell,
+  LoadingSpinner,
+  PasswordField,
+  PasswordGuidance,
+  authInputClassName,
+  authLinkClassName,
+  authPrimaryButtonClassName,
+} from "../components/auth/AuthUi";
+
+function registrationError(error: unknown): string {
+  if (!(error instanceof ApiError)) {
+    return "We could not create the workspace. Check your connection and try again.";
+  }
+  if (error.status === 409) {
+    return "An account or workspace already uses these details. Try signing in, or use a different work email and company name.";
+  }
+  if (error.status === 429) {
+    return "Too many registration attempts. Wait a moment, then try again.";
+  }
+  if (error.status === 422) {
+    return "Review the highlighted details and make sure your password has at least 12 characters.";
+  }
+  return "Workspace creation is temporarily unavailable. Please try again.";
+}
 
 export function RegisterPage(): ReactElement {
   const auth = useAuth();
@@ -16,20 +41,28 @@ export function RegisterPage(): ReactElement {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const submittingRef = useRef(false);
+  const mismatch = confirmPassword.length > 0 && password !== confirmPassword;
 
   const submit = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault();
+    if (submittingRef.current) return;
     setError(null);
-    if (password !== confirmPassword) {
-      setError("Passwords do not match.");
+    if (password.length < 12 || password.length > 128) {
+      setError("Use a password between 12 and 128 characters.");
       return;
     }
+    if (password !== confirmPassword) {
+      setError("The password confirmation does not match.");
+      return;
+    }
+    submittingRef.current = true;
     setSubmitting(true);
     try {
       const localToken = await auth.register({
-        company_name: companyName,
-        email,
-        name,
+        company_name: companyName.trim(),
+        email: email.trim(),
+        name: name.trim(),
         password,
       });
       navigate(
@@ -39,173 +72,148 @@ export function RegisterPage(): ReactElement {
         { replace: true },
       );
     } catch (caught) {
-      setError(
-        caught instanceof ApiError
-          ? caught.message
-          : "Account creation failed. Please try again.",
-      );
+      setError(registrationError(caught));
+      submittingRef.current = false;
       setSubmitting(false);
     }
   };
 
   return (
-    <main className="flex min-h-screen flex-col overflow-x-hidden bg-[var(--surface)] text-neutral-950 lg:grid lg:grid-cols-[minmax(0,55fr)_minmax(28rem,45fr)]">
-      <section
-        aria-label="FK Solutions industrial technology"
-        className="relative h-36 shrink-0 overflow-hidden bg-neutral-950 sm:h-48 lg:h-auto lg:min-h-screen"
+    <AuthShell>
+      <AuthHeader
+        description="Create the protected workspace your operations team will use to monitor assets, decisions, and AI workflows."
+        eyebrow="Start with FactoryMind"
+        title="Create your workspace"
+      />
+      {error ? (
+        <AuthMessage tone="danger">
+          {error}{" "}
+          {error.startsWith("An account") ? (
+            <Link className={authLinkClassName} to="/login">
+              Sign in instead
+            </Link>
+          ) : null}
+        </AuthMessage>
+      ) : null}
+      <form
+        className="mt-7 space-y-5"
+        noValidate
+        onSubmit={(event) => void submit(event)}
       >
-        <img
-          alt=""
-          className="absolute inset-0 h-full w-full object-cover object-left"
-          src={fkLoginBackground}
-        />
-        <div aria-hidden="true" className="absolute inset-0 bg-neutral-950/10" />
-      </section>
-
-      <section className="flex min-h-0 flex-1 flex-col bg-[var(--surface)] lg:min-h-screen">
-        <div className="flex flex-1 items-center justify-center px-5 py-8 sm:px-10 lg:px-12">
-          <div className="w-full max-w-lg">
-            <div className="mb-7 border-b border-neutral-200 pb-5">
-              <p className="text-sm font-bold uppercase tracking-[0.18em] text-purple-800">
-                FK SOLUTIONS
-              </p>
-              <p className="mt-2 text-sm font-medium text-neutral-600">
-                AI Manufacturing Platform
-              </p>
-            </div>
-            <h1 className="text-2xl font-semibold tracking-tight">
-              Create your AI manufacturing workspace
-            </h1>
-            <p className="mt-2 text-sm leading-6 text-neutral-600">
-              Start managing your factory intelligence platform.
-            </p>
-
-            {error === null ? null : (
-              <div
-                className="mt-5 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800"
-                role="alert"
-              >
-                {error}
-              </div>
-            )}
-
-            <form className="mt-5 space-y-4" onSubmit={(event) => void submit(event)}>
-              <label className="block text-sm font-medium text-neutral-800">
-                Full name
-                <input
-                  autoComplete="name"
-                  className="mt-1.5 block w-full rounded-md border border-neutral-300 px-3 py-2.5 text-sm"
-                  disabled={submitting}
-                  maxLength={160}
-                  minLength={2}
-                  onChange={(event) => setName(event.target.value)}
-                  required
-                  value={name}
-                />
-              </label>
-              <label className="block text-sm font-medium text-neutral-800">
-                Company name
-                <input
-                  autoComplete="organization"
-                  className="mt-1.5 block w-full rounded-md border border-neutral-300 px-3 py-2.5 text-sm"
-                  disabled={submitting}
-                  maxLength={255}
-                  minLength={2}
-                  onChange={(event) => setCompanyName(event.target.value)}
-                  required
-                  value={companyName}
-                />
-              </label>
-              <label className="block text-sm font-medium text-neutral-800">
-                Work email
-                <input
-                  autoComplete="email"
-                  className="mt-1.5 block w-full rounded-md border border-neutral-300 px-3 py-2.5 text-sm"
-                  disabled={submitting}
-                  onChange={(event) => setEmail(event.target.value)}
-                  required
-                  type="email"
-                  value={email}
-                />
-              </label>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <label className="block text-sm font-medium text-neutral-800">
-                  Password
-                  <input
-                    autoComplete="new-password"
-                    className="mt-1.5 block w-full rounded-md border border-neutral-300 px-3 py-2.5 text-sm"
-                    disabled={submitting}
-                    maxLength={128}
-                    minLength={12}
-                    onChange={(event) => setPassword(event.target.value)}
-                    required
-                    type="password"
-                    value={password}
-                  />
-                </label>
-                <label className="block text-sm font-medium text-neutral-800">
-                  Confirm password
-                  <input
-                    autoComplete="new-password"
-                    className="mt-1.5 block w-full rounded-md border border-neutral-300 px-3 py-2.5 text-sm"
-                    disabled={submitting}
-                    maxLength={128}
-                    minLength={12}
-                    onChange={(event) => setConfirmPassword(event.target.value)}
-                    required
-                    type="password"
-                    value={confirmPassword}
-                  />
-                </label>
-              </div>
-              <p className="text-xs leading-5 text-neutral-600">
-                Use at least 12 characters with uppercase, lowercase, number, and
-                symbol.
-              </p>
-              {submitting ? (
-                <p aria-live="polite" className="text-sm text-purple-800" role="status">
-                  Your AI manufacturing workspace is being prepared.
-                </p>
-              ) : null}
-              <button
-                className="flex w-full items-center justify-center rounded-md bg-purple-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-purple-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-purple-700 disabled:cursor-not-allowed disabled:opacity-70"
-                disabled={submitting}
-                type="submit"
-              >
-                {submitting ? "Preparing workspace…" : "Create your workspace"}
-              </button>
-            </form>
-            <p className="mt-4 text-center text-xs leading-5 text-neutral-600">
-              Review the draft{" "}
-              <Link
-                className="font-semibold text-purple-800 underline"
-                to="/legal/terms"
-              >
-                Terms
-              </Link>{" "}
-              and{" "}
-              <Link
-                className="font-semibold text-purple-800 underline"
-                to="/legal/privacy"
-              >
-                Privacy policy
-              </Link>
-              . These placeholders are not approved terms, and registration does not
-              record legal acceptance.
-            </p>
-            <p className="mt-5 text-center text-sm text-neutral-600">
-              Already have an account?{" "}
-              <Link
-                className="font-semibold text-purple-800 underline-offset-4 hover:underline"
-                to="/login"
-              >
-                Sign in
-              </Link>
-            </p>
+        <div className="grid gap-5 sm:grid-cols-2">
+          <div>
+            <label
+              className="block text-sm font-medium text-[var(--text-primary)]"
+              htmlFor="register-name"
+            >
+              Full name
+            </label>
+            <input
+              autoComplete="name"
+              className={authInputClassName}
+              disabled={submitting}
+              id="register-name"
+              maxLength={160}
+              minLength={2}
+              onChange={(event) => setName(event.target.value)}
+              placeholder="Your name"
+              required
+              value={name}
+            />
+          </div>
+          <div>
+            <label
+              className="block text-sm font-medium text-[var(--text-primary)]"
+              htmlFor="register-company"
+            >
+              Company name
+            </label>
+            <input
+              autoComplete="organization"
+              className={authInputClassName}
+              disabled={submitting}
+              id="register-company"
+              maxLength={255}
+              minLength={2}
+              onChange={(event) => setCompanyName(event.target.value)}
+              placeholder="Company"
+              required
+              value={companyName}
+            />
           </div>
         </div>
-        <LegalFooter />
-      </section>
-    </main>
+        <div>
+          <label
+            className="block text-sm font-medium text-[var(--text-primary)]"
+            htmlFor="register-email"
+          >
+            Work email
+          </label>
+          <input
+            autoCapitalize="none"
+            autoComplete="email"
+            autoCorrect="off"
+            className={authInputClassName}
+            disabled={submitting}
+            id="register-email"
+            inputMode="email"
+            onChange={(event) => setEmail(event.target.value)}
+            placeholder="name@company.com"
+            required
+            spellCheck={false}
+            type="email"
+            value={email}
+          />
+        </div>
+        <PasswordField
+          autoComplete="new-password"
+          disabled={submitting}
+          label="Password"
+          maxLength={128}
+          minLength={12}
+          onChange={(event) => setPassword(event.target.value)}
+          required
+          value={password}
+        />
+        <PasswordGuidance password={password} />
+        <PasswordField
+          aria-invalid={mismatch}
+          autoComplete="new-password"
+          disabled={submitting}
+          hint={mismatch ? "The two passwords do not match yet." : undefined}
+          label="Confirm password"
+          maxLength={128}
+          minLength={12}
+          onChange={(event) => setConfirmPassword(event.target.value)}
+          required
+          value={confirmPassword}
+        />
+        <p className="text-xs leading-5 text-[var(--text-muted)]">
+          Review the{" "}
+          <Link className={authLinkClassName} to="/legal/terms">
+            Terms
+          </Link>{" "}
+          and{" "}
+          <Link className={authLinkClassName} to="/legal/privacy">
+            Privacy policy
+          </Link>
+          . Legal acceptance is not collected in this release.
+        </p>
+        <button
+          className={authPrimaryButtonClassName}
+          disabled={submitting}
+          type="submit"
+        >
+          {submitting ? <LoadingSpinner /> : null}
+          {submitting ? "Creating secure workspace…" : "Create workspace"}
+        </button>
+      </form>
+      <p className="mt-6 text-center text-sm text-[var(--text-secondary)]">
+        Already have an account?{" "}
+        <Link className={authLinkClassName} to="/login">
+          Sign in
+        </Link>
+      </p>
+    </AuthShell>
   );
 }
