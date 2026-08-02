@@ -18,7 +18,7 @@ email.
 EMAIL_PROVIDER=resend
 RESEND_API_KEY=<server-only-secret>
 EMAIL_FROM_ADDRESS=support@verified.example
-EMAIL_FROM_NAME=FK SOLUTIONS
+EMAIL_FROM_NAME=FactoryMind by FK Solutions
 EMAIL_REPLY_TO=support@verified.example
 SUPPORT_NOTIFICATION_EMAIL=<support-destination>
 EMAIL_MAX_RETRIES=3

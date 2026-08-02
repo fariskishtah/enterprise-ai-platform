@@ -258,6 +258,29 @@ class UserRepository:
         await self._session.flush()
         return entity
 
+    async def latest_password_reset_token(
+        self, user_id: UUID
+    ) -> PasswordResetToken | None:
+        statement = (
+            select(PasswordResetToken)
+            .where(PasswordResetToken.user_id == user_id)
+            .order_by(PasswordResetToken.created_at.desc())
+            .limit(1)
+        )
+        return (await self._session.execute(statement)).scalar_one_or_none()
+
+    async def mark_password_reset_tokens_used(
+        self, *, user_id: UUID, used_at: datetime
+    ) -> None:
+        await self._session.execute(
+            update(PasswordResetToken)
+            .where(
+                PasswordResetToken.user_id == user_id,
+                PasswordResetToken.used_at.is_(None),
+            )
+            .values(used_at=used_at)
+        )
+
     async def create_email_verification_token(
         self,
         *,
@@ -311,8 +334,10 @@ class UserRepository:
     async def get_password_reset_token(
         self, token_hash: str
     ) -> PasswordResetToken | None:
-        statement = select(PasswordResetToken).where(
-            PasswordResetToken.token_hash == token_hash
+        statement = (
+            select(PasswordResetToken)
+            .where(PasswordResetToken.token_hash == token_hash)
+            .with_for_update()
         )
         return (await self._session.execute(statement)).scalar_one_or_none()
 

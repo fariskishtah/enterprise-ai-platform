@@ -22,7 +22,15 @@ class AccountLifecycleError(ValueError):
 
 
 class InvalidPasswordResetTokenError(ValueError):
-    """Raised when a password reset credential is invalid, expired, or used."""
+    """Raised when a password reset credential is unknown."""
+
+
+class ExpiredPasswordResetTokenError(InvalidPasswordResetTokenError):
+    """Raised when a password reset credential has expired."""
+
+
+class UsedPasswordResetTokenError(InvalidPasswordResetTokenError):
+    """Raised when a password reset credential was already consumed."""
 
 
 class InvalidEmailVerificationTokenError(ValueError):

@@ -54,12 +54,14 @@ from app.services.exceptions import (
     DuplicateCompanyNameError,
     DuplicateEmailError,
     ExpiredEmailVerificationTokenError,
+    ExpiredPasswordResetTokenError,
     InactiveUserError,
     InvalidCredentialsError,
     InvalidEmailVerificationTokenError,
     InvalidPasswordResetTokenError,
     InvalidRefreshTokenError,
     UsedEmailVerificationTokenError,
+    UsedPasswordResetTokenError,
 )
 from app.services.users import UserService
 from app.utils.security import hash_token
@@ -117,8 +119,10 @@ def _account_email(
     message_type: EmailMessageType,
     recipient: str,
     intro: str,
+    details: tuple[tuple[str, str], ...] = (),
     action_label: str | None = None,
     action_path: str | None = None,
+    security_note: str | None = None,
 ) -> OutboundEmail | None:
     if settings.email_from is None:
         return None
@@ -134,8 +138,10 @@ def _account_email(
         from_name=settings.email_from_name,
         reply_to=(str(settings.email_reply_to) if settings.email_reply_to else None),
         intro=intro,
+        details=details,
         action_label=action_label,
         action_url=action_url,
+        security_note=security_note,
     )
 
 
@@ -202,8 +208,15 @@ async def register(
             message_type=EmailMessageType.EMAIL_VERIFICATION,
             recipient=user.email,
             intro="Confirm that this email address belongs to you.",
+            details=(
+                ("Link expires", f"{settings.email_verification_expire_hours} hours"),
+            ),
             action_label="Verify email",
             action_path=f"/verify-email?{urlencode({'token': token})}",
+            security_note=(
+                "If you did not create this FactoryMind workspace, you can ignore "
+                "this email. Do not forward the verification link."
+            ),
         )
         if email is not None:
             await _persist_and_publish_email(
@@ -497,6 +510,7 @@ async def request_password_reset(
     user, token = await users.initiate_password_reset(
         email=str(payload.email),
         expiry_minutes=settings.password_reset_expire_minutes,
+        cooldown_seconds=settings.password_reset_resend_cooldown_seconds,
     )
     if user is not None:
         if token is not None:
@@ -505,8 +519,18 @@ async def request_password_reset(
                 message_type=EmailMessageType.PASSWORD_RESET,
                 recipient=user.email,
                 intro="A password reset was requested for your account.",
+                details=(
+                    (
+                        "Link expires",
+                        f"{settings.password_reset_expire_minutes} minutes",
+                    ),
+                ),
                 action_label="Reset password",
                 action_path=f"/reset-password?{urlencode({'token': token})}",
+                security_note=(
+                    "If you did not request a password reset, ignore this email. "
+                    "Your password will not change. Do not forward the reset link."
+                ),
             )
             if email is not None:
                 await _persist_and_publish_email(
@@ -590,8 +614,15 @@ async def resend_email_verification(
             message_type=EmailMessageType.EMAIL_VERIFICATION,
             recipient=user.email,
             intro="Confirm that this email address belongs to you.",
+            details=(
+                ("Link expires", f"{settings.email_verification_expire_hours} hours"),
+            ),
             action_label="Verify email",
             action_path=f"/verify-email?{urlencode({'token': token})}",
+            security_note=(
+                "If you did not request this verification email, you can ignore it. "
+                "Do not forward the verification link."
+            ),
         )
         if email is not None:
             await _persist_and_publish_email(
@@ -704,10 +735,20 @@ async def complete_password_reset(
         user = await users.complete_password_reset(
             token=payload.token, new_password=payload.new_password
         )
+    except ExpiredPasswordResetTokenError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail="Password reset token has expired.",
+        ) from exc
+    except UsedPasswordResetTokenError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Password reset token has already been used.",
+        ) from exc
     except InvalidPasswordResetTokenError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="Password reset token is invalid or expired.",
+            detail="Password reset token is invalid.",
         ) from exc
     await audit.record(
         company_id=user.company_id,

@@ -91,8 +91,15 @@ async def _queue_invitation_email(
             "You have been invited to join a company workspace as "
             f"{invitation.role.value}."
         ),
+        details=(
+            ("Invitation expires", f"{settings.team_invitation_expire_hours} hours"),
+        ),
         action_label="Accept invitation",
         action_url=url,
+        security_note=(
+            "Only accept this invitation if you recognize the company. Do not "
+            "forward this single-use link."
+        ),
     )
     enqueued = await persist_email(
         session,

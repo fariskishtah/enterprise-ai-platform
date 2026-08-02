@@ -136,8 +136,8 @@ test.describe("authentication", () => {
     await page.getByLabel("Company name").fill("Northstar Manufacturing");
     await page.getByLabel("Work email").fill("engineer.demo@example.local");
     await page.getByLabel("Password", { exact: true }).fill("LocalDemo!12345");
-    await page.getByLabel("Confirm password").fill("LocalDemo!12345");
-    await page.getByRole("button", { name: "Create your workspace" }).click();
+    await page.getByLabel("Confirm password", { exact: true }).fill("LocalDemo!12345");
+    await page.getByRole("button", { name: "Create workspace" }).click();
 
     await expect(page).toHaveURL(/\/verify-email$/);
     await expect(page.getByRole("heading", { name: "Check your inbox" })).toBeVisible();
@@ -166,11 +166,13 @@ test.describe("authentication", () => {
 
     await page.goto("/settings");
     await expect(page).toHaveURL(/\/login$/);
-    await page.getByLabel("Email address").fill("invalid@example.local");
-    await page.getByLabel("Password").fill("incorrect");
+    await page.getByLabel("Work email").fill("invalid@example.local");
+    await page.getByLabel("Password", { exact: true }).fill("incorrect");
     await page.getByRole("button", { name: "Sign in" }).click();
 
-    await expect(page.getByRole("alert")).toContainText("Invalid email or password");
+    await expect(page.getByRole("alert")).toContainText(
+      "email or password you entered is not correct",
+    );
     await expect(page).not.toHaveURL(/token|password/i);
     // Chromium reports an expected HTTP 401 from the intentionally invalid login as
     // a generic resource error. All other console and page errors remain failures.
@@ -221,8 +223,8 @@ test.describe("authentication", () => {
 
     await page.goto("/settings");
     await expect(page).toHaveURL(/\/login$/);
-    await page.getByLabel("Email address").fill("admin@e2e.example.local");
-    await page.getByLabel("Password").fill("local-test-password");
+    await page.getByLabel("Work email").fill("admin@e2e.example.local");
+    await page.getByLabel("Password", { exact: true }).fill("local-test-password");
     await page.getByRole("button", { name: "Sign in" }).click();
     await expect(page).toHaveURL(/\/settings$/);
     const persistedBrowserState = await page.evaluate(() => ({
@@ -248,7 +250,7 @@ test.describe("authentication", () => {
   }) => {
     let refreshCount = 0;
     await page.goto("/login");
-    await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Welcome back" })).toBeVisible();
     await page.route("**/auth/refresh", async (route) => {
       refreshCount += 1;
       await new Promise((resolve) => setTimeout(resolve, 100));
@@ -283,7 +285,7 @@ test.describe("authentication", () => {
       markRefreshStarted = resolve;
     });
     await page.goto("/login");
-    await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Welcome back" })).toBeVisible();
     await page.route("**/auth/refresh", async (route) => {
       markRefreshStarted?.();
       await new Promise<void>((release) => {
