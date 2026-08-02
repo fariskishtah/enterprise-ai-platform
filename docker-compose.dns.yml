@@ -1,8 +1,0 @@
-services:
-  backend:
-    dns:
-      - 172.31.0.2
-
-  training-worker:
-    dns:
-      - 172.31.0.2
