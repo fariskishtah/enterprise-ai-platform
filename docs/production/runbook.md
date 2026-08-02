@@ -54,6 +54,8 @@ or chat. Use correlation IDs and provider reference IDs for investigation.
 
 - Check `TransactionalEmailDeliveryFailures`, provider status, retry outcomes,
   and durable outbound-email rows using message IDs rather than addresses.
+- For host-resolves/container-fails incidents, follow
+  `docker-dns-smtp-recovery.md` before changing daemon or Compose DNS settings.
 - Keep retries bounded; do not switch to capture mode in production. Fix provider
   credentials/DNS or fail over only to a pre-approved sender.
 - Send verification, reset, invitation, and support probes to controlled inboxes;

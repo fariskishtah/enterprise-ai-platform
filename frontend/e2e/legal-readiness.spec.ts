@@ -37,7 +37,7 @@ test.describe("legal review placeholders", () => {
 
     const registrationNotice = page
       .locator("p")
-      .filter({ hasText: "registration does not record legal acceptance" });
+      .filter({ hasText: "Legal acceptance is not collected" });
     await expect(
       registrationNotice.getByRole("link", { name: "Terms", exact: true }),
     ).toBeVisible();

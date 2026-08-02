@@ -43,7 +43,7 @@ Use `.env.example` as the source of truth:
 ```dotenv
 EMAIL_PROVIDER=capture
 EMAIL_FROM_ADDRESS=support@example.com
-EMAIL_FROM_NAME=FK SOLUTIONS
+EMAIL_FROM_NAME=FactoryMind by FK Solutions
 EMAIL_REPLY_TO=support@example.com
 SUPPORT_NOTIFICATION_EMAIL=support@example.com
 APP_PUBLIC_URL=http://localhost:5173

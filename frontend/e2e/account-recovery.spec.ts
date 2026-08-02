@@ -28,10 +28,12 @@ test.describe("account recovery", () => {
     );
     await page.goto(`/accept-invitation?token=${`invite${"a".repeat(43)}`}`);
     await page.getByLabel("Full name").fill("Invited User");
-    await page.getByLabel("Password").fill("InvitationPassword1!");
+    await page
+      .getByLabel("Password (new accounts)", { exact: true })
+      .fill("InvitationPassword1!");
     await page.getByRole("button", { name: "Accept invitation" }).click();
     await expect(
-      page.getByRole("heading", { name: "Invitation accepted" }),
+      page.getByRole("heading", { name: "Welcome to your team" }),
     ).toBeVisible();
     await expect(page.getByRole("status")).toContainText("account is ready");
   });
@@ -47,12 +49,13 @@ test.describe("account recovery", () => {
         : json(route, { detail: "Verification token has expired." }, 410);
     });
     await page.goto(`/verify-email?token=${`valid${"a".repeat(43)}`}`);
-    await expect(page.getByRole("heading", { name: "Email verified" })).toBeVisible();
-    await expect(page.getByRole("status")).toContainText("has been verified");
+    await expect(
+      page.getByRole("heading", { name: "Your email is verified" }),
+    ).toBeVisible();
 
     await page.goto(`/verify-email?token=${`expired${"b".repeat(41)}`}`);
     await expect(
-      page.getByRole("heading", { name: "Verification link expired" }),
+      page.getByRole("heading", { name: "This verification link has expired" }),
     ).toBeVisible();
   });
 
@@ -72,8 +75,8 @@ test.describe("account recovery", () => {
     });
     await page.goto("/forgot-password");
     await page.getByLabel("Work email").fill("owner@example.com");
-    await page.getByRole("button", { name: "Send reset instructions" }).click();
-    await expect(page.getByRole("status")).toContainText("If the account exists");
+    await page.getByRole("button", { name: "Send reset link" }).click();
+    await expect(page.getByRole("status")).toContainText("If an account matches");
     expect(submissions).toBe(1);
   });
 
@@ -91,13 +94,19 @@ test.describe("account recovery", () => {
     });
     await page.goto(`/reset-password?token=${"a".repeat(48)}`);
     await page.getByLabel("New password", { exact: true }).fill("ChangedPassword1!");
-    await page.getByLabel("Confirm new password").fill("MismatchPassword1!");
-    await page.getByRole("button", { name: "Update password" }).click();
-    await expect(page.getByRole("alert")).toContainText("Passwords do not match");
+    await page
+      .getByLabel("Confirm new password", { exact: true })
+      .fill("MismatchPassword1!");
+    await page.getByRole("button", { name: "Save new password" }).click();
+    await expect(page.getByRole("alert")).toContainText("confirmation does not match");
     expect(submissions).toBe(0);
-    await page.getByLabel("Confirm new password").fill("ChangedPassword1!");
-    await page.getByRole("button", { name: "Update password" }).click();
-    await expect(page.getByRole("status")).toContainText("Password updated");
+    await page
+      .getByLabel("Confirm new password", { exact: true })
+      .fill("ChangedPassword1!");
+    await page.getByRole("button", { name: "Save new password" }).click();
+    await expect(
+      page.getByRole("heading", { name: "You’re ready to sign in" }),
+    ).toBeVisible();
     expect(submissions).toBe(1);
   });
 });

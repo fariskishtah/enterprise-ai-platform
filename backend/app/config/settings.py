@@ -70,6 +70,7 @@ class Settings(BaseSettings):
     access_token_expire_minutes: PositiveInt = 15
     refresh_token_expire_days: PositiveInt = 30
     password_reset_expire_minutes: PositiveInt = Field(default=30, le=1440)
+    password_reset_resend_cooldown_seconds: PositiveInt = Field(default=60, le=3600)
     expose_local_password_reset_token: bool = False
     email_verification_required: bool = False
     email_verification_expire_hours: PositiveInt = Field(default=24, le=168)
@@ -84,7 +85,9 @@ class Settings(BaseSettings):
         default=None,
         validation_alias=AliasChoices("EMAIL_FROM_ADDRESS", "EMAIL_FROM", "email_from"),
     )
-    email_from_name: str = Field(default="FK SOLUTIONS", min_length=1, max_length=100)
+    email_from_name: str = Field(
+        default="FactoryMind by FK Solutions", min_length=1, max_length=100
+    )
     email_reply_to: EmailStr | None = None
     support_email_to: EmailStr | None = Field(
         default=None,
