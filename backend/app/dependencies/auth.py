@@ -118,7 +118,11 @@ def require_permissions(*required: Permission) -> Callable[..., User]:
     def verify_permission(
         current_user: Annotated[User, Depends(get_current_user)],
     ) -> User:
-        if not has_permissions(current_user.role, *required):
+        if not has_permissions(
+            current_user.role,
+            *required,
+            is_platform_operator=current_user.is_platform_operator,
+        ):
             emit_safe(
                 security_logger,
                 logging.WARNING,
@@ -128,6 +132,8 @@ def require_permissions(*required: Permission) -> Callable[..., User]:
                     "outcome": "denied",
                     "reason": "insufficient_permission",
                     "actor_role": current_user.role.value,
+                    "actor_user_id": str(current_user.id),
+                    "company_id": str(current_user.company_id),
                     "required_permissions": ",".join(item.value for item in required),
                 },
             )

@@ -60,6 +60,9 @@ async def _activate(
             status=status,
             current_period_start=datetime.now(UTC),
             current_period_end=datetime.now(UTC) + timedelta(days=30),
+            grace_period_ends_at=(
+                datetime.now(UTC) + timedelta(days=7) if status == "past_due" else None
+            ),
             status_changed_at=datetime.now(UTC),
         )
         session.add(subscription)
@@ -412,8 +415,15 @@ async def test_entitlement_api_enforces_quota_and_audited_override(
             headers=headers,
             json={"company_id": str(company_id), "name": "Factory Two"},
         )
+        async with session_factory() as session:
+            platform_actor = await session.scalar(
+                select(User).where(User.email == "entitlement-api-admin@example.com")
+            )
+            assert platform_actor is not None
+            platform_actor.is_platform_operator = True
+            await session.commit()
         override = await client.put(
-            "/billing/admin/entitlement-overrides/factories",
+            f"/billing/platform/tenants/{company_id}/entitlement-overrides/factories",
             headers=headers,
             json={
                 "integer_limit": 2,

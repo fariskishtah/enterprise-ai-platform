@@ -42,6 +42,8 @@ logger = logging.getLogger("app.worker")
 _ACTOR_JOB_NAMES = {
     "deliver_transactional_email": "transactional_email",
     "process_billing_webhook": "billing_webhook",
+    "reconcile_billing_lifecycle": "billing_lifecycle_reconciliation",
+    "recover_billing_webhooks": "billing_webhook_recovery",
     "execute_training_job": "training",
     "coordinate_automl_study": "automl_coordination",
     "execute_automl_trial": "automl_trial",

@@ -20,7 +20,12 @@ from tests.ai_api_support import ai_api_client, auth_headers
 def test_explicit_permission_matrix_covers_exactly_six_roles() -> None:
     assert set(ROLE_PERMISSIONS) == set(UserRole)
     assert len(UserRole) == 6
-    assert has_permissions(UserRole.OWNER, *Permission)
+    assert not has_permissions(UserRole.OWNER, Permission.BILLING_PLATFORM_OPERATE)
+    assert has_permissions(
+        UserRole.VIEWER,
+        Permission.BILLING_PLATFORM_OPERATE,
+        is_platform_operator=True,
+    )
     assert has_permissions(UserRole.ADMIN, Permission.TEAM_MANAGE)
     assert not has_permissions(UserRole.ADMIN, Permission.OWNER_ASSIGN)
     assert has_permissions(UserRole.ENGINEER, Permission.ENGINEERING_WRITE)

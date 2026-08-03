@@ -34,7 +34,9 @@ from app.models.datasets import Dataset, DatasetVersion, DocumentRecord
 from app.models.demo_experience import ReportSchedule
 from app.models.manufacturing import Factory, Machine
 from app.models.user import TeamInvitation, User
+from app.observability.logging import current_correlation_id, current_request_id
 from app.repositories.billing import BillingRepository
+from app.services.billing import BillingPolicy, effective_subscription_status
 
 
 class EntitlementError(RuntimeError):
@@ -146,10 +148,17 @@ def _month_period(now: datetime) -> tuple[date, date]:
 class EntitlementService:
     """The only service allowed to decide plan access or increment usage."""
 
-    def __init__(self, session: AsyncSession, *, enforced: bool = True) -> None:
+    def __init__(
+        self,
+        session: AsyncSession,
+        *,
+        enforced: bool = True,
+        policy: BillingPolicy | None = None,
+    ) -> None:
         self._session = session
         self._billing = BillingRepository(session)
         self._enforced = enforced
+        self._policy = policy or BillingPolicy()
 
     async def snapshot(self, company_id: UUID) -> EntitlementSnapshot:
         subscription = await self._billing.get_company_subscription(company_id)
@@ -164,6 +173,9 @@ class EntitlementService:
             )
         plan = await self._plan(subscription)
         values = await self._effective_values(company_id, plan)
+        effective_status = effective_subscription_status(
+            subscription, now=datetime.now(UTC), policy=self._policy
+        )
         items = tuple(
             [
                 await self._value_snapshot(company_id, key, value, source=source)
@@ -172,12 +184,12 @@ class EntitlementService:
         )
         access_mode = (
             "full"
-            if subscription.status in {"active", "trialing", "past_due"}
-            else "read_only" if subscription.status == "suspended" else "blocked"
+            if effective_status in {"active", "trialing", "past_due"}
+            else "read_only" if effective_status == "suspended" else "blocked"
         )
         return EntitlementSnapshot(
             company_id=company_id,
-            subscription_status=subscription.status,
+            subscription_status=effective_status,
             access_mode=access_mode,
             plan_code=plan.code,
             items=items,
@@ -372,6 +384,10 @@ class EntitlementService:
         known = {item for plan in PLAN_CATALOG for item in plan.entitlements}
         if key not in known or (integer_limit is None) == (enabled is None):
             raise EntitlementOverrideError("The override key or value is invalid.")
+        if not reason.strip():
+            raise EntitlementOverrideError("A specific override reason is required.")
+        if not await self._billing.company_is_billable(company_id, platform_scope=True):
+            raise EntitlementOverrideError("The target tenant does not exist.")
         existing = await self._session.scalar(
             select(EntitlementOverride)
             .where(
@@ -379,7 +395,9 @@ class EntitlementService:
                 EntitlementOverride.key == key,
             )
             .with_for_update()
+            .execution_options(skip_tenant_scope=True)
         )
+        previous_value = self._override_value(existing)
         if existing is None:
             existing = EntitlementOverride(
                 company_id=company_id,
@@ -404,11 +422,17 @@ class EntitlementService:
                 action="entitlement.override_set",
                 result="succeeded",
                 safe_metadata={
-                    "key": key,
-                    "integer_limit": integer_limit,
-                    "enabled": enabled,
+                    "tenant_id": str(company_id),
+                    "entitlement_key": key,
+                    "previous_value": previous_value,
+                    "new_value": {
+                        "integer_limit": integer_limit,
+                        "enabled": enabled,
+                        "expires_at": expires_at.isoformat() if expires_at else None,
+                    },
                     "reason": reason,
-                    "expires_at": expires_at.isoformat() if expires_at else None,
+                    "request_id": current_request_id(),
+                    "correlation_id": current_correlation_id(),
                 },
             )
         )
@@ -417,13 +441,23 @@ class EntitlementService:
         return existing
 
     async def delete_override(
-        self, *, company_id: UUID, actor_user_id: UUID, key: str
+        self,
+        *,
+        company_id: UUID,
+        actor_user_id: UUID,
+        key: str,
+        reason: str,
     ) -> bool:
+        if not reason.strip():
+            raise EntitlementOverrideError("A specific override reason is required.")
         existing = await self._session.scalar(
-            select(EntitlementOverride).where(
+            select(EntitlementOverride)
+            .where(
                 EntitlementOverride.company_id == company_id,
                 EntitlementOverride.key == key,
             )
+            .with_for_update()
+            .execution_options(skip_tenant_scope=True)
         )
         if existing is None:
             return False
@@ -434,11 +468,33 @@ class EntitlementService:
                 actor_user_id=actor_user_id,
                 action="entitlement.override_deleted",
                 result="succeeded",
-                safe_metadata={"key": key},
+                safe_metadata={
+                    "tenant_id": str(company_id),
+                    "entitlement_key": key,
+                    "previous_value": self._override_value(existing),
+                    "new_value": None,
+                    "reason": reason,
+                    "request_id": current_request_id(),
+                    "correlation_id": current_correlation_id(),
+                },
             )
         )
         await self._session.commit()
         return True
+
+    @staticmethod
+    def _override_value(
+        override: EntitlementOverride | None,
+    ) -> dict[str, object] | None:
+        if override is None:
+            return None
+        return {
+            "integer_limit": override.integer_limit,
+            "enabled": override.enabled,
+            "expires_at": (
+                override.expires_at.isoformat() if override.expires_at else None
+            ),
+        }
 
     async def _access_context(
         self, company_id: UUID, *, lock: bool
@@ -450,10 +506,13 @@ class EntitlementService:
             raise SubscriptionAccessError(
                 "A paid subscription is required for this action.", state=None
             )
-        if subscription.status not in {"active", "trialing", "past_due"}:
+        effective_status = effective_subscription_status(
+            subscription, now=datetime.now(UTC), policy=self._policy
+        )
+        if effective_status not in {"active", "trialing", "past_due"}:
             raise SubscriptionAccessError(
                 "The subscription is read-only or inactive.",
-                state=subscription.status,
+                state=effective_status,
             )
         plan = await self._plan(subscription)
         return subscription, plan, await self._effective_values(company_id, plan)

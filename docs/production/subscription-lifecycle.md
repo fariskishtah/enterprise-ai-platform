@@ -41,5 +41,7 @@ backend-authoritative proration quote.
 
 Temporal policy is configured by `BILLING_GRACE_PERIOD_DAYS`,
 `BILLING_INCOMPLETE_EXPIRY_HOURS`, and `BILLING_SUSPENSION_EXPIRY_DAYS`.
-Authenticated reads reconcile time-based transitions. See [billing](../billing.md)
-for API and provider details.
+Entitlement checks evaluate these timestamps directly, so stale stored status
+cannot retain paid access. A scheduled, bounded, row-locked actor applies and
+audits due transitions without a billing-page visit. See [billing](../billing.md)
+and the [Phase 1 operations guide](billing-phase1-remediation.md).

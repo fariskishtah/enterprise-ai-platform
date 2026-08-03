@@ -2,6 +2,10 @@
 
 from threading import Event
 
+from app.billing.scheduling import (
+    BillingLifecycleSchedulerMiddleware,
+    BillingWebhookRecoverySchedulerMiddleware,
+)
 from app.email.scheduling import EmailReconciliationSchedulerMiddleware
 from app.ml.jobs.automl_scheduling import (
     AutoMLReconciliationSchedulerMiddleware,
@@ -28,9 +32,11 @@ def test_reconciliation_schedulers_have_unique_concrete_middleware_types() -> No
         DatasetReconciliationSchedulerMiddleware,
         EmailReconciliationSchedulerMiddleware,
         RAGReconciliationSchedulerMiddleware,
+        BillingLifecycleSchedulerMiddleware,
+        BillingWebhookRecoverySchedulerMiddleware,
     }
 
-    assert len(scheduler_types) == 4
+    assert len(scheduler_types) == 6
     assert all(
         issubclass(scheduler_type, AutoMLReconciliationSchedulerMiddleware)
         for scheduler_type in scheduler_types

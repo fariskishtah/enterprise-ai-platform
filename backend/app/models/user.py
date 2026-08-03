@@ -8,6 +8,7 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import (
     JSON,
+    Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -78,6 +79,12 @@ class User(Base):
         server_default=UserRole.OPERATOR.value,
     )
     is_active: Mapped[bool] = mapped_column(nullable=False, default=True)
+    is_platform_operator: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
+    )
     is_email_verified: Mapped[bool] = mapped_column(
         nullable=False, default=False, server_default="false"
     )

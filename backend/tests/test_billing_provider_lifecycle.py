@@ -377,7 +377,7 @@ async def test_incorrect_webhook_money_is_ignored(
         event = await session.get(BillingWebhookEvent, event_id)
         payment = await session.get(Payment, checkout.payment_id)
         assert event is not None and payment is not None
-        assert event.status == "ignored"
+        assert event.status == "quarantined"
         assert event.last_error == reason
         assert payment.status == "pending"
 
@@ -415,7 +415,7 @@ async def test_failure_then_success_and_out_of_order_failure(
         stale = await session.get(BillingWebhookEvent, stale_event_id)
         assert payment is not None and stale is not None
         assert payment.status == "succeeded"
-        assert stale.status == "ignored"
+        assert stale.status == "quarantined"
         assert stale.last_error == "out_of_order"
 
 

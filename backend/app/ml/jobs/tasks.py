@@ -13,6 +13,11 @@ from dramatiq.brokers.redis import RedisBroker
 from dramatiq.middleware import Retries
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.billing.queue import DramatiqBillingWebhookQueue
+from app.billing.scheduling import (
+    BillingLifecycleSchedulerMiddleware,
+    BillingWebhookRecoverySchedulerMiddleware,
+)
 from app.config.settings import get_settings
 from app.datasets.queue import DramatiqDatasetProcessingQueue
 from app.datasets.service import DatasetLimits, DatasetProcessor
@@ -60,7 +65,12 @@ from app.services.automl_execution import (
     AutoMLReconciler,
     AutoMLTrialWorker,
 )
-from app.services.billing import BillingWebhookProcessor
+from app.services.billing import (
+    BillingPolicy,
+    BillingWebhookProcessor,
+    BillingWebhookRecoveryService,
+    SubscriptionLifecycleReconciler,
+)
 from app.services.email import configured_email_provider
 from app.services.email_delivery import (
     EmailDeliveryWorker,
@@ -178,8 +188,52 @@ def process_billing_webhook(event_id: str) -> None:
         return
     asyncio.run(
         BillingWebhookProcessor(
-            _worker_session_factory(_settings.database_url), "paymob"
+            _worker_session_factory(_settings.database_url),
+            "paymob",
+            policy=BillingPolicy(
+                grace_period_days=_settings.billing_grace_period_days,
+                incomplete_expiry_hours=_settings.billing_incomplete_expiry_hours,
+                suspension_expiry_days=_settings.billing_suspension_expiry_days,
+            ),
+            max_attempts=_settings.billing_webhook_max_retries,
+            retry_base_seconds=_settings.billing_webhook_retry_base_seconds,
         ).execute(parsed_event_id)
+    )
+
+
+@dramatiq.actor(broker=broker, queue_name=_settings.billing_webhook_queue_name)
+@traced_operation(
+    "billing.lifecycle_reconciliation", attributes={"trigger": "scheduled"}
+)
+def reconcile_billing_lifecycle() -> None:
+    """Apply due subscription transitions without requiring billing page reads."""
+    asyncio.run(
+        SubscriptionLifecycleReconciler(
+            _worker_session_factory(_settings.database_url),
+            policy=BillingPolicy(
+                grace_period_days=_settings.billing_grace_period_days,
+                incomplete_expiry_hours=_settings.billing_incomplete_expiry_hours,
+                suspension_expiry_days=_settings.billing_suspension_expiry_days,
+            ),
+        ).run(limit=_settings.billing_lifecycle_reconciliation_batch_size)
+    )
+
+
+@dramatiq.actor(broker=broker, queue_name=_settings.billing_webhook_queue_name)
+@traced_operation("billing.webhook_recovery", attributes={"trigger": "scheduled"})
+def recover_billing_webhooks() -> None:
+    """Reclaim lost/stale webhook work and surface exhausted events."""
+    asyncio.run(
+        BillingWebhookRecoveryService(
+            _worker_session_factory(_settings.database_url),
+            DramatiqBillingWebhookQueue(),
+            max_attempts=_settings.billing_webhook_max_retries,
+            retry_base_seconds=_settings.billing_webhook_retry_base_seconds,
+            queued_stale_seconds=_settings.billing_webhook_queued_stale_seconds,
+            processing_stale_seconds=(
+                _settings.billing_webhook_processing_stale_seconds
+            ),
+        ).run(limit=_settings.billing_webhook_recovery_batch_size)
     )
 
 
@@ -432,6 +486,26 @@ broker.add_middleware(
         interval_seconds=_settings.automl_reconciliation_interval_seconds,
         redis_url=_settings.redis_url,
         enqueue=reconcile_automl_execution.send,
+    )
+)
+broker.add_middleware(
+    BillingLifecycleSchedulerMiddleware(
+        enabled=_settings.billing_lifecycle_reconciliation_scheduling_enabled,
+        interval_seconds=(_settings.billing_lifecycle_reconciliation_interval_seconds),
+        redis_url=_settings.redis_url,
+        enqueue=reconcile_billing_lifecycle.send,
+        scheduler_key="scheduler:billing:lifecycle:v1",
+        scheduler_name="billing-lifecycle",
+    )
+)
+broker.add_middleware(
+    BillingWebhookRecoverySchedulerMiddleware(
+        enabled=_settings.billing_webhook_recovery_scheduling_enabled,
+        interval_seconds=_settings.billing_webhook_recovery_interval_seconds,
+        redis_url=_settings.redis_url,
+        enqueue=recover_billing_webhooks.send,
+        scheduler_key="scheduler:billing:webhook-recovery:v1",
+        scheduler_name="billing-webhook-recovery",
     )
 )
 broker.add_middleware(

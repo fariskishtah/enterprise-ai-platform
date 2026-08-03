@@ -39,6 +39,9 @@ def test_billing_migration_round_trip(
         subscription_columns = {
             row[1] for row in connection.execute("PRAGMA table_info(subscriptions)")
         }
+        user_columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(users)")
+        }
     assert {
         "billing_plans",
         "plan_entitlements",
@@ -59,7 +62,18 @@ def test_billing_migration_round_trip(
         "updated_at",
         "purpose",
     } <= payment_columns
-    assert {"raw_provider_event_id", "safe_payload", "company_id"} <= webhook_columns
+    assert {
+        "raw_provider_event_id",
+        "safe_payload",
+        "company_id",
+        "queued_at",
+        "processing_started_at",
+        "next_retry_at",
+        "last_error_category",
+        "dead_lettered_at",
+        "replay_count",
+    } <= webhook_columns
+    assert "is_platform_operator" in user_columns
     assert {
         "pending_plan_id",
         "latest_payment_id",

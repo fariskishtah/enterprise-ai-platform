@@ -9,6 +9,7 @@ from app.config.settings import Settings, get_settings
 from app.dependencies.auth import get_current_user
 from app.dependencies.database import get_db_session
 from app.models.user import User
+from app.services.billing import BillingPolicy
 from app.services.entitlements import EntitlementError, EntitlementService
 
 
@@ -16,7 +17,15 @@ def get_entitlement_service(
     session: Annotated[AsyncSession, Depends(get_db_session)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> EntitlementService:
-    return EntitlementService(session, enforced=settings.billing_entitlements_enforced)
+    return EntitlementService(
+        session,
+        enforced=settings.billing_entitlements_enforced,
+        policy=BillingPolicy(
+            grace_period_days=settings.billing_grace_period_days,
+            incomplete_expiry_hours=settings.billing_incomplete_expiry_hours,
+            suspension_expiry_days=settings.billing_suspension_expiry_days,
+        ),
+    )
 
 
 def entitlement_http_error(exc: EntitlementError) -> HTTPException:

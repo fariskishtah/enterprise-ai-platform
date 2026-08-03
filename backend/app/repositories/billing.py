@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import cast
 from uuid import UUID
 
-from sqlalchemy import Select, func, select, update
+from sqlalchemy import Select, and_, func, or_, select, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,15 +25,15 @@ class BillingRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def company_is_billable(self, company_id: UUID) -> bool:
-        return (
-            await self._session.scalar(
-                select(Company.id).where(
-                    Company.id == company_id, Company.deleted_at.is_(None)
-                )
-            )
-            is not None
+    async def company_is_billable(
+        self, company_id: UUID, *, platform_scope: bool = False
+    ) -> bool:
+        statement = select(Company.id).where(
+            Company.id == company_id, Company.deleted_at.is_(None)
         )
+        if platform_scope:
+            statement = statement.execution_options(skip_tenant_scope=True)
+        return await self._session.scalar(statement) is not None
 
     async def get_payment(
         self, payment_id: UUID, *, lock: bool = False
@@ -100,6 +101,111 @@ class BillingRepository:
         if lock:
             statement = statement.with_for_update()
         return cast(Subscription | None, await self._session.scalar(statement))
+
+    async def list_lifecycle_subscriptions(
+        self,
+        *,
+        now: datetime,
+        incomplete_before: datetime,
+        suspended_before: datetime,
+        limit: int,
+    ) -> list[Subscription]:
+        """Lock one bounded nonterminal lifecycle batch across worker replicas."""
+        return list(
+            (
+                await self._session.scalars(
+                    select(Subscription)
+                    .where(
+                        or_(
+                            and_(
+                                Subscription.status.in_(
+                                    ("trialing", "active", "past_due")
+                                ),
+                                Subscription.ended_at.is_not(None),
+                                Subscription.ended_at <= now,
+                            ),
+                            and_(
+                                Subscription.status.in_(
+                                    ("trialing", "active", "past_due")
+                                ),
+                                Subscription.suspended_at.is_not(None),
+                                Subscription.suspended_at <= now,
+                            ),
+                            and_(
+                                Subscription.status.in_(
+                                    ("trialing", "active", "past_due")
+                                ),
+                                Subscription.cancel_at_period_end.is_(True),
+                                Subscription.current_period_end.is_not(None),
+                                Subscription.current_period_end <= now,
+                            ),
+                            and_(
+                                Subscription.status == "incomplete",
+                                Subscription.status_changed_at <= incomplete_before,
+                            ),
+                            and_(
+                                Subscription.status == "past_due",
+                                or_(
+                                    Subscription.grace_period_ends_at.is_(None),
+                                    Subscription.grace_period_ends_at <= now,
+                                ),
+                            ),
+                            and_(
+                                Subscription.status.in_(("trialing", "active")),
+                                or_(
+                                    Subscription.current_period_end.is_(None),
+                                    Subscription.current_period_end <= now,
+                                ),
+                            ),
+                            and_(
+                                Subscription.status == "suspended",
+                                Subscription.suspended_at.is_not(None),
+                                Subscription.suspended_at <= suspended_before,
+                            ),
+                        )
+                    )
+                    .order_by(Subscription.status_changed_at, Subscription.id)
+                    .limit(limit)
+                    .with_for_update(skip_locked=True)
+                )
+            ).all()
+        )
+
+    async def transition_subscription_if_current(
+        self,
+        *,
+        subscription: Subscription,
+        target: str,
+        now: datetime,
+        suspended_at: datetime | None,
+        ended_at: datetime | None,
+    ) -> bool:
+        """Apply one deterministic transition once even without effective row locks."""
+        result = cast(
+            CursorResult[object],
+            await self._session.execute(
+                update(Subscription)
+                .where(
+                    Subscription.id == subscription.id,
+                    Subscription.version == subscription.version,
+                    Subscription.status == subscription.status,
+                )
+                .values(
+                    status=target,
+                    status_changed_at=now,
+                    suspended_at=suspended_at,
+                    ended_at=ended_at,
+                    cancel_at_period_end=(
+                        False
+                        if target in {"cancelled", "expired"}
+                        else subscription.cancel_at_period_end
+                    ),
+                    version=Subscription.version + 1,
+                )
+                .execution_options(synchronize_session=False)
+            ),
+        )
+        return bool(result.rowcount)
 
     def add_subscription(self, subscription: Subscription) -> None:
         self._session.add(subscription)
@@ -258,29 +364,181 @@ class BillingRepository:
             statement = statement.with_for_update()
         return cast(BillingWebhookEvent | None, await self._session.scalar(statement))
 
+    async def get_company_event(
+        self, event_id: UUID, company_id: UUID, *, lock: bool = False
+    ) -> BillingWebhookEvent | None:
+        statement: Select[tuple[BillingWebhookEvent]] = select(
+            BillingWebhookEvent
+        ).where(
+            BillingWebhookEvent.id == event_id,
+            BillingWebhookEvent.company_id == company_id,
+        )
+        if lock:
+            statement = statement.with_for_update()
+        return cast(BillingWebhookEvent | None, await self._session.scalar(statement))
+
     def add_event(self, event: BillingWebhookEvent) -> None:
         self._session.add(event)
 
     async def claim_event_for_enqueue(self, event_id: UUID) -> bool:
+        now = datetime.now(UTC)
         result = cast(
             CursorResult[object],
             await self._session.execute(
                 update(BillingWebhookEvent)
                 .where(
                     BillingWebhookEvent.id == event_id,
-                    BillingWebhookEvent.status.in_(("received", "failed")),
+                    or_(
+                        BillingWebhookEvent.status == "received",
+                        and_(
+                            BillingWebhookEvent.status == "failed",
+                            or_(
+                                BillingWebhookEvent.next_retry_at.is_(None),
+                                BillingWebhookEvent.next_retry_at <= now,
+                            ),
+                        ),
+                    ),
                 )
-                .values(status="queued", last_error=None)
+                .values(
+                    status="queued",
+                    queued_at=now,
+                    processing_started_at=None,
+                    next_retry_at=None,
+                    last_error=None,
+                    last_error_category=None,
+                )
             ),
         )
         return bool(result.rowcount)
 
-    async def release_event_enqueue(self, event_id: UUID) -> None:
+    async def claim_event_for_processing(
+        self, event_id: UUID, *, now: datetime
+    ) -> bool:
+        result = cast(
+            CursorResult[object],
+            await self._session.execute(
+                update(BillingWebhookEvent)
+                .where(
+                    BillingWebhookEvent.id == event_id,
+                    BillingWebhookEvent.status == "queued",
+                )
+                .values(
+                    status="processing",
+                    attempts=BillingWebhookEvent.attempts + 1,
+                    processing_started_at=now,
+                    next_retry_at=None,
+                    last_error=None,
+                    last_error_category=None,
+                )
+            ),
+        )
+        return bool(result.rowcount)
+
+    async def list_recoverable_events(
+        self,
+        *,
+        now: datetime,
+        queued_before: datetime,
+        processing_before: datetime,
+        limit: int,
+    ) -> list[BillingWebhookEvent]:
+        return list(
+            (
+                await self._session.scalars(
+                    select(BillingWebhookEvent)
+                    .where(
+                        or_(
+                            BillingWebhookEvent.status == "received",
+                            and_(
+                                BillingWebhookEvent.status == "failed",
+                                or_(
+                                    BillingWebhookEvent.next_retry_at.is_(None),
+                                    BillingWebhookEvent.next_retry_at <= now,
+                                ),
+                            ),
+                            and_(
+                                BillingWebhookEvent.status == "queued",
+                                or_(
+                                    BillingWebhookEvent.queued_at.is_(None),
+                                    BillingWebhookEvent.queued_at <= queued_before,
+                                ),
+                            ),
+                            and_(
+                                BillingWebhookEvent.status == "processing",
+                                or_(
+                                    BillingWebhookEvent.processing_started_at.is_(None),
+                                    BillingWebhookEvent.processing_started_at
+                                    <= processing_before,
+                                ),
+                            ),
+                        )
+                    )
+                    .order_by(BillingWebhookEvent.received_at, BillingWebhookEvent.id)
+                    .limit(limit)
+                    .with_for_update(skip_locked=True)
+                )
+            ).all()
+        )
+
+    async def webhook_operational_stats(
+        self, *, now: datetime
+    ) -> tuple[int, float, float, int, int]:
+        status_rows = (
+            await self._session.execute(
+                select(BillingWebhookEvent.status, func.count())
+                .where(
+                    BillingWebhookEvent.status.in_(
+                        ("queued", "processing", "failed", "dead_letter")
+                    )
+                )
+                .group_by(BillingWebhookEvent.status)
+            )
+        ).all()
+        statuses: dict[str, int] = {status: int(count) for status, count in status_rows}
+        oldest_queued = await self._session.scalar(
+            select(func.min(BillingWebhookEvent.queued_at)).where(
+                BillingWebhookEvent.status == "queued"
+            )
+        )
+        oldest_processing = await self._session.scalar(
+            select(func.min(BillingWebhookEvent.processing_started_at)).where(
+                BillingWebhookEvent.status == "processing"
+            )
+        )
+
+        def age(value: datetime | None) -> float:
+            if value is None:
+                return 0.0
+            safe = value.replace(tzinfo=UTC) if value.tzinfo is None else value
+            return max(0.0, (now - safe).total_seconds())
+
+        return (
+            int(statuses.get("queued", 0)),
+            age(oldest_queued),
+            age(oldest_processing),
+            int(statuses.get("failed", 0)),
+            int(statuses.get("dead_letter", 0)),
+        )
+
+    async def release_event_enqueue(
+        self,
+        event_id: UUID,
+        *,
+        category: str,
+        message: str,
+        next_retry_at: datetime,
+    ) -> None:
         await self._session.execute(
             update(BillingWebhookEvent)
             .where(
                 BillingWebhookEvent.id == event_id,
                 BillingWebhookEvent.status == "queued",
             )
-            .values(status="received", last_error="queue_unavailable")
+            .values(
+                status="failed",
+                processing_started_at=None,
+                next_retry_at=next_retry_at,
+                last_error_category=category[:64],
+                last_error=message[:500],
+            )
         )

@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class PlanResponse(BaseModel):
@@ -148,8 +148,14 @@ class BillingProviderEventResponse(BaseModel):
     status: str
     attempts: int
     last_error: str | None
+    last_error_category: str | None
     received_at: datetime
+    queued_at: datetime | None
+    processing_started_at: datetime | None
+    next_retry_at: datetime | None
     processed_at: datetime | None
+    dead_lettered_at: datetime | None
+    replay_count: int
 
 
 class BillingProviderEventHistoryResponse(BaseModel):
@@ -193,6 +199,28 @@ class EntitlementOverrideRequest(BaseModel):
     reason: str = Field(min_length=3, max_length=500)
     expires_at: datetime | None = None
 
+    @field_validator("reason")
+    @classmethod
+    def validate_reason(cls, value: str) -> str:
+        reason = value.strip()
+        if len(reason) < 3:
+            raise ValueError("A specific override reason is required.")
+        return reason
+
+
+class BillingReasonRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str = Field(min_length=3, max_length=500)
+
+    @field_validator("reason")
+    @classmethod
+    def validate_reason(cls, value: str) -> str:
+        reason = value.strip()
+        if len(reason) < 3:
+            raise ValueError("A specific operational reason is required.")
+        return reason
+
 
 class EntitlementOverrideResponse(BaseModel):
     override_id: UUID
@@ -209,3 +237,9 @@ class EntitlementOverrideResponse(BaseModel):
 class WebhookAcceptedResponse(BaseModel):
     accepted: bool = True
     duplicate: bool
+
+
+class WebhookReplayResponse(BaseModel):
+    event_id: UUID
+    queued: bool
+    replay_count: int

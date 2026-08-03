@@ -277,6 +277,47 @@ EMAIL_DELIVERY_DURATION = Histogram(
     ("service", "environment", "message_type", "provider", "final_status"),
     buckets=_EVALUATION_DURATION_BUCKETS,
 )
+BILLING_LIFECYCLE_SCANNED = Counter(
+    "billing_lifecycle_scanned_total",
+    "Subscriptions inspected by scheduled lifecycle reconciliation.",
+    ("service", "environment"),
+)
+BILLING_LIFECYCLE_TRANSITIONS = Counter(
+    "billing_lifecycle_transitions_total",
+    "Authoritative scheduled subscription lifecycle transitions.",
+    ("service", "environment"),
+)
+BILLING_LIFECYCLE_FAILURES = Counter(
+    "billing_lifecycle_failures_total",
+    "Failed scheduled subscription lifecycle transitions.",
+    ("service", "environment"),
+)
+BILLING_LIFECYCLE_DURATION = Histogram(
+    "billing_lifecycle_reconciliation_duration_seconds",
+    "Scheduled billing lifecycle reconciliation duration.",
+    ("service", "environment"),
+    buckets=_EVALUATION_DURATION_BUCKETS,
+)
+BILLING_LIFECYCLE_OLDEST_STALE = Gauge(
+    "billing_lifecycle_oldest_stale_age_seconds",
+    "Age of the oldest due lifecycle transition in the latest pass.",
+    ("service", "environment"),
+)
+BILLING_WEBHOOK_DEPTH = Gauge(
+    "billing_webhook_events",
+    "Current durable billing webhook event count by bounded delivery state.",
+    ("service", "environment", "state"),
+)
+BILLING_WEBHOOK_OLDEST_AGE = Gauge(
+    "billing_webhook_oldest_age_seconds",
+    "Age of the oldest billing webhook event in an active delivery state.",
+    ("service", "environment", "state"),
+)
+BILLING_WEBHOOK_REPLAYS = Counter(
+    "billing_webhook_replays_total",
+    "Audited platform-operator billing webhook replays.",
+    ("service", "environment"),
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -372,6 +413,90 @@ def record_email_delivery(
         lambda: EMAIL_DELIVERY_DURATION.labels(**metric_labels).observe(
             max(duration_seconds, 0.0)
         ),
+    )
+
+
+def record_billing_lifecycle_reconciliation(
+    *,
+    scanned: int,
+    transitioned: int,
+    failures: int,
+    duration_seconds: float,
+    oldest_stale_age_seconds: float,
+) -> None:
+    labels = _base_labels()
+    _safe_record(
+        "billing_lifecycle_scanned_total",
+        lambda: BILLING_LIFECYCLE_SCANNED.labels(**labels).inc(max(scanned, 0)),
+    )
+    _safe_record(
+        "billing_lifecycle_transitions_total",
+        lambda: BILLING_LIFECYCLE_TRANSITIONS.labels(**labels).inc(
+            max(transitioned, 0)
+        ),
+    )
+    _safe_record(
+        "billing_lifecycle_failures_total",
+        lambda: BILLING_LIFECYCLE_FAILURES.labels(**labels).inc(max(failures, 0)),
+    )
+    _safe_record(
+        "billing_lifecycle_reconciliation_duration_seconds",
+        lambda: BILLING_LIFECYCLE_DURATION.labels(**labels).observe(
+            max(duration_seconds, 0.0)
+        ),
+    )
+    _safe_record(
+        "billing_lifecycle_oldest_stale_age_seconds",
+        lambda: BILLING_LIFECYCLE_OLDEST_STALE.labels(**labels).set(
+            max(oldest_stale_age_seconds, 0.0)
+        ),
+    )
+
+
+def record_billing_webhook_recovery(
+    *,
+    queue_depth: int,
+    oldest_queued_age_seconds: float,
+    oldest_processing_age_seconds: float,
+    failed_count: int,
+    dead_letter_count: int,
+) -> None:
+    labels = _base_labels()
+
+    def set_depth(state: str, count: int) -> Callable[[], None]:
+        return lambda: BILLING_WEBHOOK_DEPTH.labels(**labels, state=state).set(
+            max(count, 0)
+        )
+
+    def set_age(state: str, age: float) -> Callable[[], None]:
+        return lambda: BILLING_WEBHOOK_OLDEST_AGE.labels(**labels, state=state).set(
+            max(age, 0.0)
+        )
+
+    for state, count in (
+        ("queued", queue_depth),
+        ("failed", failed_count),
+        ("dead_letter", dead_letter_count),
+    ):
+        _safe_record(
+            "billing_webhook_events",
+            set_depth(state, count),
+        )
+    for state, age in (
+        ("queued", oldest_queued_age_seconds),
+        ("processing", oldest_processing_age_seconds),
+    ):
+        _safe_record(
+            "billing_webhook_oldest_age_seconds",
+            set_age(state, age),
+        )
+
+
+def record_billing_webhook_replay() -> None:
+    labels = _base_labels()
+    _safe_record(
+        "billing_webhook_replays_total",
+        lambda: BILLING_WEBHOOK_REPLAYS.labels(**labels).inc(),
     )
 
 

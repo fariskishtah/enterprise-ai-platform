@@ -92,6 +92,13 @@ class Subscription(Base):
     __tablename__ = "subscriptions"
     __table_args__ = (
         Index("ix_subscriptions_company_status", "company_id", "status"),
+        Index(
+            "ix_subscriptions_lifecycle_due",
+            "status",
+            "current_period_end",
+            "grace_period_ends_at",
+            "status_changed_at",
+        ),
         UniqueConstraint("company_id", name="uq_subscriptions_company"),
         UniqueConstraint(
             "provider", "provider_subscription_id", name="uq_subscription_external"
@@ -246,6 +253,25 @@ class BillingWebhookEvent(Base):
             "provider", "provider_event_id", name="uq_billing_webhook_event"
         ),
         Index("ix_billing_webhook_status", "status", "received_at"),
+        Index(
+            "ix_billing_webhook_recovery",
+            "status",
+            "next_retry_at",
+            "queued_at",
+            "processing_started_at",
+        ),
+        CheckConstraint(
+            "attempts >= 0", name="ck_billing_webhook_attempts_nonnegative"
+        ),
+        CheckConstraint(
+            "replay_count >= 0",
+            name="ck_billing_webhook_replay_count_nonnegative",
+        ),
+        CheckConstraint(
+            "status IN ('received','queued','processing','processed','failed',"
+            "'dead_letter','quarantined')",
+            name="ck_billing_webhook_status",
+        ),
     )
     id: Mapped[UUID] = mapped_column(
         Uuid(as_uuid=True), primary_key=True, default=uuid4
@@ -264,10 +290,18 @@ class BillingWebhookEvent(Base):
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="received")
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     last_error: Mapped[str | None] = mapped_column(Text)
+    last_error_category: Mapped[str | None] = mapped_column(String(64))
     received_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+    queued_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    processing_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    next_retry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    dead_lettered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    replay_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
 
 class UsageCounter(Base):

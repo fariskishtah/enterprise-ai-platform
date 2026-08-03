@@ -37,6 +37,7 @@ from app.schemas.billing import (
     BillingAuditHistoryResponse,
     BillingProviderEventHistoryResponse,
     BillingProviderEventResponse,
+    BillingReasonRequest,
     CheckoutCreateRequest,
     CheckoutResponse,
     EntitlementItemResponse,
@@ -54,6 +55,7 @@ from app.schemas.billing import (
     SubscriptionResponse,
     UpgradeRecommendationResponse,
     WebhookAcceptedResponse,
+    WebhookReplayResponse,
 )
 from app.services.billing import (
     BillingConflictError,
@@ -559,18 +561,22 @@ async def admin_usage_inspection(
 
 
 @router.put(
-    "/admin/entitlement-overrides/{key}",
+    "/platform/tenants/{company_id}/entitlement-overrides/{key}",
     response_model=EntitlementOverrideResponse,
 )
 async def set_entitlement_override(
+    company_id: UUID,
     key: str,
     payload: EntitlementOverrideRequest,
-    actor: Annotated[User, Depends(require_permissions(Permission.BILLING_MANAGE))],
+    actor: Annotated[
+        User,
+        Depends(require_permissions(Permission.BILLING_PLATFORM_OPERATE)),
+    ],
     entitlements: Annotated[EntitlementService, Depends(get_entitlement_service)],
 ) -> EntitlementOverrideResponse:
     try:
         override = await entitlements.set_override(
-            company_id=actor.company_id,
+            company_id=company_id,
             actor_user_id=actor.id,
             key=key,
             integer_limit=payload.integer_limit,
@@ -597,16 +603,31 @@ async def set_entitlement_override(
 
 
 @router.delete(
-    "/admin/entitlement-overrides/{key}", status_code=status.HTTP_204_NO_CONTENT
+    "/platform/tenants/{company_id}/entitlement-overrides/{key}",
+    status_code=status.HTTP_204_NO_CONTENT,
 )
 async def delete_entitlement_override(
+    company_id: UUID,
     key: str,
-    actor: Annotated[User, Depends(require_permissions(Permission.BILLING_MANAGE))],
+    payload: BillingReasonRequest,
+    actor: Annotated[
+        User,
+        Depends(require_permissions(Permission.BILLING_PLATFORM_OPERATE)),
+    ],
     entitlements: Annotated[EntitlementService, Depends(get_entitlement_service)],
 ) -> Response:
-    deleted = await entitlements.delete_override(
-        company_id=actor.company_id, actor_user_id=actor.id, key=key
-    )
+    try:
+        deleted = await entitlements.delete_override(
+            company_id=company_id,
+            actor_user_id=actor.id,
+            key=key,
+            reason=payload.reason,
+        )
+    except EntitlementOverrideError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=exc.as_detail(),
+        ) from exc
     if not deleted:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -665,14 +686,68 @@ async def list_provider_events(
                 status=row.status,
                 attempts=row.attempts,
                 last_error=row.last_error,
+                last_error_category=row.last_error_category,
                 received_at=row.received_at,
+                queued_at=row.queued_at,
+                processing_started_at=row.processing_started_at,
+                next_retry_at=row.next_retry_at,
                 processed_at=row.processed_at,
+                dead_lettered_at=row.dead_lettered_at,
+                replay_count=row.replay_count,
             )
             for row in rows
         ],
         total=total,
         page=page,
         page_size=page_size,
+    )
+
+
+@router.post(
+    "/platform/tenants/{company_id}/provider-events/{event_id}/replay",
+    response_model=WebhookReplayResponse,
+)
+async def replay_provider_event(
+    company_id: UUID,
+    event_id: UUID,
+    payload: BillingReasonRequest,
+    actor: Annotated[
+        User,
+        Depends(require_permissions(Permission.BILLING_PLATFORM_OPERATE)),
+    ],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+    queue: Annotated[BillingWebhookQueue, Depends(get_billing_webhook_queue)],
+) -> WebhookReplayResponse:
+    """Audit and republish one tenant-bound event without bypassing idempotency."""
+    service = BillingService(session, None)
+    try:
+        event = await service.replay_webhook_event(
+            actor=actor,
+            company_id=company_id,
+            event_id=event_id,
+            reason=payload.reason,
+        )
+    except BillingNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=_error_detail(exc)
+        ) from exc
+    except BillingConflictError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=_error_detail(exc)
+        ) from exc
+    try:
+        queue.enqueue(event.id)
+    except Exception as exc:
+        await service.release_failed_enqueue(event.id, category="replay_queue_failed")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="The replay was saved but could not be queued.",
+            headers={"Retry-After": "5"},
+        ) from exc
+    return WebhookReplayResponse(
+        event_id=event.id,
+        queued=True,
+        replay_count=event.replay_count,
     )
 
 

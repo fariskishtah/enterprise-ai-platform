@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import calendar
 import hashlib
 import json
+import logging
+import time
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Literal
@@ -21,6 +24,7 @@ from app.billing.providers import (
     PaymentProviderError,
     ProviderWebhook,
 )
+from app.billing.queue import BillingWebhookQueue
 from app.models.billing import (
     BillingAuditEvent,
     BillingPlan,
@@ -30,6 +34,12 @@ from app.models.billing import (
     Subscription,
 )
 from app.models.user import User
+from app.observability.logging import current_correlation_id, current_request_id
+from app.observability.metrics import (
+    record_billing_lifecycle_reconciliation,
+    record_billing_webhook_recovery,
+    record_billing_webhook_replay,
+)
 from app.repositories.billing import BillingRepository
 
 
@@ -63,6 +73,22 @@ class BillingPolicy:
 
 
 @dataclass(frozen=True, slots=True)
+class LifecycleTransition:
+    target: str
+    action: str
+    effective_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class LifecycleReconciliationSummary:
+    scanned: int
+    transitioned: int
+    failures: int
+    duration_seconds: float
+    oldest_stale_age_seconds: float
+
+
+@dataclass(frozen=True, slots=True)
 class BillingDetails:
     first_name: str
     last_name: str
@@ -90,6 +116,19 @@ class WebhookIngestResult:
     should_enqueue: bool
 
 
+@dataclass(frozen=True, slots=True)
+class WebhookRecoverySummary:
+    scanned: int
+    requeued: int
+    dead_lettered: int
+    publication_failures: int
+    queue_depth: int
+    oldest_queued_age_seconds: float
+    oldest_processing_age_seconds: float
+    failed_count: int
+    dead_letter_count: int
+
+
 def _next_month(value: datetime) -> datetime:
     year = value.year + (1 if value.month == 12 else 0)
     month = 1 if value.month == 12 else value.month + 1
@@ -100,6 +139,222 @@ def _next_month(value: datetime) -> datetime:
 
 def _as_utc(value: datetime) -> datetime:
     return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+
+
+def subscription_lifecycle_transition(
+    subscription: Subscription,
+    now: datetime,
+    policy: BillingPolicy,
+) -> LifecycleTransition | None:
+    """Return the one authoritative time transition due at ``now``."""
+    now = _as_utc(now)
+    period_end = (
+        _as_utc(subscription.current_period_end)
+        if subscription.current_period_end
+        else None
+    )
+    grace_end = (
+        _as_utc(subscription.grace_period_ends_at)
+        if subscription.grace_period_ends_at
+        else None
+    )
+    status_changed = _as_utc(subscription.status_changed_at)
+    suspended_at = (
+        _as_utc(subscription.suspended_at) if subscription.suspended_at else None
+    )
+    ended_at = _as_utc(subscription.ended_at) if subscription.ended_at else None
+
+    if subscription.status in {"cancelled", "expired"}:
+        return None
+    if ended_at is not None and ended_at <= now:
+        return LifecycleTransition("expired", "subscription.ended", ended_at)
+    if (
+        subscription.status in {"trialing", "active", "past_due"}
+        and suspended_at is not None
+        and suspended_at <= now
+    ):
+        return LifecycleTransition(
+            "suspended", "subscription.suspension_effective", suspended_at
+        )
+    if (
+        subscription.cancel_at_period_end
+        and period_end is not None
+        and period_end <= now
+        and subscription.status in {"trialing", "active", "past_due"}
+    ):
+        return LifecycleTransition(
+            "cancelled", "subscription.period_cancelled", period_end
+        )
+    if subscription.status == "incomplete":
+        due = status_changed + timedelta(hours=policy.incomplete_expiry_hours)
+        return (
+            LifecycleTransition("expired", "subscription.incomplete_expired", due)
+            if due <= now
+            else None
+        )
+    if subscription.status == "past_due":
+        if grace_end is None or grace_end <= now:
+            return LifecycleTransition(
+                "suspended",
+                "subscription.grace_expired",
+                grace_end or status_changed,
+            )
+        return None
+    if subscription.status in {"trialing", "active"}:
+        if period_end is None or period_end <= now:
+            return LifecycleTransition(
+                "expired",
+                "subscription.period_expired",
+                period_end or status_changed,
+            )
+        return None
+    if subscription.status == "suspended" and suspended_at is not None:
+        due = suspended_at + timedelta(days=policy.suspension_expiry_days)
+        if due <= now:
+            return LifecycleTransition(
+                "expired", "subscription.suspension_expired", due
+            )
+    return None
+
+
+def effective_subscription_status(
+    subscription: Subscription,
+    *,
+    now: datetime,
+    policy: BillingPolicy | None = None,
+) -> str:
+    """Evaluate access from status and timestamps without trusting stale storage."""
+    transition = subscription_lifecycle_transition(
+        subscription, now, policy or BillingPolicy()
+    )
+    return transition.target if transition is not None else subscription.status
+
+
+logger = logging.getLogger(__name__)
+_lifecycle_reconciliation_lock = asyncio.Lock()
+
+
+class SubscriptionLifecycleReconciler:
+    """Run bounded, idempotent lifecycle transitions independent of page reads."""
+
+    def __init__(
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        *,
+        policy: BillingPolicy | None = None,
+    ) -> None:
+        self._session_factory = session_factory
+        self._policy = policy or BillingPolicy()
+
+    async def run(
+        self,
+        *,
+        limit: int,
+        now: datetime | None = None,
+    ) -> LifecycleReconciliationSummary:
+        async with _lifecycle_reconciliation_lock:
+            return await self._run_locked(limit=limit, now=now)
+
+    async def _run_locked(
+        self,
+        *,
+        limit: int,
+        now: datetime | None,
+    ) -> LifecycleReconciliationSummary:
+        started = time.monotonic()
+        effective_now = _as_utc(now or datetime.now(UTC))
+        transitioned = 0
+        failures = 0
+        oldest_age = 0.0
+        async with self._session_factory() as session:
+            repository = BillingRepository(session)
+            subscriptions = await repository.list_lifecycle_subscriptions(
+                now=effective_now,
+                incomplete_before=effective_now
+                - timedelta(hours=self._policy.incomplete_expiry_hours),
+                suspended_before=effective_now
+                - timedelta(days=self._policy.suspension_expiry_days),
+                limit=limit,
+            )
+            for subscription in subscriptions:
+                transition = subscription_lifecycle_transition(
+                    subscription, effective_now, self._policy
+                )
+                if transition is None:
+                    continue
+                oldest_age = max(
+                    oldest_age,
+                    max(
+                        0.0,
+                        (effective_now - transition.effective_at).total_seconds(),
+                    ),
+                )
+                subscription_id = subscription.id
+                try:
+                    async with session.begin_nested():
+                        changed = await repository.transition_subscription_if_current(
+                            subscription=subscription,
+                            target=transition.target,
+                            now=effective_now,
+                            suspended_at=(
+                                effective_now
+                                if transition.target == "suspended"
+                                else subscription.suspended_at
+                            ),
+                            ended_at=(
+                                effective_now
+                                if transition.target in {"cancelled", "expired"}
+                                else subscription.ended_at
+                            ),
+                        )
+                        if changed:
+                            repository.add_audit_event(
+                                BillingAuditEvent(
+                                    company_id=subscription.company_id,
+                                    actor_user_id=None,
+                                    action=transition.action,
+                                    result="succeeded",
+                                    safe_metadata={
+                                        "subscription_id": str(subscription.id),
+                                        "from_status": subscription.status,
+                                        "to_status": transition.target,
+                                        "trigger": "scheduled_reconciliation",
+                                    },
+                                )
+                            )
+                            transitioned += 1
+                except Exception:
+                    failures += 1
+                    logger.exception(
+                        "billing_lifecycle_transition_failed",
+                        extra={"subscription_id": str(subscription_id)},
+                    )
+            await session.commit()
+        duration = max(0.0, time.monotonic() - started)
+        logger.info(
+            "billing_lifecycle_reconciled",
+            extra={
+                "scanned": len(subscriptions),
+                "transitioned": transitioned,
+                "failures": failures,
+                "duration_seconds": duration,
+                "oldest_stale_age_seconds": oldest_age,
+            },
+        )
+        record_billing_lifecycle_reconciliation(
+            scanned=len(subscriptions),
+            transitioned=transitioned,
+            failures=failures,
+            duration_seconds=duration,
+            oldest_stale_age_seconds=oldest_age,
+        )
+        return LifecycleReconciliationSummary(
+            scanned=len(subscriptions),
+            transitioned=transitioned,
+            failures=failures,
+            duration_seconds=duration,
+            oldest_stale_age_seconds=oldest_age,
+        )
 
 
 class BillingService:
@@ -464,80 +719,22 @@ class BillingService:
         return subscription
 
     def _reconcile(self, subscription: Subscription, now: datetime) -> bool:
-        period_end = (
-            _as_utc(subscription.current_period_end)
-            if subscription.current_period_end
-            else None
+        transition = subscription_lifecycle_transition(subscription, now, self._policy)
+        if transition is None:
+            return False
+        self._transition(
+            subscription,
+            transition.target,
+            now=now,
+            actor_user_id=None,
+            action=transition.action,
         )
-        status_changed_at = _as_utc(subscription.status_changed_at)
-        grace_ends_at = (
-            _as_utc(subscription.grace_period_ends_at)
-            if subscription.grace_period_ends_at
-            else None
-        )
-        suspended_at = (
-            _as_utc(subscription.suspended_at) if subscription.suspended_at else None
-        )
-        if (
-            subscription.cancel_at_period_end
-            and period_end is not None
-            and period_end <= now
-            and subscription.status in {"trialing", "active", "past_due"}
-        ):
-            self._transition(
-                subscription,
-                "cancelled",
-                now=now,
-                actor_user_id=None,
-                action="subscription.period_cancelled",
-            )
-            subscription.ended_at = now
-            return True
-        if (
-            subscription.status == "incomplete"
-            and status_changed_at
-            + timedelta(hours=self._policy.incomplete_expiry_hours)
-            <= now
-        ):
-            self._transition(
-                subscription,
-                "expired",
-                now=now,
-                actor_user_id=None,
-                action="subscription.incomplete_expired",
-            )
-            subscription.ended_at = now
-            return True
-        if (
-            subscription.status == "past_due"
-            and grace_ends_at is not None
-            and grace_ends_at <= now
-        ):
-            self._transition(
-                subscription,
-                "suspended",
-                now=now,
-                actor_user_id=None,
-                action="subscription.grace_expired",
-            )
+        if transition.target == "suspended":
             subscription.suspended_at = now
-            return True
-        if (
-            subscription.status == "suspended"
-            and suspended_at is not None
-            and suspended_at + timedelta(days=self._policy.suspension_expiry_days)
-            <= now
-        ):
-            self._transition(
-                subscription,
-                "expired",
-                now=now,
-                actor_user_id=None,
-                action="subscription.suspension_expired",
-            )
+        if transition.target in {"cancelled", "expired"}:
             subscription.ended_at = now
-            return True
-        return False
+            subscription.cancel_at_period_end = False
+        return True
 
     def _transition(
         self,
@@ -641,9 +838,64 @@ class BillingService:
             should_enqueue=should_enqueue,
         )
 
-    async def release_failed_enqueue(self, event_id: UUID) -> None:
-        await self._repository.release_event_enqueue(event_id)
+    async def release_failed_enqueue(
+        self,
+        event_id: UUID,
+        *,
+        category: str = "queue_unavailable",
+    ) -> None:
+        await self._repository.release_event_enqueue(
+            event_id,
+            category=category,
+            message="Webhook publication failed and will be retried.",
+            next_retry_at=datetime.now(UTC) + timedelta(seconds=30),
+        )
         await self._session.commit()
+
+    async def replay_webhook_event(
+        self,
+        *,
+        actor: User,
+        company_id: UUID,
+        event_id: UUID,
+        reason: str,
+    ) -> BillingWebhookEvent:
+        event = await self._repository.get_company_event(
+            event_id, company_id, lock=True
+        )
+        if event is None:
+            raise BillingNotFoundError("The provider event does not exist.")
+        if event.status == "processing":
+            raise BillingConflictError(
+                "A processing provider event cannot be replayed."
+            )
+        previous_status = event.status
+        previous_error_category = event.last_error_category
+        event.status = "queued"
+        event.queued_at = datetime.now(UTC)
+        event.processing_started_at = None
+        event.next_retry_at = None
+        event.last_error = None
+        event.last_error_category = None
+        event.replay_count += 1
+        self._audit(
+            company_id=company_id,
+            actor_user_id=actor.id,
+            action="webhook.safe_replay",
+            metadata={
+                "event_id": str(event.id),
+                "provider": event.provider,
+                "previous_status": previous_status,
+                "previous_error_category": previous_error_category,
+                "replay_count": event.replay_count,
+                "reason": reason,
+                "request_id": current_request_id(),
+                "correlation_id": current_correlation_id(),
+            },
+        )
+        await self._session.commit()
+        record_billing_webhook_replay()
+        return event
 
     @staticmethod
     def _safe_payload(event: ProviderWebhook) -> dict[str, object]:
@@ -657,6 +909,121 @@ class BillingService:
             "failure_code": event.failure_code,
             "provider_customer_id": event.provider_customer_id,
         }
+
+
+class BillingWebhookRecoveryService:
+    """Reclaim durable webhook work and expose bounded operational state."""
+
+    def __init__(
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        queue: BillingWebhookQueue,
+        *,
+        max_attempts: int,
+        retry_base_seconds: float,
+        queued_stale_seconds: int,
+        processing_stale_seconds: int,
+    ) -> None:
+        self._session_factory = session_factory
+        self._queue = queue
+        self._max_attempts = max_attempts
+        self._retry_base_seconds = retry_base_seconds
+        self._queued_stale_seconds = queued_stale_seconds
+        self._processing_stale_seconds = processing_stale_seconds
+
+    async def run(
+        self, *, limit: int, now: datetime | None = None
+    ) -> WebhookRecoverySummary:
+        effective_now = _as_utc(now or datetime.now(UTC))
+        queued_before = effective_now - timedelta(seconds=self._queued_stale_seconds)
+        processing_before = effective_now - timedelta(
+            seconds=self._processing_stale_seconds
+        )
+        queued_ids: list[UUID] = []
+        dead_lettered = 0
+        async with self._session_factory() as session:
+            repository = BillingRepository(session)
+            events = await repository.list_recoverable_events(
+                now=effective_now,
+                queued_before=queued_before,
+                processing_before=processing_before,
+                limit=limit,
+            )
+            for event in events:
+                if (
+                    event.status == "processing"
+                    and event.attempts >= self._max_attempts
+                ):
+                    event.status = "dead_letter"
+                    event.processing_started_at = None
+                    event.next_retry_at = None
+                    event.dead_lettered_at = effective_now
+                    event.last_error_category = "worker_stale"
+                    event.last_error = "The worker lease expired after the retry limit."
+                    dead_lettered += 1
+                    continue
+                if event.status == "processing":
+                    event.last_error_category = "worker_stale"
+                    event.last_error = "The worker lease expired and was reclaimed."
+                event.status = "queued"
+                event.queued_at = effective_now
+                event.processing_started_at = None
+                event.next_retry_at = None
+                queued_ids.append(event.id)
+            await session.commit()
+
+        publication_failures = 0
+        for event_id in queued_ids:
+            try:
+                self._queue.enqueue(event_id)
+            except Exception:
+                publication_failures += 1
+                async with self._session_factory() as session:
+                    await BillingRepository(session).release_event_enqueue(
+                        event_id,
+                        category="queue_unavailable",
+                        message="Webhook publication failed and will be retried.",
+                        next_retry_at=effective_now
+                        + timedelta(seconds=self._retry_base_seconds),
+                    )
+                    await session.commit()
+
+        async with self._session_factory() as session:
+            stats = await BillingRepository(session).webhook_operational_stats(
+                now=effective_now
+            )
+        logger.info(
+            "billing_webhook_recovery_completed",
+            extra={
+                "scanned": len(events),
+                "requeued": len(queued_ids) - publication_failures,
+                "dead_lettered": dead_lettered,
+                "publication_failures": publication_failures,
+                "queue_depth": stats[0],
+                "oldest_queued_age_seconds": stats[1],
+                "oldest_processing_age_seconds": stats[2],
+                "failed_count": stats[3],
+                "dead_letter_count": stats[4],
+            },
+        )
+        record_billing_webhook_recovery(
+            queue_depth=stats[0],
+            oldest_queued_age_seconds=stats[1],
+            oldest_processing_age_seconds=stats[2],
+            failed_count=stats[3],
+            dead_letter_count=stats[4],
+        )
+        return WebhookRecoverySummary(
+            scanned=len(events),
+            requeued=len(queued_ids) - publication_failures,
+            dead_lettered=dead_lettered,
+            publication_failures=publication_failures,
+            queue_depth=stats[0],
+            oldest_queued_age_seconds=stats[1],
+            oldest_processing_age_seconds=stats[2],
+            failed_count=stats[3],
+            dead_letter_count=stats[4],
+        )
 
 
 _STATE_RANK = {
@@ -680,19 +1047,37 @@ class BillingWebhookProcessor:
         provider_name: str,
         *,
         policy: BillingPolicy | None = None,
+        max_attempts: int = 5,
+        retry_base_seconds: float = 30.0,
     ) -> None:
         self._session_factory = session_factory
         self._provider_name = provider_name
         self._policy = policy or BillingPolicy()
+        self._max_attempts = max_attempts
+        self._retry_base_seconds = retry_base_seconds
 
     async def execute(self, event_id: UUID) -> None:
+        claimed_at = datetime.now(UTC)
+        async with self._session_factory() as session:
+            repository = BillingRepository(session)
+            claimed = await repository.claim_event_for_processing(
+                event_id, now=claimed_at
+            )
+            await session.commit()
+        if not claimed:
+            return
+
+        try:
+            await self._process_claimed_event(event_id)
+        except Exception as exc:
+            await self._record_processing_failure(event_id, exc)
+
+    async def _process_claimed_event(self, event_id: UUID) -> None:
         async with self._session_factory() as session:
             repository = BillingRepository(session)
             event = await repository.get_event(event_id, lock=True)
-            if event is None or event.status in {"processed", "ignored"}:
+            if event is None or event.status != "processing":
                 return
-            event.status = "processing"
-            event.attempts += 1
             payload = event.safe_payload or {}
             try:
                 reference = UUID(str(payload["payment_reference"]))
@@ -712,26 +1097,33 @@ class BillingWebhookProcessor:
                     else None
                 )
             except (KeyError, TypeError, ValueError):
-                event.status = "ignored"
+                event.status = "quarantined"
+                event.last_error_category = "invalid_normalized_payload"
                 event.last_error = "invalid_normalized_payload"
-                event.processed_at = datetime.now(UTC)
+                event.processed_at = event.processed_at or datetime.now(UTC)
+                event.processing_started_at = None
                 await session.commit()
                 return
             payment = await repository.get_payment(reference, lock=True)
             if payment is None or payment.provider != self._provider_name:
-                event.status = "ignored"
+                event.status = "quarantined"
+                event.last_error_category = "payment_not_found"
                 event.last_error = "payment_not_found"
             elif payment.amount_minor != amount_minor:
-                event.status = "ignored"
+                event.status = "quarantined"
+                event.last_error_category = "amount_mismatch"
                 event.last_error = "amount_mismatch"
             elif payment.currency != currency:
-                event.status = "ignored"
+                event.status = "quarantined"
+                event.last_error_category = "currency_mismatch"
                 event.last_error = "currency_mismatch"
             elif state not in _STATE_RANK:
-                event.status = "ignored"
+                event.status = "quarantined"
+                event.last_error_category = "unknown_state"
                 event.last_error = "unknown_state"
             elif self._is_stale(payment, state, occurred_at):
-                event.status = "ignored"
+                event.status = "quarantined"
+                event.last_error_category = "out_of_order"
                 event.last_error = "out_of_order"
             else:
                 prior_state = payment.status
@@ -762,7 +1154,58 @@ class BillingWebhookProcessor:
                     )
                 event.status = "processed"
                 event.last_error = None
-            event.processed_at = datetime.now(UTC)
+                event.last_error_category = None
+            event.processed_at = event.processed_at or datetime.now(UTC)
+            event.processing_started_at = None
+            event.next_retry_at = None
+            await session.commit()
+
+    async def _record_processing_failure(self, event_id: UUID, exc: Exception) -> None:
+        category = (
+            "billing_state_error"
+            if isinstance(exc, BillingError)
+            else "processing_error"
+        )
+        message = (
+            "Billing state validation failed."
+            if isinstance(exc, BillingError)
+            else "Webhook processing failed and will be retried."
+        )
+        now = datetime.now(UTC)
+        async with self._session_factory() as session:
+            repository = BillingRepository(session)
+            event = await repository.get_event(event_id, lock=True)
+            if event is None or event.status != "processing":
+                return
+            event.processing_started_at = None
+            event.last_error_category = category
+            event.last_error = message
+            if event.attempts >= self._max_attempts:
+                event.status = "dead_letter"
+                event.next_retry_at = None
+                event.dead_lettered_at = now
+                if event.company_id is not None:
+                    repository.add_audit_event(
+                        BillingAuditEvent(
+                            company_id=event.company_id,
+                            actor_user_id=None,
+                            action="webhook.dead_lettered",
+                            result="failed",
+                            safe_metadata={
+                                "event_id": str(event.id),
+                                "provider": event.provider,
+                                "attempts": event.attempts,
+                                "error_category": category,
+                            },
+                        )
+                    )
+            else:
+                event.status = "failed"
+                delay = min(
+                    3600.0,
+                    self._retry_base_seconds * (2 ** max(0, event.attempts - 1)),
+                )
+                event.next_retry_at = now + timedelta(seconds=delay)
             await session.commit()
 
     async def _apply_subscription_event(
@@ -893,5 +1336,5 @@ class BillingWebhookProcessor:
             incoming_rank == current_rank
             and occurred_at is not None
             and payment.provider_occurred_at is not None
-            and occurred_at < payment.provider_occurred_at
+            and _as_utc(occurred_at) < _as_utc(payment.provider_occurred_at)
         )

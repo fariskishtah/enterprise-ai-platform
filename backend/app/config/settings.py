@@ -170,9 +170,26 @@ class Settings(BaseSettings):
         pattern=r"^[A-Za-z0-9_.-]+$",
     )
     billing_webhook_max_retries: PositiveInt = Field(default=5, le=20)
+    billing_webhook_retry_base_seconds: PositiveFloat = Field(default=30.0, le=3600)
+    billing_webhook_queued_stale_seconds: PositiveInt = Field(default=300, le=86_400)
+    billing_webhook_processing_stale_seconds: PositiveInt = Field(
+        default=300, le=86_400
+    )
+    billing_webhook_recovery_batch_size: PositiveInt = Field(default=100, le=1000)
+    billing_webhook_recovery_scheduling_enabled: bool = True
+    billing_webhook_recovery_interval_seconds: PositiveInt = Field(
+        default=60, ge=10, le=3600
+    )
     billing_grace_period_days: PositiveInt = Field(default=7, le=90)
     billing_incomplete_expiry_hours: PositiveInt = Field(default=24, le=168)
     billing_suspension_expiry_days: PositiveInt = Field(default=30, le=365)
+    billing_lifecycle_reconciliation_batch_size: PositiveInt = Field(
+        default=100, le=1000
+    )
+    billing_lifecycle_reconciliation_scheduling_enabled: bool = True
+    billing_lifecycle_reconciliation_interval_seconds: PositiveInt = Field(
+        default=60, ge=10, le=3600
+    )
     billing_entitlements_enforced: bool = False
     structured_logging_enabled: bool = True
     log_format: LogFormat = "json"

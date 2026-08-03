@@ -41,9 +41,12 @@ from the callback query parameter. Invalid signatures return 403.
 Paymob's raw transaction ID is stored separately from a deterministic event ID.
 Only a hash of the raw callback and a normalized, card-free payload are stored.
 An atomic status update gives exactly one duplicate request permission to queue
-the event. The worker locks each event and payment while applying it. Exact
-duplicates are no-ops; safe retries can reclaim an event if broker publication
-failed.
+the event. Delivery states are `received`, `queued`, `processing`, `processed`,
+`failed`, `dead_letter`, and `quarantined`. Processing leases, retry timestamps,
+bounded attempts, sanitized errors, stale-work reconciliation, and an audited
+platform-only replay path prevent durable events from remaining silently stuck.
+The worker locks each event and payment while applying it. Duplicates and replays
+are idempotent.
 
 Payment state precedence is monotonic:
 
@@ -51,7 +54,7 @@ Payment state precedence is monotonic:
 
 A higher-trust provider success can override a local cancellation, while a late
 failure cannot overwrite success. Refund and reversal flags supersede success.
-Amount or currency mismatches are retained as ignored security evidence and do
+Amount or currency mismatches are retained as quarantined security evidence and do
 not modify the payment. Unknown callback types are rejected.
 
 Paymob currently documents transaction callbacks for success or decline. A user
@@ -110,8 +113,9 @@ event time. A failed renewal enters `past_due` for
 `BILLING_GRACE_PERIOD_DAYS` (default 7); reconciliation then suspends access.
 Incomplete checkouts expire after `BILLING_INCOMPLETE_EXPIRY_HOURS` (default
 24), and long-running suspension expires after
-`BILLING_SUSPENSION_EXPIRY_DAYS` (default 30). Temporal reconciliation runs on
-subscription reads and through the explicit tenant-admin reconcile endpoint.
+`BILLING_SUSPENSION_EXPIRY_DAYS` (default 30). Entitlements evaluate time policy
+directly. Temporal reconciliation also runs on subscription reads, through the
+explicit tenant-admin endpoint, and through a scheduled row-locked actor.
 
 Upgrade and downgrade checkouts record `pending_plan_id`; the current plan stays
 authoritative until verified payment. This release intentionally resets the
@@ -172,10 +176,14 @@ denied with:
 
 Tenant admins can inspect `/billing/entitlements`, `/billing/usage`,
 `/billing/usage/breakdown`, `/billing/limits`, and
-`/billing/recommendation`. Manual exceptions are available only through
-`/billing/admin/entitlement-overrides/{key}`, require a reason, may expire, and
-always create a billing audit event. Migration `0031_entitlement_overrides`
-adds those exceptions and the metering idempotency ledger.
+`/billing/recommendation`. Tenant roles, including Owner and Admin, cannot manage
+manual exceptions. Overrides require an explicitly provisioned platform operator
+and use `/billing/platform/tenants/{company_id}/entitlement-overrides/{key}`.
+Every mutation requires a reason and records before/after values plus request
+correlation. Migration `0031_entitlement_overrides` adds the exceptions and
+metering ledger; `0032_billing_phase1_remediation` separates platform authority
+and adds webhook recovery state. See the
+[Phase 1 operations guide](production/billing-phase1-remediation.md).
 
 ## Billing management frontend
 

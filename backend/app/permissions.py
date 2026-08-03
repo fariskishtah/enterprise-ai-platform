@@ -19,11 +19,15 @@ class Permission(StrEnum):
     TEAM_MANAGE = "team.manage"
     OWNER_ASSIGN = "owner.assign"
     BILLING_MANAGE = "billing.manage"
+    BILLING_PLATFORM_OPERATE = "billing.platform_operate"
     AUDIT_READ = "audit.read"
 
 
+PLATFORM_ONLY_PERMISSIONS = frozenset({Permission.BILLING_PLATFORM_OPERATE})
+
+
 ROLE_PERMISSIONS: dict[UserRole, frozenset[Permission]] = {
-    UserRole.OWNER: frozenset(Permission),
+    UserRole.OWNER: frozenset(set(Permission) - PLATFORM_ONLY_PERMISSIONS),
     UserRole.ADMIN: frozenset(
         {
             Permission.PLATFORM_READ,
@@ -59,9 +63,18 @@ ROLE_PERMISSIONS: dict[UserRole, frozenset[Permission]] = {
 }
 
 
-def has_permissions(role: UserRole, *required: Permission) -> bool:
+def has_permissions(
+    role: UserRole,
+    *required: Permission,
+    is_platform_operator: bool = False,
+) -> bool:
     """Return whether a role owns every requested capability."""
-    return set(required).issubset(ROLE_PERMISSIONS[role])
+    requested = set(required)
+    platform_requested = requested & PLATFORM_ONLY_PERMISSIONS
+    if platform_requested and not is_platform_operator:
+        return False
+    tenant_requested = requested - PLATFORM_ONLY_PERMISSIONS
+    return tenant_requested.issubset(ROLE_PERMISSIONS[role])
 
 
 def legacy_route_permission(
