@@ -13,7 +13,7 @@ import re
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from uuid import UUID
 
 import httpx
@@ -21,9 +21,13 @@ import httpx
 from app.billing.providers.base import (
     CheckoutRequest,
     HostedCheckout,
+    PaymentDecision,
+    PaymentProviderConfigurationError,
     PaymentProviderError,
     PaymentProviderSignatureError,
     PaymentState,
+    ProviderTransactionTruth,
+    ProviderValidationOutcome,
     ProviderWebhook,
 )
 
@@ -64,6 +68,9 @@ class PaymobConfiguration:
     currency: str
     sandbox_mode: bool
     timeout_seconds: float
+    merchant_id: int | None = None
+    allowed_checkout_hosts: tuple[str, ...] = ("accept.paymob.com",)
+    supported_source_types: tuple[str, ...] = ("card",)
 
 
 def _canonical_scalar(value: object) -> str:
@@ -169,7 +176,9 @@ class PaymobPaymentProvider:
             },
             "special_reference": str(request.reference),
             "notification_url": self._configuration.webhook_url,
-            "redirection_url": self._configuration.success_url,
+            "redirection_url": self._return_url(
+                self._configuration.success_url, request.return_reference
+            ),
         }
         try:
             if self._client is None:
@@ -214,11 +223,33 @@ class PaymobPaymentProvider:
                 "clientSecret": client_secret,
             }
         )
+        checkout_url = (
+            f"{self._configuration.base_url.rstrip('/')}/unifiedcheckout/?{query}"
+        )
+        parsed_checkout = urlsplit(checkout_url)
+        if (
+            parsed_checkout.scheme != "https"
+            or (parsed_checkout.hostname or "").lower()
+            not in self._configuration.allowed_checkout_hosts
+        ):
+            raise PaymentProviderError(
+                "Paymob returned a checkout URL outside the configured allowlist.",
+                retryable=False,
+            )
         return HostedCheckout(
             provider_checkout_id=str(checkout_id),
-            checkout_url=(
-                f"{self._configuration.base_url.rstrip('/')}/unifiedcheckout/?{query}"
-            ),
+            checkout_url=checkout_url,
+        )
+
+    @staticmethod
+    def _return_url(base_url: str, reference: str) -> str:
+        if not reference:
+            return base_url
+        parsed = urlsplit(base_url)
+        query = dict(parse_qsl(parsed.query, keep_blank_values=True))
+        query["state"] = reference
+        return urlunsplit(
+            (parsed.scheme, parsed.netloc, parsed.path, urlencode(query), "")
         )
 
     async def _post_intention(
@@ -273,7 +304,8 @@ class PaymobPaymentProvider:
                 "Paymob callback has an invalid payment reference or amount.",
                 retryable=False,
             ) from exc
-        state, event_type = self._state(obj)
+        decision, state, event_type = self._decision(obj)
+        validation_outcome = self._validation_outcome(obj, decision=decision)
         raw_id = str(raw_event_id)
         fingerprint = hashlib.sha256(
             json.dumps(obj, sort_keys=True, separators=(",", ":")).encode()
@@ -291,16 +323,101 @@ class PaymobPaymentProvider:
                 obj.get("updated_at") or obj.get("created_at")
             ),
             failure_code=_safe_failure_code(obj) if state == "failed" else None,
+            decision=decision,
+            validation_outcome=validation_outcome,
+            integration_id=self._integer(obj.get("integration_id")),
+            environment=(
+                "live"
+                if obj.get("is_live") is True
+                else "sandbox"
+                if obj.get("is_live") is False
+                else None
+            ),
+            merchant_id=(str(obj["owner"]) if obj.get("owner") is not None else None),
+            provider_order_id=(
+                str(order.get("id"))
+                if isinstance(order, dict) and order.get("id") is not None
+                else None
+            ),
+            source_type=self._source_type(obj),
         )
 
+    def _validation_outcome(
+        self, obj: dict[str, Any], *, decision: str
+    ) -> ProviderValidationOutcome:
+        if (
+            self._integer(obj.get("integration_id"))
+            != self._configuration.integration_id
+        ):
+            return "quarantined_wrong_integration"
+        is_live = obj.get("is_live")
+        if not isinstance(is_live, bool) or is_live == self._configuration.sandbox_mode:
+            return "quarantined_wrong_environment"
+        if (
+            self._configuration.merchant_id is not None
+            and self._integer(obj.get("owner")) != self._configuration.merchant_id
+        ):
+            return "quarantined_wrong_merchant"
+        source_type = self._source_type(obj)
+        if (
+            source_type is None
+            or source_type.lower() not in self._configuration.supported_source_types
+            or decision == "under_review"
+        ):
+            return "quarantined_unsupported_semantics"
+        return "accepted"
+
     @staticmethod
-    def _state(obj: dict[str, Any]) -> tuple[PaymentState, str]:
+    def _source_type(obj: dict[str, Any]) -> str | None:
+        source = obj.get("source_data")
+        value = source.get("type") if isinstance(source, dict) else None
+        return str(value).lower() if value is not None else None
+
+    @staticmethod
+    def _integer(value: object) -> int | None:
+        try:
+            return (
+                int(value)
+                if isinstance(value, (str, int)) and not isinstance(value, bool)
+                else None
+            )
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _decision(
+        obj: dict[str, Any],
+    ) -> tuple[PaymentDecision, PaymentState, str]:
         if obj.get("is_refunded") is True or obj.get("is_refund") is True:
-            return "refunded", "transaction.refunded"
+            return "refunded", "refunded", "transaction.refunded"
         if obj.get("is_voided") is True or obj.get("is_void") is True:
-            return "reversed", "transaction.reversed"
+            return "reversed", "reversed", "transaction.reversed"
         if obj.get("success") is True and obj.get("pending") is not True:
-            return "succeeded", "transaction.succeeded"
+            if (
+                obj.get("is_auth") is True
+                and obj.get("is_capture") is not True
+                and obj.get("is_standalone_payment") is not True
+            ):
+                return (
+                    "authorized_not_captured",
+                    "pending",
+                    "transaction.authorized",
+                )
+            if (
+                obj.get("is_capture") is True
+                or obj.get("is_standalone_payment") is True
+            ):
+                return "succeeded_eligible", "succeeded", "transaction.captured"
+            return "under_review", "pending", "transaction.under_review"
         if obj.get("pending") is True:
-            return "pending", "transaction.pending"
-        return "failed", "transaction.failed"
+            return "pending", "pending", "transaction.pending"
+        return "failed", "failed", "transaction.failed"
+
+    async def list_reconciliation_transactions(
+        self,
+    ) -> list[ProviderTransactionTruth]:
+        """Fail closed until Paymob's query contract passes sandbox acceptance."""
+        raise PaymentProviderConfigurationError(
+            "Paymob provider reconciliation requires an accepted sandbox query "
+            "contract."
+        )

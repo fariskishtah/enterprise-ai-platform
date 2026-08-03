@@ -428,6 +428,10 @@ export function BillingOverviewPage(): ReactElement {
               Checkout is hosted by Paymob. A redirect result never changes your plan
               until the backend verifies the provider event.
             </p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Plans are prepaid for one access period. Renewal or a plan change requires
+              a new checkout; no automatic collection is scheduled.
+            </p>
             <div className="mt-5 grid gap-4 md:grid-cols-3">
               {workspace.plans.map((plan) => {
                 const current = plan.code === workspace.subscription?.plan_code;
@@ -441,11 +445,11 @@ export function BillingOverviewPage(): ReactElement {
                       {formatMoney(plan.monthly_price_minor)}
                       <span className="text-xs font-normal text-muted-foreground">
                         {" "}
-                        / month
+                        / access period
                       </span>
                     </p>
                     {current ? (
-                      <p className="mt-4 text-sm font-semibold text-purple-700">
+                      <p className="mt-4 text-sm font-semibold text-link">
                         Current plan
                       </p>
                     ) : (
@@ -622,6 +626,9 @@ function HistoryTable({
                   </td>
                   <td className="py-4">
                     <BillingStatus status={payment.status} />
+                    <p className="mt-1 text-xs capitalize text-muted-foreground">
+                      Intent: {payment.checkout_intent_status.replaceAll("_", " ")}
+                    </p>
                   </td>
                 </tr>
               ))}

@@ -11,6 +11,8 @@ from app.models.automl import AutoMLExecutionSlot, AutoMLStudy, AutoMLTrial
 from app.models.billing import (
     BillingAuditEvent,
     BillingPlan,
+    BillingReconciliationResult,
+    BillingReconciliationRun,
     BillingWebhookEvent,
     EntitlementOverride,
     InvoiceReference,
@@ -99,6 +101,8 @@ __all__ = [
     "AuditEvent",
     "BillingAuditEvent",
     "BillingPlan",
+    "BillingReconciliationResult",
+    "BillingReconciliationRun",
     "BillingWebhookEvent",
     "Company",
     "Dataset",

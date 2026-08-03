@@ -42,9 +42,14 @@ function billingStatusTone(status: string): StatusBadgeStatus {
   if (["active", "trialing", "succeeded", "paid"].includes(status)) {
     return "healthy";
   }
-  if (["pending", "creating", "incomplete"].includes(status)) return "running";
-  if (["past_due", "refunded", "reversed"].includes(status)) return "warning";
-  if (["failed", "provider_error", "suspended"].includes(status)) {
+  if (["pending", "creating", "incomplete", "open"].includes(status)) return "running";
+  if (
+    ["past_due", "refunded", "reversed", "under_review", "superseded"].includes(
+      status,
+    )
+  )
+    return "warning";
+  if (["failed", "provider_error", "suspended", "quarantined"].includes(status)) {
     return "critical";
   }
   return "inactive";

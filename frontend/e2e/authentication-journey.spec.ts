@@ -21,7 +21,14 @@ const user = {
   updated_at: "2026-08-01T10:00:00Z",
 };
 
+const PRODUCTION_API_PATTERN = /^https?:\/\/[^/]+\/api\//;
+
+async function isolateApi(page: Page): Promise<void> {
+  await page.route(PRODUCTION_API_PATTERN, (route) => json(route, {}));
+}
+
 async function unauthenticated(page: Page): Promise<void> {
+  await isolateApi(page);
   await page.route("**/auth/refresh", (route) =>
     json(route, { detail: "No session" }, 401),
   );
@@ -194,6 +201,7 @@ test.describe("authentication journey", () => {
   });
 
   test("resends verification once and exposes a clear cooldown", async ({ page }) => {
+    await isolateApi(page);
     await page.route("**/auth/refresh", (route) =>
       json(route, {
         access_token: "access-token",
@@ -235,6 +243,7 @@ test.describe("authentication journey", () => {
   test("refresh failure produces a visible session-expired recovery state", async ({
     page,
   }) => {
+    await isolateApi(page);
     let refreshes = 0;
     await page.route("**/auth/refresh", (route) => {
       refreshes += 1;
@@ -259,6 +268,7 @@ test.describe("authentication journey", () => {
   test("change password validates confirmation, submits once, and signs out", async ({
     page,
   }) => {
+    await isolateApi(page);
     await page.route("**/auth/refresh", (route) =>
       json(route, {
         access_token: "access-token",

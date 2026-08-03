@@ -19,6 +19,7 @@ def configured_payment_provider(settings: Settings) -> PaymentProvider:
         or settings.paymob_public_key is None
         or settings.paymob_hmac_secret is None
         or settings.paymob_integration_id is None
+        or settings.paymob_merchant_id is None
         or settings.paymob_webhook_url is None
         or settings.payment_success_url is None
         or settings.payment_failure_url is None
@@ -30,6 +31,7 @@ def configured_payment_provider(settings: Settings) -> PaymentProvider:
             public_key=settings.paymob_public_key.get_secret_value(),
             hmac_secret=settings.paymob_hmac_secret.get_secret_value(),
             integration_id=settings.paymob_integration_id,
+            merchant_id=settings.paymob_merchant_id,
             base_url=settings.paymob_base_url,
             webhook_url=settings.paymob_webhook_url,
             success_url=settings.payment_success_url,
@@ -37,5 +39,7 @@ def configured_payment_provider(settings: Settings) -> PaymentProvider:
             currency=settings.payment_currency,
             sandbox_mode=settings.payment_sandbox_mode,
             timeout_seconds=settings.payment_http_timeout_seconds,
+            allowed_checkout_hosts=settings.paymob_allowed_checkout_hosts,
+            supported_source_types=settings.paymob_supported_source_types,
         )
     )

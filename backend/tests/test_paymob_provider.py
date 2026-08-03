@@ -29,13 +29,16 @@ def _configuration() -> PaymobConfiguration:
         public_key="pk_test_contract",
         hmac_secret="contract-hmac-secret",
         integration_id=123456,
+        merchant_id=700001,
         base_url="https://accept.paymob.com",
         webhook_url="https://api.example.com/billing/webhooks/paymob",
-        success_url="https://app.example.com/billing/success",
-        failure_url="https://app.example.com/billing/failure",
+        success_url="https://app.example.com/settings/billing/return",
+        failure_url="https://app.example.com/settings/billing/return",
         currency="EGP",
         sandbox_mode=True,
         timeout_seconds=1,
+        allowed_checkout_hosts=("accept.paymob.com",),
+        supported_source_types=("card",),
     )
 
 
@@ -68,6 +71,7 @@ def _transaction_object(**overrides: object) -> dict[str, object]:
         "is_3d_secure": True,
         "is_auth": False,
         "is_capture": False,
+        "is_live": False,
         "is_refunded": False,
         "is_standalone_payment": True,
         "is_voided": False,
@@ -165,9 +169,10 @@ def test_valid_success_webhook_is_verified_and_normalized() -> None:
 
     assert event.raw_provider_event_id == "900001"
     assert event.provider_event_id.startswith(
-        "transaction:900001:transaction.succeeded:"
+        "transaction:900001:transaction.captured:"
     )
     assert event.state == "succeeded"
+    assert event.decision == "succeeded_eligible"
     assert event.amount_minor == 500_000
     assert event.currency == "EGP"
 
@@ -258,9 +263,10 @@ def test_paymob_configuration_requires_complete_environment_and_key_mode(
             "paymob_public_key": "pk_test_contract",
             "paymob_hmac_secret": "hmac-contract",
             "paymob_integration_id": 123456,
+            "paymob_merchant_id": 700001,
             "paymob_webhook_url": "https://api.example.com/billing/webhooks/paymob",
-            "payment_success_url": "https://app.example.com/billing/success",
-            "payment_failure_url": "https://app.example.com/billing/failure",
+            "payment_success_url": "https://app.example.com/settings/billing/return",
+            "payment_failure_url": "https://app.example.com/settings/billing/return",
             "payment_sandbox_mode": False,
         }
     )
@@ -298,9 +304,10 @@ def test_production_rejects_paymob_sandbox_mode(settings: Settings) -> None:
             "paymob_public_key": "pk_test_contract",
             "paymob_hmac_secret": "hmac-contract",
             "paymob_integration_id": 123456,
+            "paymob_merchant_id": 700001,
             "paymob_webhook_url": "https://api.example.com/billing/webhooks/paymob",
-            "payment_success_url": "https://app.example.com/billing/success",
-            "payment_failure_url": "https://app.example.com/billing/failure",
+            "payment_success_url": "https://app.example.com/settings/billing/return",
+            "payment_failure_url": "https://app.example.com/settings/billing/return",
             "payment_sandbox_mode": True,
         }
     )

@@ -27,7 +27,9 @@ export interface HostedCheckout {
   readonly plan_code: string;
   readonly provider: "paymob";
   readonly provider_checkout_id: string;
-  readonly purpose: "initial" | "renewal" | "upgrade" | "downgrade";
+  readonly purpose: "initial" | "renewal" | "plan_change" | "reactivation";
+  readonly checkout_expires_at: string | null;
+  readonly commercial_model: CommercialBillingModel;
   readonly reused: boolean;
   readonly status: string;
   readonly subscription_id: string;
@@ -47,6 +49,29 @@ export interface PaymentStatus {
   readonly purpose: string;
   readonly status: string;
   readonly updated_at: string;
+  readonly checkout_expires_at: string | null;
+  readonly checkout_intent_status:
+    "open" | "superseded" | "completed" | "failed" | "expired" | "cancelled";
+  readonly commercial_model: CommercialBillingModel;
+  readonly provider_decision:
+    | "pending"
+    | "authorized_not_captured"
+    | "succeeded_eligible"
+    | "failed"
+    | "cancelled"
+    | "expired"
+    | "refunded"
+    | "reversed"
+    | "under_review"
+    | "quarantined";
+}
+
+export type CommercialBillingModel =
+  "prepaid_manual_renewal" | "provider_recurring_subscription";
+
+export interface BillingPlanList {
+  readonly items: readonly BillingPlan[];
+  readonly commercial_model: CommercialBillingModel;
 }
 
 export interface Subscription {
@@ -129,9 +154,7 @@ interface CheckoutPayload {
   readonly plan_code: string;
 }
 
-export function listBillingPlans(
-  signal?: AbortSignal,
-): Promise<{ readonly items: readonly BillingPlan[] }> {
+export function listBillingPlans(signal?: AbortSignal): Promise<BillingPlanList> {
   return apiRequest("/billing/plans", { signal }, { authenticated: false });
 }
 
@@ -211,6 +234,17 @@ export function getPaymentStatus(
   signal?: AbortSignal,
 ): Promise<PaymentStatus> {
   return apiRequest<PaymentStatus>(`/billing/payments/${paymentId}`, { signal });
+}
+
+export function resolveBillingReturn(
+  state: string,
+  signal?: AbortSignal,
+): Promise<PaymentStatus> {
+  return apiRequest<PaymentStatus>("/billing/returns/resolve", {
+    body: JSON.stringify({ state }),
+    method: "POST",
+    signal,
+  });
 }
 
 export function cancelHostedCheckout(paymentId: string): Promise<PaymentStatus> {

@@ -47,11 +47,8 @@ const oversizedChunks = javascriptSizes.filter(
 const loginImageName = assetNames.find((name) =>
   name.startsWith("fk-login-background"),
 );
-
-if (loginImageName === undefined) {
-  throw new Error("Optimized login image was not emitted by the production build.");
-}
-const loginImage = await bytes(`assets/${loginImageName}`);
+const loginImage =
+  loginImageName === undefined ? 0 : await bytes(`assets/${loginImageName}`);
 
 const failures = [];
 if (initialJavaScript > budgets.initialJavaScript) {

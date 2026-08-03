@@ -22,7 +22,17 @@ import { billingPanelClassName, formatMoney } from "./BillingUi";
 
 function safeCheckoutRedirect(value: string): void {
   const target = new URL(value, window.location.origin);
-  if (!["http:", "https:"].includes(target.protocol)) {
+  const providerHosts = new Set([
+    "accept.paymob.com",
+    "ksa.paymob.com",
+    "oman.paymob.com",
+    "uae.paymob.com",
+  ]);
+  const sameOrigin = target.origin === window.location.origin;
+  if (
+    (!sameOrigin && target.protocol !== "https:") ||
+    (!sameOrigin && !providerHosts.has(target.hostname.toLowerCase()))
+  ) {
     throw new Error("The payment provider returned an invalid checkout URL.");
   }
   window.location.assign(target.href);
@@ -189,7 +199,7 @@ export function BillingCheckoutPage(): ReactElement {
           </form>
           <aside className={billingPanelClassName} aria-labelledby="order-heading">
             <p className="text-xs font-semibold uppercase tracking-wider text-eyebrow">
-              Monthly subscription
+              Prepaid access period
             </p>
             <h3
               className="mt-2 text-2xl font-semibold text-foreground"
@@ -202,13 +212,13 @@ export function BillingCheckoutPage(): ReactElement {
             </p>
             <p className="mt-6 border-t border-border pt-5 text-3xl font-semibold text-foreground">
               {formatMoney(plan.monthly_price_minor)}
-              <span className="text-sm font-normal text-muted-foreground">
-                {" "}
-                / month
+              <span className="mt-1 block text-sm font-normal text-muted-foreground">
+                One access period
               </span>
             </p>
             <p className="mt-3 text-xs text-muted-foreground">
-              Taxes, if applicable, are calculated by the configured payment provider.
+              One payment provides one fixed access period. Renewal requires a new
+              checkout; FactoryMind does not schedule automatic collection.
             </p>
           </aside>
         </div>

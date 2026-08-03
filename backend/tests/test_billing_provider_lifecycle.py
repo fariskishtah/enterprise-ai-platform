@@ -347,8 +347,8 @@ async def test_duplicate_success_webhook_is_idempotent(
 @pytest.mark.parametrize(
     ("field", "value", "reason"),
     [
-        ("amount_minor", 1, "amount_mismatch"),
-        ("currency", "USD", "currency_mismatch"),
+        ("amount_minor", 1, "quarantined_wrong_amount"),
+        ("currency", "USD", "quarantined_wrong_currency"),
     ],
 )
 async def test_incorrect_webhook_money_is_ignored(
@@ -370,7 +370,10 @@ async def test_incorrect_webhook_money_is_ignored(
         assert payment is not None
         kwargs = {field: value}
         provider.webhooks[field] = _event(
-            payment, fixture=field, state="succeeded", **kwargs  # type: ignore[arg-type]
+            payment,
+            fixture=field,
+            state="succeeded",
+            **kwargs,  # type: ignore[arg-type]
         )
     event_id = await _ingest_and_process(session_factory, provider, field)
     async with session_factory() as session:

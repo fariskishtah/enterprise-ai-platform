@@ -16,6 +16,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.types import Uuid
@@ -175,10 +176,45 @@ class Payment(Base):
             "company_id", "idempotency_key", name="uq_payment_company_idempotency"
         ),
         Index("ix_payments_company_time", "company_id", "created_at"),
+        Index(
+            "ix_payments_return_reference_hash", "return_reference_hash", unique=True
+        ),
+        Index(
+            "ix_payments_checkout_expiry",
+            "checkout_intent_status",
+            "checkout_expires_at",
+        ),
+        Index(
+            "uq_payments_company_open_intent",
+            "company_id",
+            unique=True,
+            postgresql_where=text("checkout_intent_status = 'open'"),
+            sqlite_where=text("checkout_intent_status = 'open'"),
+        ),
         CheckConstraint(
             "status IN ('creating','pending','succeeded','failed','cancelled',"
             "'refunded','reversed','provider_error')",
             name="ck_payments_status",
+        ),
+        CheckConstraint(
+            "checkout_intent_status IN "
+            "('open','superseded','completed','failed','expired','cancelled')",
+            name="ck_payments_checkout_intent_status",
+        ),
+        CheckConstraint(
+            "environment IN ('sandbox','live','legacy_unknown')",
+            name="ck_payments_environment",
+        ),
+        CheckConstraint(
+            "commercial_model IN "
+            "('prepaid_manual_renewal','provider_recurring_subscription')",
+            name="ck_payments_commercial_model",
+        ),
+        CheckConstraint(
+            "provider_decision IN "
+            "('pending','authorized_not_captured','succeeded_eligible','failed',"
+            "'cancelled','expired','refunded','reversed','under_review','quarantined')",
+            name="ck_payments_provider_decision",
         ),
     )
     id: Mapped[UUID] = mapped_column(
@@ -199,6 +235,33 @@ class Payment(Base):
     plan_code: Mapped[str | None] = mapped_column(String(32))
     purpose: Mapped[str] = mapped_column(String(32), nullable=False, default="initial")
     checkout_url: Mapped[str | None] = mapped_column(String(2048))
+    checkout_intent_status: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="open"
+    )
+    checkout_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    superseded_by_payment_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("payments.id", ondelete="SET NULL", use_alter=True),
+    )
+    return_reference_hash: Mapped[str | None] = mapped_column(String(64))
+    return_reference_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    return_reference_purpose: Mapped[str | None] = mapped_column(String(32))
+    environment: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="legacy_unknown"
+    )
+    commercial_model: Mapped[str] = mapped_column(
+        String(48), nullable=False, default="prepaid_manual_renewal"
+    )
+    provider_decision: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="pending"
+    )
+    provider_integration_id: Mapped[int | None] = mapped_column(Integer)
+    provider_merchant_id: Mapped[str | None] = mapped_column(String(128))
+    provider_order_id: Mapped[str | None] = mapped_column(String(255))
     amount_minor: Mapped[int] = mapped_column(Integer, nullable=False)
     currency: Mapped[str] = mapped_column(String(3), nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False)
@@ -287,6 +350,9 @@ class BillingWebhookEvent(Base):
     event_type: Mapped[str] = mapped_column(String(128), nullable=False)
     payload_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     safe_payload: Mapped[dict[str, object] | None] = mapped_column(JSON)
+    validation_outcome: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="accepted"
+    )
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="received")
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     last_error: Mapped[str | None] = mapped_column(Text)
@@ -302,6 +368,92 @@ class BillingWebhookEvent(Base):
     processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     dead_lettered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     replay_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+
+class BillingReconciliationRun(Base):
+    """One idempotent platform-initiated comparison against provider truth."""
+
+    __tablename__ = "billing_reconciliation_runs"
+    __table_args__ = (
+        UniqueConstraint(
+            "provider",
+            "environment",
+            "idempotency_key",
+            name="uq_billing_reconciliation_run_key",
+        ),
+        Index("ix_billing_reconciliation_runs_time", "started_at", "status"),
+        CheckConstraint(
+            "status IN ('running','completed','failed')",
+            name="ck_billing_reconciliation_run_status",
+        ),
+        CheckConstraint(
+            "environment IN ('sandbox','live')",
+            name="ck_billing_reconciliation_run_environment",
+        ),
+    )
+    id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), primary_key=True, default=uuid4
+    )
+    provider: Mapped[str] = mapped_column(String(32), nullable=False)
+    environment: Mapped[str] = mapped_column(String(16), nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    dry_run: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="running")
+    triggered_by_user_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    finance_approval_reference: Mapped[str | None] = mapped_column(String(128))
+    summary: Mapped[dict[str, object]] = mapped_column(
+        JSON, nullable=False, default=dict
+    )
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class BillingReconciliationResult(Base):
+    """Append-only evidence for one local/provider comparison."""
+
+    __tablename__ = "billing_reconciliation_results"
+    __table_args__ = (
+        Index("ix_billing_reconciliation_results_run", "run_id", "outcome"),
+        Index("ix_billing_reconciliation_results_company", "company_id", "created_at"),
+        CheckConstraint(
+            "outcome IN "
+            "('matched','provider_missing','local_missing','amount_mismatch',"
+            "'currency_mismatch','integration_mismatch','environment_mismatch',"
+            "'state_mismatch','manual_review_required','corrected_by_compensating_event')",
+            name="ck_billing_reconciliation_result_outcome",
+        ),
+    )
+    id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), primary_key=True, default=uuid4
+    )
+    run_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("billing_reconciliation_runs.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    company_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("companies.id", ondelete="SET NULL")
+    )
+    payment_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("payments.id", ondelete="SET NULL")
+    )
+    provider_payment_id: Mapped[str | None] = mapped_column(String(255))
+    outcome: Mapped[str] = mapped_column(String(48), nullable=False)
+    local_state: Mapped[str | None] = mapped_column(String(32))
+    provider_state: Mapped[str | None] = mapped_column(String(32))
+    safe_details: Mapped[dict[str, object]] = mapped_column(
+        JSON, nullable=False, default=dict
+    )
+    compensating_event_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("billing_webhook_events.id", ondelete="SET NULL")
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
 
 
 class UsageCounter(Base):

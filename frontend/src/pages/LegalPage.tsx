@@ -98,7 +98,7 @@ export function LegalPage(): ReactElement {
 
   if (document === undefined) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-stone-50 px-5">
+      <main className="flex min-h-screen items-center justify-center bg-canvas px-5 text-foreground">
         <div className="max-w-lg text-center">
           <h1 className="text-3xl font-semibold">Policy placeholder not found</h1>
           <Link
@@ -113,7 +113,7 @@ export function LegalPage(): ReactElement {
   }
 
   return (
-    <div className="min-h-screen bg-stone-50 text-neutral-950">
+    <div className="min-h-screen bg-canvas text-foreground">
       <main className="mx-auto max-w-4xl px-5 py-10 sm:px-8 sm:py-14">
         <Link
           className="text-sm font-bold uppercase tracking-[0.18em] text-purple-800"
@@ -133,25 +133,25 @@ export function LegalPage(): ReactElement {
             requires review, completion, and approval by qualified counsel.
           </p>
         </div>
-        <article className="mt-8 rounded-xl border border-neutral-200 bg-white p-6 shadow-sm sm:p-9">
-          <p className="text-sm font-semibold uppercase tracking-wider text-purple-700">
+        <article className="mt-8 rounded-xl border border-border bg-card p-6 shadow-sm sm:p-9">
+          <p className="text-sm font-semibold uppercase tracking-wider text-eyebrow">
             Version: unapproved-draft · Effective date: not set
           </p>
           <h1 className="mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">
             {document.title}
           </h1>
-          <p className="mt-5 text-base leading-7 text-neutral-700">
+          <p className="mt-5 text-base leading-7 text-secondary-foreground">
             {document.purpose}
           </p>
           <h2 className="mt-9 text-xl font-semibold">Counsel must complete</h2>
-          <ul className="mt-4 list-disc space-y-2 pl-6 text-sm leading-6 text-neutral-700">
+          <ul className="mt-4 list-disc space-y-2 pl-6 text-sm leading-6 text-secondary-foreground">
             {document.topics.map((topic) => (
               <li key={topic}>{topic}</li>
             ))}
             <li>Applicable law, jurisdiction, company identity, and contact details</li>
             <li>Version, effective date, change notice, and acceptance requirements</li>
           </ul>
-          <p className="mt-9 border-t border-neutral-200 pt-6 text-sm leading-6 text-neutral-600">
+          <p className="mt-9 border-t border-border pt-6 text-sm leading-6 text-secondary-foreground">
             No acceptance is requested or recorded for this placeholder. Production
             launch requires an approved, versioned replacement and a reviewed decision
             on whether explicit acceptance must be persisted.
@@ -160,7 +160,7 @@ export function LegalPage(): ReactElement {
         <nav aria-label="All legal documents" className="mt-8 flex flex-wrap gap-3">
           {legalLinks.map(([label, to]) => (
             <Link
-              className="rounded-full border border-neutral-300 bg-white px-3 py-1.5 text-xs font-medium hover:border-purple-400"
+              className="rounded-full border border-border-strong bg-card px-3 py-1.5 text-xs font-medium hover:border-purple-400"
               key={to}
               to={to}
             >

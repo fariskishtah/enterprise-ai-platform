@@ -155,6 +155,7 @@ class Settings(BaseSettings):
     paymob_public_key: SecretStr | None = None
     paymob_hmac_secret: SecretStr | None = None
     paymob_integration_id: PositiveInt | None = None
+    paymob_merchant_id: PositiveInt | None = None
     paymob_iframe_id: PositiveInt | None = None
     paymob_base_url: str = "https://accept.paymob.com"
     paymob_webhook_url: str | None = None
@@ -163,6 +164,13 @@ class Settings(BaseSettings):
     payment_currency: Literal["EGP"] = "EGP"
     payment_sandbox_mode: bool = True
     payment_http_timeout_seconds: PositiveFloat = Field(default=10.0, le=30)
+    paymob_allowed_checkout_hosts: tuple[str, ...] = ("accept.paymob.com",)
+    paymob_supported_source_types: tuple[str, ...] = ("card",)
+    billing_commercial_model: Literal[
+        "prepaid_manual_renewal", "provider_recurring_subscription"
+    ] = "prepaid_manual_renewal"
+    billing_checkout_expiry_minutes: PositiveInt = Field(default=30, le=1440)
+    billing_return_reference_expiry_minutes: PositiveInt = Field(default=60, le=1440)
     billing_webhook_queue_name: str = Field(
         default="billing-webhooks",
         min_length=1,
@@ -484,6 +492,39 @@ class Settings(BaseSettings):
             raise ValueError("allowed_hosts must contain at least one hostname.")
         return tuple(normalized)
 
+    @field_validator("paymob_allowed_checkout_hosts")
+    @classmethod
+    def validate_paymob_checkout_hosts(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        normalized: list[str] = []
+        for host in value:
+            candidate = host.strip().lower()
+            if (
+                not candidate
+                or "*" in candidate
+                or "://" in candidate
+                or "/" in candidate
+                or "@" in candidate
+                or candidate.startswith(".")
+            ):
+                raise ValueError(
+                    "paymob_allowed_checkout_hosts contains an invalid host."
+                )
+            if candidate not in normalized:
+                normalized.append(candidate)
+        if not normalized:
+            raise ValueError("paymob_allowed_checkout_hosts must not be empty.")
+        return tuple(normalized)
+
+    @field_validator("paymob_supported_source_types")
+    @classmethod
+    def validate_paymob_source_types(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        normalized = tuple(dict.fromkeys(item.strip().lower() for item in value))
+        if not normalized or any(
+            not re.fullmatch(r"[a-z][a-z0-9_-]{1,31}", item) for item in normalized
+        ):
+            raise ValueError("paymob_supported_source_types is invalid.")
+        return normalized
+
     @field_validator("cookie_domain")
     @classmethod
     def validate_cookie_domain(cls, value: str | None) -> str | None:
@@ -575,6 +616,7 @@ class Settings(BaseSettings):
                 "paymob_public_key": self.paymob_public_key,
                 "paymob_hmac_secret": self.paymob_hmac_secret,
                 "paymob_integration_id": self.paymob_integration_id,
+                "paymob_merchant_id": self.paymob_merchant_id,
                 "paymob_webhook_url": self.paymob_webhook_url,
                 "payment_success_url": self.payment_success_url,
                 "payment_failure_url": self.payment_failure_url,
@@ -585,6 +627,12 @@ class Settings(BaseSettings):
             if missing:
                 raise ValueError(
                     "Paymob configuration is incomplete: " + ", ".join(missing)
+                )
+            if (
+                paymob_base.hostname or ""
+            ).lower() not in self.paymob_allowed_checkout_hosts:
+                raise ValueError(
+                    "paymob_base_url host must be in paymob_allowed_checkout_hosts."
                 )
             assert self.paymob_public_key is not None
             assert self.paymob_secret_key is not None
@@ -624,6 +672,10 @@ class Settings(BaseSettings):
             ):
                 if urlsplit(value or "").scheme != "https":
                     raise ValueError(f"{name} must use HTTPS in production.")
+        if self.billing_commercial_model == "provider_recurring_subscription":
+            raise ValueError(
+                "provider recurring billing is not implemented or sandbox accepted."
+            )
         if self.environment == "production" and not self.billing_entitlements_enforced:
             raise ValueError(
                 "billing_entitlements_enforced must be true in production."

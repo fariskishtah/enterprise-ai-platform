@@ -29,12 +29,12 @@ export function Sidebar({
   const visibleNavigationItems = getVisibleNavigationItems(role, mode, features);
 
   return (
-    <div className="flex h-full flex-col border-r border-[var(--sidebar-border)] bg-[var(--sidebar)] text-neutral-100">
+    <div className="flex h-full flex-col border-r border-[var(--sidebar-border)] bg-[var(--sidebar)] text-[var(--sidebar-text-strong)]">
       <div className="flex h-[4.5rem] shrink-0 items-center justify-between border-b border-[var(--sidebar-border)] px-4">
         <div
           className={`flex min-w-0 items-center gap-3 ${collapsed ? "justify-center" : ""}`}
         >
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-purple-400/40 bg-purple-600 text-xs font-bold tracking-wider text-white shadow-sm">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-purple-300/40 bg-[var(--sidebar-brand)] text-xs font-bold tracking-wider text-white shadow-sm">
             FK
           </span>
           {!collapsed ? (
@@ -51,7 +51,7 @@ export function Sidebar({
         {mobile ? (
           <button
             aria-label="Close navigation"
-            className="rounded-md p-2 text-neutral-300 hover:bg-[var(--sidebar-secondary)] hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-purple-400"
+            className="rounded-md p-2 text-[var(--sidebar-text)] hover:bg-[var(--sidebar-secondary)] hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-purple-400"
             onClick={onClose}
             ref={closeButtonRef}
             type="button"
@@ -74,8 +74,8 @@ export function Sidebar({
                     "group relative flex min-h-11 items-center rounded-md px-3 py-2 text-sm font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-purple-400",
                     collapsed ? "justify-center" : "gap-3",
                     isActive
-                      ? "bg-purple-700 text-white before:absolute before:inset-y-2 before:left-0 before:w-0.5 before:rounded-full before:bg-purple-300"
-                      : "text-neutral-300 hover:bg-[var(--sidebar-secondary)] hover:text-white",
+                      ? "bg-[var(--sidebar-active)] text-white before:absolute before:inset-y-2 before:left-0 before:w-0.5 before:rounded-full before:bg-purple-300"
+                      : "text-[var(--sidebar-text)] hover:bg-[var(--sidebar-secondary)] hover:text-white",
                   ].join(" ")
                 }
                 end={item.path === "/" || item.path === "/settings"}
@@ -105,7 +105,7 @@ export function Sidebar({
         <div className="border-t border-[var(--sidebar-border)] bg-[var(--sidebar)] p-3">
           <button
             aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-            className={`flex w-full items-center rounded-md p-2 text-sm text-neutral-300 hover:bg-[var(--sidebar-secondary)] hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-purple-400 ${collapsed ? "justify-center" : "gap-3"}`}
+            className={`flex w-full items-center rounded-md p-2 text-sm text-[var(--sidebar-text)] hover:bg-[var(--sidebar-secondary)] hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-purple-400 ${collapsed ? "justify-center" : "gap-3"}`}
             onClick={onToggleCollapsed}
             type="button"
           >

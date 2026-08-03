@@ -1,7 +1,8 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page, type Route } from "@playwright/test";
 
-const API_PATTERN = /^http:\/\/(?:localhost|127\.0\.0\.1):8000(\/.*)$/;
+const API_PATTERN =
+  /^(?:http:\/\/(?:localhost|127\.0\.0\.1):8000\/|https?:\/\/[^/]+\/api\/).*$/;
 const NOW = "2026-07-29T10:00:00Z";
 const PERIOD_END = "2026-08-29T10:00:00Z";
 const PAYMENT_ID = "11111111-1111-4111-8111-111111111111";
@@ -96,9 +97,34 @@ function subscription(overrides: Record<string, unknown> = {}) {
 }
 
 function payment(status = "succeeded", overrides: Record<string, unknown> = {}) {
+  const providerDecision =
+    status === "succeeded"
+      ? "succeeded_eligible"
+      : status === "under_review"
+        ? "under_review"
+        : status === "expired"
+          ? "expired"
+          : status === "refunded" || status === "reversed"
+            ? status
+            : status === "failed"
+              ? "failed"
+              : "pending";
+  const checkoutIntentStatus =
+    status === "succeeded"
+      ? "completed"
+      : status === "failed"
+        ? "failed"
+        : status === "cancelled"
+          ? "cancelled"
+          : status === "expired"
+            ? "expired"
+            : "open";
   return {
     amount_minor: 500000,
     created_at: NOW,
+    checkout_expires_at: PERIOD_END,
+    checkout_intent_status: checkoutIntentStatus,
+    commercial_model: "prepaid_manual_renewal",
     currency: "EGP",
     failure_code: status === "failed" ? "declined" : null,
     payment_id: PAYMENT_ID,
@@ -107,8 +133,9 @@ function payment(status = "succeeded", overrides: Record<string, unknown> = {}) 
     provider_checkout_id: "checkout-42",
     provider_occurred_at: NOW,
     provider_payment_id: "paymob-42",
+    provider_decision: providerDecision,
     purpose: "renewal",
-    status,
+    status: ["under_review", "expired"].includes(status) ? "pending" : status,
     updated_at: NOW,
     ...overrides,
   };
@@ -179,6 +206,7 @@ async function mockBilling(page: Page, options: BillingMockOptions = {}) {
   await page.route(API_PATTERN, async (route) => {
     const request = route.request();
     const url = new URL(request.url());
+    if (url.pathname.startsWith("/api/")) url.pathname = url.pathname.slice(4);
     if (url.pathname === "/auth/refresh") {
       return json(route, {
         access_token: "billing-e2e-access",
@@ -206,7 +234,11 @@ async function mockBilling(page: Page, options: BillingMockOptions = {}) {
         simplified_experience_enabled: true,
       });
     }
-    if (url.pathname === "/billing/plans") return json(route, { items: plans });
+    if (url.pathname === "/billing/plans")
+      return json(route, {
+        commercial_model: "prepaid_manual_renewal",
+        items: plans,
+      });
     if (url.pathname === "/billing/subscription" && request.method() === "GET") {
       return json(route, { item: currentSubscription });
     }
@@ -279,6 +311,12 @@ async function mockBilling(page: Page, options: BillingMockOptions = {}) {
     if (url.pathname === `/billing/payments/${PAYMENT_ID}`) {
       return json(route, payment(options.paymentStatus ?? "succeeded"));
     }
+    if (url.pathname === "/billing/returns/resolve" && request.method() === "POST") {
+      const body = request.postDataJSON() as { state?: string };
+      return body.state === "phase2-return-state"
+        ? json(route, payment(options.paymentStatus ?? "succeeded"))
+        : json(route, { detail: "This payment return link is unavailable." }, 404);
+    }
     if (url.pathname === "/billing/subscription/cancel") {
       requests.cancellationCount += 1;
       currentSubscription = subscription({
@@ -315,14 +353,17 @@ async function mockBilling(page: Page, options: BillingMockOptions = {}) {
           amount_minor:
             plans.find((item) => item.code === requestedPlan.plan_code)
               ?.monthly_price_minor ?? 0,
-          checkout_url: `/settings/billing/return?payment_id=${PAYMENT_ID}&success=true`,
+          checkout_expires_at: PERIOD_END,
+          checkout_url:
+            "/settings/billing/return?state=phase2-return-state&success=true&amount=1&plan=enterprise",
+          commercial_model: "prepaid_manual_renewal",
           currency: "EGP",
           failure_url: "http://127.0.0.1:5173/settings/billing/return",
           payment_id: PAYMENT_ID,
           plan_code: requestedPlan.plan_code,
           provider: "paymob",
           provider_checkout_id: "checkout-42",
-          purpose: url.pathname.endsWith("upgrade") ? "upgrade" : "downgrade",
+          purpose: "plan_change",
           reused: false,
           status: "pending",
           subscription_id: currentSubscription.subscription_id,
@@ -348,13 +389,59 @@ test("public pricing renders backend plans for an unauthenticated visitor", asyn
   await page.route("**/auth/refresh", (route) =>
     json(route, { detail: "No session" }, 401),
   );
-  await page.route("**/billing/plans", (route) => json(route, { items: plans }));
+  await page.route("**/billing/plans", (route) =>
+    json(route, {
+      commercial_model: "prepaid_manual_renewal",
+      items: plans,
+    }),
+  );
   await page.goto("/pricing");
   await expect(
     page.getByRole("heading", { name: "Choose the operating scale your team needs" }),
   ).toBeVisible();
   await expect(page.getByRole("heading", { name: "Starter" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Create workspace" })).toHaveCount(3);
+  await page.screenshot({
+    fullPage: true,
+    path: "../artifacts/screenshots/production-pricing-desktop-light.png",
+  });
+  expect(
+    (await new AxeBuilder({ page }).analyze()).violations.filter(
+      ({ impact }) => impact === "critical" || impact === "serious",
+    ),
+  ).toEqual([]);
+
+  await page.evaluate(() => localStorage.setItem("fk-theme-preference", "dark"));
+  await page.reload();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  await expect(
+    page.getByRole("heading", { name: "Choose the operating scale your team needs" }),
+  ).toBeVisible();
+  await page.screenshot({
+    fullPage: true,
+    path: "../artifacts/screenshots/production-pricing-desktop-dark.png",
+  });
+  expect(
+    (await new AxeBuilder({ page }).analyze()).violations.filter(
+      ({ impact }) => impact === "critical" || impact === "serious",
+    ),
+  ).toEqual([]);
+
+  await page.setViewportSize({ height: 844, width: 390 });
+  await page.screenshot({
+    fullPage: true,
+    path: "../artifacts/screenshots/production-pricing-mobile-dark.png",
+  });
+  await page.evaluate(() => localStorage.setItem("fk-theme-preference", "light"));
+  await page.reload();
+  await expect(
+    page.getByRole("heading", { name: "Choose the operating scale your team needs" }),
+  ).toBeVisible();
+  await page.screenshot({
+    fullPage: true,
+    path: "../artifacts/screenshots/production-pricing-mobile-light.png",
+  });
+  expect(await page.evaluate(() => document.body.scrollWidth)).toBeLessThanOrEqual(390);
 });
 
 test("owner sees current plan, usage limits, payments, and invoices", async ({
@@ -414,6 +501,46 @@ test("owner sees current plan, usage limits, payments, and invoices", async ({
   });
 });
 
+test("billing overview remains readable across the production theme matrix", async ({
+  page,
+}) => {
+  await mockBilling(page);
+  await page.goto("/settings/billing");
+  await expect(
+    page.getByRole("heading", { name: "Billing & subscription" }),
+  ).toBeVisible();
+
+  for (const theme of ["light", "dark"] as const) {
+    await page.evaluate(
+      (preference) => localStorage.setItem("fk-theme-preference", preference),
+      theme,
+    );
+    await page.reload();
+    await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
+    await expect(
+      page.getByRole("heading", { name: "Billing & subscription" }),
+    ).toBeVisible();
+    await page.setViewportSize({ height: 1000, width: 1440 });
+    await page.screenshot({
+      fullPage: true,
+      path: `../artifacts/screenshots/production-billing-desktop-${theme}.png`,
+    });
+    expect(
+      (await new AxeBuilder({ page }).analyze()).violations.filter(
+        ({ impact }) => impact === "critical" || impact === "serious",
+      ),
+    ).toEqual([]);
+    await page.setViewportSize({ height: 844, width: 390 });
+    await page.screenshot({
+      fullPage: true,
+      path: `../artifacts/screenshots/production-billing-mobile-${theme}.png`,
+    });
+    expect(await page.evaluate(() => document.body.scrollWidth)).toBeLessThanOrEqual(
+      390,
+    );
+  }
+});
+
 test("hosted upgrade redirect is followed but success query data is not trusted", async ({
   page,
 }) => {
@@ -429,8 +556,9 @@ test("hosted upgrade redirect is followed but success query data is not trusted"
     path: "../artifacts/screenshots/phase-h-checkout.png",
   });
   await page.getByRole("button", { name: /Continue to Paymob/ }).click();
-  await expect(page).toHaveURL(/payment_id=.*success=true/);
+  await expect(page).toHaveURL(/state=phase2-return-state.*success=true/);
   await expect(page.getByRole("heading", { name: "Payment verified" })).toBeVisible();
+  await expect(page.getByText(/professional ·/i)).toBeVisible();
   await page.screenshot({
     fullPage: true,
     path: "../artifacts/screenshots/phase-h-payment-success.png",
@@ -442,22 +570,24 @@ test("pending payment stays in processing and offers an explicit refresh", async
   page,
 }) => {
   await mockBilling(page, { paymentStatus: "pending" });
-  await page.goto(`/settings/billing/return?payment_id=${PAYMENT_ID}&success=true`);
+  await page.goto(
+    "/settings/billing/return?state=phase2-return-state&success=true&amount=1&plan=starter",
+  );
   await expect(page.getByRole("heading", { name: "Confirming payment" })).toBeVisible();
-  await expect(page.getByText(/waiting for a verified provider event/i)).toBeVisible();
+  await expect(page.getByText(/waiting for an eligible provider event/i)).toBeVisible();
   await expect(page.getByRole("button", { name: "Check again" })).toBeVisible();
 });
 
 test("failed payment offers a retry without claiming paid access", async ({ page }) => {
   await mockBilling(page, { paymentStatus: "failed" });
-  await page.goto(`/settings/billing/return?payment_id=${PAYMENT_ID}&success=true`);
+  await page.goto("/settings/billing/return?state=phase2-return-state&success=true");
   await expect(
-    page.getByRole("heading", { name: "Payment was not completed" }),
+    page.getByRole("heading", { name: "Payment was declined" }),
   ).toBeVisible();
   await expect(
     page.getByText("No paid access was granted.", { exact: false }),
   ).toBeVisible();
-  await expect(page.getByRole("link", { name: "Retry checkout" })).toHaveAttribute(
+  await expect(page.getByRole("link", { name: "Start new checkout" })).toHaveAttribute(
     "href",
     "/settings/billing/checkout/professional",
   );
@@ -471,13 +601,59 @@ test("cancelled payment remains inactive and is clearly disclosed", async ({
   page,
 }) => {
   await mockBilling(page, { paymentStatus: "cancelled" });
-  await page.goto(`/settings/billing/return?payment_id=${PAYMENT_ID}&success=true`);
+  await page.goto("/settings/billing/return?state=phase2-return-state&success=true");
   await expect(page.getByRole("heading", { name: "Checkout cancelled" })).toBeVisible();
   await expect(page.getByText(/no paid access was granted/i)).toBeVisible();
   await page.screenshot({
     fullPage: true,
     path: "../artifacts/screenshots/phase-h-payment-cancellation.png",
   });
+});
+
+test("missing and tampered return states show safe recovery", async ({ page }) => {
+  await mockBilling(page);
+  await page.goto("/settings/billing/return?success=true&amount=500000");
+  await expect(
+    page.getByRole("heading", { name: "Unable to confirm payment" }),
+  ).toBeVisible();
+  await expect(page.getByText(/missing its secure state/i)).toBeVisible();
+  await page.goto("/settings/billing/return?state=tampered-return-state-value-000000");
+  await expect(
+    page.getByRole("heading", { name: "Unable to confirm payment" }),
+  ).toBeVisible();
+  await expect(page.getByRole("link", { name: "View billing" })).toBeVisible();
+});
+
+test("expired and under-review returns provide recovery actions", async ({ page }) => {
+  await mockBilling(page, { paymentStatus: "expired" });
+  await page.goto("/settings/billing/return?state=phase2-return-state");
+  await expect(page.getByRole("heading", { name: "Checkout expired" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Start new checkout" })).toBeVisible();
+
+  await page.unrouteAll({ behavior: "wait" });
+  await mockBilling(page, { paymentStatus: "under_review" });
+  await page.reload();
+  await expect(
+    page.getByRole("heading", { name: "Payment under review" }),
+  ).toBeVisible();
+  await expect(page.getByRole("link", { name: "Contact support" })).toBeVisible();
+  await page.evaluate(() => localStorage.setItem("fk-theme-preference", "dark"));
+  await page.setViewportSize({ height: 844, width: 390 });
+  await page.reload();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  await expect(
+    page.getByRole("heading", { name: "Payment under review" }),
+  ).toBeVisible();
+  await page.screenshot({
+    fullPage: true,
+    path: "../artifacts/screenshots/phase2-payment-under-review-mobile-dark.png",
+  });
+  expect(await page.evaluate(() => document.body.scrollWidth)).toBeLessThanOrEqual(390);
+  expect(
+    (await new AxeBuilder({ page }).analyze()).violations.filter(
+      ({ impact }) => impact === "critical" || impact === "serious",
+    ),
+  ).toEqual([]);
 });
 
 test("rapid checkout submissions create only one hosted checkout", async ({ page }) => {
@@ -541,7 +717,7 @@ test("checkout selects the downgrade lifecycle endpoint", async ({ page }) => {
 
 test("refund and reversal terminal states are disclosed", async ({ page }) => {
   await mockBilling(page, { paymentStatus: "refunded" });
-  await page.goto(`/settings/billing/return?payment_id=${PAYMENT_ID}`);
+  await page.goto("/settings/billing/return?state=phase2-return-state");
   await expect(page.getByRole("heading", { name: "Payment refunded" })).toBeVisible();
   await page.unrouteAll({ behavior: "wait" });
   await mockBilling(page, { paymentStatus: "reversed" });

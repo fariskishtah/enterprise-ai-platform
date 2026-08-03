@@ -1,6 +1,6 @@
 """Billing catalogue, hosted checkout, and authenticated provider callbacks."""
 
-from typing import Annotated
+from typing import Annotated, cast
 from uuid import UUID
 
 from fastapi import (
@@ -21,6 +21,7 @@ from app.billing.providers import (
     PaymentProviderConfigurationError,
     PaymentProviderError,
     PaymentProviderSignatureError,
+    PaymentReconciliationProvider,
 )
 from app.billing.queue import BillingWebhookQueue
 from app.config.settings import Settings, get_settings
@@ -35,9 +36,13 @@ from app.repositories.billing import BillingRepository
 from app.schemas.billing import (
     BillingAuditEventResponse,
     BillingAuditHistoryResponse,
+    BillingDiagnosticsResponse,
     BillingProviderEventHistoryResponse,
     BillingProviderEventResponse,
     BillingReasonRequest,
+    BillingReconciliationRequest,
+    BillingReconciliationResponse,
+    BillingReturnResolveRequest,
     CheckoutCreateRequest,
     CheckoutResponse,
     EntitlementItemResponse,
@@ -67,6 +72,10 @@ from app.services.billing import (
     BillingWebhookPayloadError,
     CheckoutResult,
 )
+from app.services.billing_reconciliation import (
+    BillingReconciliationError,
+    BillingReconciliationService,
+)
 from app.services.entitlements import EntitlementOverrideError, EntitlementService
 
 router = APIRouter(prefix="/billing", tags=["billing"])
@@ -86,6 +95,25 @@ def _service(
             grace_period_days=settings.billing_grace_period_days,
             incomplete_expiry_hours=settings.billing_incomplete_expiry_hours,
             suspension_expiry_days=settings.billing_suspension_expiry_days,
+            checkout_expiry_minutes=settings.billing_checkout_expiry_minutes,
+            return_reference_expiry_minutes=(
+                settings.billing_return_reference_expiry_minutes
+            ),
+            commercial_model=settings.billing_commercial_model,
+            environment=(
+                "sandbox"
+                if settings.payment_provider == "paymob"
+                and settings.payment_sandbox_mode
+                else "live"
+                if settings.payment_provider == "paymob"
+                else "legacy_unknown"
+            ),
+            provider_integration_id=settings.paymob_integration_id,
+            provider_merchant_id=(
+                str(settings.paymob_merchant_id)
+                if settings.paymob_merchant_id is not None
+                else None
+            ),
         )
         if settings is not None
         else None
@@ -108,6 +136,10 @@ def _payment_response(payment: Payment) -> PaymentStatusResponse:
         provider_occurred_at=payment.provider_occurred_at,
         created_at=payment.created_at,
         updated_at=payment.updated_at,
+        checkout_intent_status=payment.checkout_intent_status,
+        checkout_expires_at=payment.checkout_expires_at,
+        provider_decision=payment.provider_decision,
+        commercial_model=payment.commercial_model,
     )
 
 
@@ -127,6 +159,8 @@ def _checkout_response(
         reused=result.reused,
         purpose=result.purpose,
         failure_url=settings.payment_failure_url or "",
+        checkout_expires_at=result.checkout_expires_at,
+        commercial_model=settings.billing_commercial_model,
     )
 
 
@@ -198,7 +232,9 @@ async def _entitlement_response(
 
 
 @router.get("/plans", response_model=PlanListResponse)
-async def list_plans() -> PlanListResponse:
+async def list_plans(
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> PlanListResponse:
     """Return the backend-authoritative active plan catalogue."""
     return PlanListResponse(
         items=[
@@ -211,8 +247,33 @@ async def list_plans() -> PlanListResponse:
                 entitlements=plan.entitlements,
             )
             for plan in PLAN_CATALOG
-        ]
+        ],
+        commercial_model=settings.billing_commercial_model,
     )
+
+
+@router.post("/returns/resolve", response_model=PaymentStatusResponse)
+async def resolve_billing_return(
+    payload: BillingReturnResolveRequest,
+    actor: Annotated[User, Depends(require_permissions(Permission.BILLING_MANAGE))],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> PaymentStatusResponse:
+    """Resolve an opaque return state to tenant-scoped persisted payment truth."""
+    try:
+        payment = await BillingService(session, None).resolve_return_reference(
+            company_id=actor.company_id, reference=payload.state
+        )
+    except BillingNotFoundError as exc:
+        response_status = (
+            status.HTTP_410_GONE
+            if "expired" in str(exc).lower()
+            else status.HTTP_404_NOT_FOUND
+        )
+        raise HTTPException(
+            status_code=response_status,
+            detail={"code": "billing_return_unavailable", "message": str(exc)},
+        ) from exc
+    return _payment_response(payment)
 
 
 @router.post(
@@ -276,13 +337,14 @@ async def get_payment_status(
     actor: Annotated[User, Depends(require_permissions(Permission.BILLING_MANAGE))],
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> PaymentStatusResponse:
-    payment = await BillingRepository(session).get_company_payment(
-        payment_id, actor.company_id
-    )
-    if payment is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="The payment does not exist."
+    try:
+        payment = await BillingService(session, None).payment_status(
+            actor=actor, payment_id=payment_id
         )
+    except BillingNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from exc
     return _payment_response(payment)
 
 
@@ -768,6 +830,86 @@ async def reconcile_subscription(
     return await _subscription_response(BillingRepository(session), subscription)
 
 
+@router.get(
+    "/platform/diagnostics",
+    response_model=BillingDiagnosticsResponse,
+)
+async def billing_platform_diagnostics(
+    _actor: Annotated[
+        User, Depends(require_permissions(Permission.BILLING_PLATFORM_OPERATE))
+    ],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> BillingDiagnosticsResponse:
+    """Expose non-secret commercial/provider posture to platform operations."""
+    return BillingDiagnosticsResponse(
+        payment_provider=settings.payment_provider,
+        provider_enabled=settings.payment_provider != "disabled",
+        environment="sandbox" if settings.payment_sandbox_mode else "live",
+        commercial_model=settings.billing_commercial_model,
+        recurring_collection_enabled=False,
+        provider_reconciliation_query_accepted=False,
+    )
+
+
+@router.post(
+    "/platform/reconciliation/runs",
+    response_model=BillingReconciliationResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def run_provider_reconciliation(
+    payload: BillingReconciliationRequest,
+    idempotency_key: Annotated[
+        str,
+        Header(
+            alias="Idempotency-Key",
+            min_length=16,
+            max_length=128,
+            pattern=r"^[A-Za-z0-9._:-]+$",
+        ),
+    ],
+    actor: Annotated[
+        User, Depends(require_permissions(Permission.BILLING_PLATFORM_OPERATE))
+    ],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+    provider: Annotated[PaymentProvider, Depends(get_payment_provider)],
+    queue: Annotated[BillingWebhookQueue, Depends(get_billing_webhook_queue)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> BillingReconciliationResponse:
+    """Compare provider truth without tenant-controlled inputs or money rewrites."""
+    try:
+        summary = await BillingReconciliationService(session).run(
+            actor=actor,
+            provider=cast(PaymentReconciliationProvider, provider),
+            environment="sandbox" if settings.payment_sandbox_mode else "live",
+            idempotency_key=idempotency_key,
+            dry_run=payload.dry_run,
+            finance_approval_reference=payload.finance_approval_reference,
+        )
+    except BillingReconciliationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "billing_reconciliation_conflict", "message": str(exc)},
+        ) from exc
+    except PaymentProviderError as exc:
+        raise HTTPException(
+            status_code=(
+                status.HTTP_503_SERVICE_UNAVAILABLE
+                if exc.retryable
+                else status.HTTP_502_BAD_GATEWAY
+            ),
+            detail={"code": "provider_reconciliation_unavailable", "message": str(exc)},
+        ) from exc
+    for event_id in summary.compensating_event_ids:
+        queue.enqueue(event_id)
+    return BillingReconciliationResponse(
+        run_id=summary.run_id,
+        dry_run=summary.dry_run,
+        reused=summary.reused,
+        outcomes=summary.outcomes,
+        compensating_event_count=len(summary.compensating_event_ids),
+    )
+
+
 @router.post(
     "/webhooks/paymob",
     response_model=WebhookAcceptedResponse,
@@ -802,4 +944,8 @@ async def paymob_webhook(
                 detail="The callback was saved but could not be queued.",
                 headers={"Retry-After": "5"},
             ) from exc
-    return WebhookAcceptedResponse(duplicate=result.duplicate)
+    return WebhookAcceptedResponse(
+        accepted=result.outcome in {"accepted", "duplicate"},
+        duplicate=result.duplicate,
+        outcome=result.outcome,
+    )

@@ -10,6 +10,30 @@ from uuid import UUID
 PaymentState = Literal[
     "pending", "succeeded", "failed", "cancelled", "refunded", "reversed"
 ]
+PaymentDecision = Literal[
+    "pending",
+    "authorized_not_captured",
+    "succeeded_eligible",
+    "failed",
+    "cancelled",
+    "expired",
+    "refunded",
+    "reversed",
+    "under_review",
+    "quarantined",
+]
+ProviderValidationOutcome = Literal[
+    "accepted",
+    "duplicate",
+    "quarantined_invalid_hmac",
+    "quarantined_wrong_integration",
+    "quarantined_wrong_environment",
+    "quarantined_wrong_merchant",
+    "quarantined_wrong_amount",
+    "quarantined_wrong_currency",
+    "quarantined_unknown_payment",
+    "quarantined_unsupported_semantics",
+]
 
 
 class PaymentProviderError(RuntimeError):
@@ -50,6 +74,7 @@ class CheckoutRequest:
     city: str
     country: str
     street: str
+    return_reference: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,6 +101,36 @@ class ProviderWebhook:
     occurred_at: datetime | None
     failure_code: str | None = None
     provider_customer_id: str | None = None
+    decision: PaymentDecision | None = None
+    validation_outcome: ProviderValidationOutcome = "accepted"
+    integration_id: int | None = None
+    environment: Literal["sandbox", "live"] | None = None
+    merchant_id: str | None = None
+    provider_order_id: str | None = None
+    source_type: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ProviderTransactionTruth:
+    """Card-free provider truth consumed by reconciliation."""
+
+    provider_payment_id: str
+    payment_reference: UUID | None
+    amount_minor: int
+    currency: str
+    decision: PaymentDecision
+    integration_id: int
+    environment: Literal["sandbox", "live"]
+    occurred_at: datetime
+    merchant_id: str | None = None
+    provider_order_id: str | None = None
+
+
+class PaymentReconciliationProvider(Protocol):
+    name: str
+
+    async def list_reconciliation_transactions(self) -> list[ProviderTransactionTruth]:
+        """Return authenticated provider truth for one bounded configured window."""
 
 
 class PaymentProvider(Protocol):

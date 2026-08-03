@@ -71,9 +71,45 @@ deployment needs:
 - `PAYMENT_PROVIDER=paymob`
 - `PAYMOB_SECRET_KEY`, `PAYMOB_PUBLIC_KEY`, and `PAYMOB_HMAC_SECRET`
 - `PAYMOB_INTEGRATION_ID`
+- `PAYMOB_MERCHANT_ID` (the callback `owner` identifier for the sandbox merchant)
 - `PAYMOB_BASE_URL=https://accept.paymob.com` for Egypt
 - public `PAYMOB_WEBHOOK_URL`, `PAYMENT_SUCCESS_URL`, and
   `PAYMENT_FAILURE_URL`
+- `PAYMENT_SANDBOX_MODE=true`, `PAYMENT_CURRENCY=EGP`, and the exact hosted
+  checkout/source allowlists
+
+Phase 2 uses `BILLING_COMMERCIAL_MODEL=prepaid_manual_renewal`. Each eligible
+payment buys one fixed access period. No automatic collection, saved mandate,
+or recurring provider subscription is scheduled. Selecting
+`provider_recurring_subscription` fails startup until that separate integration
+has passed recurring sandbox acceptance.
+
+The exact isolated sandbox variables are:
+
+```dotenv
+PAYMENT_PROVIDER=paymob
+PAYMENT_SANDBOX_MODE=true
+PAYMENT_CURRENCY=EGP
+PAYMOB_SECRET_KEY=<sandbox-secret-key>
+PAYMOB_PUBLIC_KEY=<sandbox-public-key>
+PAYMOB_HMAC_SECRET=<sandbox-hmac-secret>
+PAYMOB_INTEGRATION_ID=<sandbox-payment-method-integration-id>
+PAYMOB_MERCHANT_ID=<sandbox-callback-owner-id>
+PAYMOB_BASE_URL=https://accept.paymob.com
+PAYMOB_WEBHOOK_URL=https://<isolated-api-host>/billing/webhooks/paymob
+PAYMENT_SUCCESS_URL=https://<isolated-app-host>/settings/billing/return
+PAYMENT_FAILURE_URL=https://<isolated-app-host>/settings/billing/return
+PAYMOB_ALLOWED_CHECKOUT_HOSTS=["accept.paymob.com"]
+PAYMOB_SUPPORTED_SOURCE_TYPES=["card"]
+BILLING_COMMERCIAL_MODEL=prepaid_manual_renewal
+BILLING_CHECKOUT_EXPIRY_MINUTES=30
+BILLING_RETURN_REFERENCE_EXPIRY_MINUTES=60
+```
+
+`PAYMOB_API_KEY` and `PAYMOB_IFRAME_ID` are not used by the Phase 2 Intention
+checkout. No provider-transaction query endpoint is claimed ready; the Paymob
+reconciliation adapter deliberately fails closed until its query contract passes
+isolated sandbox acceptance.
 - `PAYMENT_CURRENCY=EGP`
 - `PAYMENT_SANDBOX_MODE=true` with test keys, or `false` with live keys
 
@@ -199,12 +235,13 @@ the backend-returned Paymob Unified Checkout URL. A synchronous submission guard
 and stable `Idempotency-Key` cover rapid duplicate actions. Card or wallet data is
 never collected by the application.
 
-`/settings/billing/return?payment_id=...` reads only the payment reference, polls
-the authenticated tenant-scoped payment API, and renders `creating`, `pending`,
-`succeeded`, `failed`, `provider_error`, `cancelled`, `refunded`, or `reversed`
-from that response. Any `success`, status, price, plan, or company value included
-in the redirect URL is ignored. Pending checkout abandonment is recorded only
-through the authenticated cancellation API.
+`/settings/billing/return?state=...` submits only the opaque return state to the
+authenticated, tenant-scoped resolver. The server verifies its hash, purpose,
+tenant binding, and expiry before the page polls persisted payment state. The page
+renders pending, succeeded, declined, cancelled, expired, refunded, reversed, and
+under-review recovery states. Any `success`, status, price, plan, company, or
+payment identifier included in the redirect URL is ignored. Pending checkout
+abandonment is recorded only through the authenticated cancellation API.
 
 The management view has state-specific past-due/grace, suspended/read-only,
 scheduled-cancellation, incomplete, cancelled, and expired guidance. It never

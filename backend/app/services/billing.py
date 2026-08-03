@@ -7,6 +7,7 @@ import calendar
 import hashlib
 import json
 import logging
+import secrets
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -22,6 +23,7 @@ from app.billing.providers import (
     HostedCheckout,
     PaymentProvider,
     PaymentProviderError,
+    PaymentProviderSignatureError,
     ProviderWebhook,
 )
 from app.billing.queue import BillingWebhookQueue
@@ -70,6 +72,12 @@ class BillingPolicy:
     grace_period_days: int = 7
     incomplete_expiry_hours: int = 24
     suspension_expiry_days: int = 30
+    checkout_expiry_minutes: int = 30
+    return_reference_expiry_minutes: int = 60
+    commercial_model: str = "prepaid_manual_renewal"
+    environment: str = "legacy_unknown"
+    provider_integration_id: int | None = None
+    provider_merchant_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,6 +115,7 @@ class CheckoutResult:
     checkout: HostedCheckout
     reused: bool
     purpose: str
+    checkout_expires_at: datetime | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,6 +123,7 @@ class WebhookIngestResult:
     event_id: UUID
     duplicate: bool
     should_enqueue: bool
+    outcome: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -139,6 +149,16 @@ def _next_month(value: datetime) -> datetime:
 
 def _as_utc(value: datetime) -> datetime:
     return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+
+
+def _decision_for_legacy_state(state: str) -> str:
+    return {
+        "succeeded": "succeeded_eligible",
+        "failed": "failed",
+        "cancelled": "cancelled",
+        "refunded": "refunded",
+        "reversed": "reversed",
+    }.get(state, "pending")
 
 
 def subscription_lifecycle_transition(
@@ -383,13 +403,14 @@ class BillingService:
         plan = get_plan(plan_code)
         if plan is None:
             raise BillingNotFoundError("The requested billing plan does not exist.")
-        if not await self._repository.company_is_billable(actor.company_id):
+        if not await self._repository.company_is_billable(actor.company_id, lock=True):
             raise BillingNotFoundError("The billing company does not exist.")
 
         created_here = False
         existing = await self._repository.get_by_idempotency(
             actor.company_id, idempotency_key
         )
+        return_reference: str | None = None
         if existing is None:
             plan_record = await self._ensure_plan(plan)
             subscription = await self._repository.get_company_subscription(
@@ -447,8 +468,13 @@ class BillingService:
                 else:
                     purpose = "renewal"
 
+            payment_id = uuid4()
+            return_reference = self.generate_return_reference()
+            checkout_expires_at = now + timedelta(
+                minutes=self._policy.checkout_expiry_minutes
+            )
             payment = Payment(
-                id=uuid4(),
+                id=payment_id,
                 company_id=actor.company_id,
                 subscription_id=subscription.id,
                 provider=provider.name,
@@ -458,7 +484,39 @@ class BillingService:
                 amount_minor=plan.monthly_price_minor,
                 currency=plan.currency,
                 status="creating",
+                checkout_intent_status="open",
+                checkout_expires_at=checkout_expires_at,
+                return_reference_hash=self.hash_return_reference(return_reference),
+                return_reference_expires_at=now
+                + timedelta(minutes=self._policy.return_reference_expiry_minutes),
+                return_reference_purpose="checkout_return",
+                environment=self._policy.environment,
+                commercial_model=self._policy.commercial_model,
+                provider_decision="pending",
+                provider_integration_id=self._policy.provider_integration_id,
+                provider_merchant_id=self._policy.provider_merchant_id,
             )
+            for prior in await self._repository.list_open_company_payments(
+                actor.company_id, lock=True
+            ):
+                if self._checkout_has_expired(prior, now):
+                    self._expire_checkout(prior)
+                    action = "checkout.expired"
+                    metadata: dict[str, object] = {"payment_id": str(prior.id)}
+                else:
+                    prior.checkout_intent_status = "superseded"
+                    prior.superseded_by_payment_id = payment_id
+                    action = "checkout.superseded"
+                    metadata = {
+                        "payment_id": str(prior.id),
+                        "superseded_by_payment_id": str(payment_id),
+                    }
+                self._audit(
+                    company_id=actor.company_id,
+                    actor_user_id=actor.id,
+                    action=action,
+                    metadata=metadata,
+                )
             self._repository.add_payment(payment)
             self._audit(
                 company_id=actor.company_id,
@@ -496,13 +554,30 @@ class BillingService:
             and payment.checkout_url
             and payment.provider_checkout_id
         ):
+            if not self._checkout_is_open(payment, datetime.now(UTC)):
+                raise BillingConflictError("This hosted checkout has expired.")
             return self._checkout_result(payment, plan, reused=True)
         if payment.status == "provider_error":
+            if not self._checkout_is_open(payment, datetime.now(UTC)):
+                raise BillingConflictError(
+                    "This hosted checkout has expired or changed."
+                )
             claimed = await self._repository.claim_payment_retry(payment.id)
             await self._session.commit()
             if not claimed:
                 raise BillingConflictError("Checkout creation is already in progress.")
             created_here = True
+            return_reference = self.generate_return_reference()
+            now = datetime.now(UTC)
+            payment.return_reference_hash = self.hash_return_reference(return_reference)
+            payment.return_reference_expires_at = now + timedelta(
+                minutes=self._policy.return_reference_expiry_minutes
+            )
+            payment.checkout_expires_at = now + timedelta(
+                minutes=self._policy.checkout_expiry_minutes
+            )
+            payment.checkout_intent_status = "open"
+            await self._session.commit()
         if payment.status == "creating" and not created_here:
             raise BillingConflictError("Checkout creation is already in progress.")
         if payment.status != "creating":
@@ -510,6 +585,7 @@ class BillingService:
                 "This payment can no longer create a hosted checkout."
             )
         try:
+            assert return_reference is not None
             checkout = await provider.create_checkout(
                 CheckoutRequest(
                     reference=payment.id,
@@ -524,6 +600,7 @@ class BillingService:
                     city=billing_details.city,
                     country=billing_details.country,
                     street=billing_details.street,
+                    return_reference=return_reference,
                 )
             )
         except PaymentProviderError:
@@ -538,20 +615,36 @@ class BillingService:
             )
             await self._session.commit()
             raise
-        payment.provider_checkout_id = checkout.provider_checkout_id
-        payment.checkout_url = checkout.checkout_url
-        payment.status = "pending"
-        payment.failure_code = None
+        locked_payment = await self._repository.get_payment(payment.id, lock=True)
+        if locked_payment is None:
+            raise BillingNotFoundError("The checkout payment no longer exists.")
+        locked_payment.provider_checkout_id = checkout.provider_checkout_id
+        locked_payment.checkout_url = checkout.checkout_url
+        locked_payment.status = "pending"
+        locked_payment.failure_code = None
+        if locked_payment.checkout_intent_status != "open":
+            self._audit(
+                company_id=locked_payment.company_id,
+                actor_user_id=actor.id,
+                action="checkout.created_after_supersession",
+                result="failed",
+                metadata={"payment_id": str(locked_payment.id)},
+            )
+            await self._session.commit()
+            raise BillingConflictError(
+                "This checkout was superseded by a newer request."
+            )
         self._audit(
-            company_id=payment.company_id,
+            company_id=locked_payment.company_id,
             actor_user_id=actor.id,
             action="checkout.created",
             metadata={
-                "payment_id": str(payment.id),
+                "payment_id": str(locked_payment.id),
                 "provider_checkout_id": checkout.provider_checkout_id,
             },
         )
         await self._session.commit()
+        payment = locked_payment
         assert payment.subscription_id is not None
         return CheckoutResult(
             payment_id=payment.id,
@@ -561,6 +654,7 @@ class BillingService:
             checkout=checkout,
             reused=False,
             purpose=payment.purpose,
+            checkout_expires_at=payment.checkout_expires_at,
         )
 
     async def _ensure_plan(self, plan: PlanDefinition) -> BillingPlan:
@@ -585,6 +679,68 @@ class BillingService:
         return self._provider
 
     @staticmethod
+    def generate_return_reference() -> str:
+        return secrets.token_urlsafe(32)
+
+    @staticmethod
+    def hash_return_reference(reference: str) -> str:
+        return hashlib.sha256(reference.encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def _checkout_is_open(payment: Payment, now: datetime) -> bool:
+        expires_at = payment.checkout_expires_at
+        return (
+            payment.checkout_intent_status == "open"
+            and expires_at is not None
+            and _as_utc(expires_at) > now
+        )
+
+    @staticmethod
+    def _checkout_has_expired(payment: Payment, now: datetime) -> bool:
+        return bool(
+            payment.checkout_expires_at is not None
+            and _as_utc(payment.checkout_expires_at) <= now
+        )
+
+    @staticmethod
+    def _expire_checkout(payment: Payment) -> None:
+        payment.checkout_intent_status = "expired"
+        payment.provider_decision = "expired"
+        if payment.status in {"creating", "pending", "provider_error"}:
+            payment.status = "cancelled"
+
+    async def payment_status(self, *, actor: User, payment_id: UUID) -> Payment:
+        payment = await self._repository.get_company_payment(
+            payment_id, actor.company_id, lock=True
+        )
+        if payment is None:
+            raise BillingNotFoundError("The payment does not exist.")
+        if payment.checkout_intent_status == "open" and self._checkout_has_expired(
+            payment, datetime.now(UTC)
+        ):
+            self._expire_checkout(payment)
+            await self._session.commit()
+        return payment
+
+    async def resolve_return_reference(
+        self, *, company_id: UUID, reference: str
+    ) -> Payment:
+        payment = await self._repository.get_company_payment_by_return_hash(
+            company_id, self.hash_return_reference(reference)
+        )
+        if payment is None:
+            raise BillingNotFoundError("The payment return reference is invalid.")
+        expires_at = payment.return_reference_expires_at
+        if expires_at is None or _as_utc(expires_at) <= datetime.now(UTC):
+            raise BillingNotFoundError("The payment return reference has expired.")
+        if payment.checkout_intent_status == "open" and self._checkout_has_expired(
+            payment, datetime.now(UTC)
+        ):
+            self._expire_checkout(payment)
+            await self._session.commit()
+        return payment
+
+    @staticmethod
     def _checkout_result(
         payment: Payment, plan: PlanDefinition, *, reused: bool
     ) -> CheckoutResult:
@@ -602,6 +758,7 @@ class BillingService:
             ),
             reused=reused,
             purpose=payment.purpose,
+            checkout_expires_at=payment.checkout_expires_at,
         )
 
     async def cancel_checkout(self, *, actor: User, payment_id: UUID) -> Payment:
@@ -612,6 +769,7 @@ class BillingService:
             raise BillingNotFoundError("The payment does not exist.")
         if payment.status in {"creating", "pending", "provider_error"}:
             payment.status = "cancelled"
+            payment.checkout_intent_status = "cancelled"
             payment.failure_code = None
             if payment.subscription_id and payment.purpose in {
                 "plan_change",
@@ -787,10 +945,43 @@ class BillingService:
         self, payload: dict[str, object], *, signature: str
     ) -> WebhookIngestResult:
         provider = self._require_provider()
-        normalized = provider.parse_webhook(payload, signature=signature)
         payload_hash = hashlib.sha256(
             json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
         ).hexdigest()
+        try:
+            normalized = provider.parse_webhook(payload, signature=signature)
+        except PaymentProviderSignatureError:
+            provider_event_id = f"invalid-hmac:{payload_hash[:40]}"
+            existing = await self._repository.get_event_by_provider_id(
+                provider.name, provider_event_id
+            )
+            if existing is None:
+                event = BillingWebhookEvent(
+                    provider=provider.name,
+                    provider_event_id=provider_event_id,
+                    event_type="transaction.invalid_hmac",
+                    payload_hash=payload_hash,
+                    safe_payload={"validation_outcome": "quarantined_invalid_hmac"},
+                    validation_outcome="quarantined_invalid_hmac",
+                    status="quarantined",
+                    last_error_category="quarantined_invalid_hmac",
+                    last_error="quarantined_invalid_hmac",
+                    processed_at=datetime.now(UTC),
+                )
+                self._repository.add_event(event)
+                await self._session.commit()
+                return WebhookIngestResult(
+                    event_id=event.id,
+                    duplicate=False,
+                    should_enqueue=False,
+                    outcome="quarantined_invalid_hmac",
+                )
+            return WebhookIngestResult(
+                event_id=existing.id,
+                duplicate=True,
+                should_enqueue=False,
+                outcome="duplicate",
+            )
         existing = await self._repository.get_event_by_provider_id(
             provider.name, normalized.provider_event_id
         )
@@ -803,6 +994,31 @@ class BillingService:
             event = existing
         else:
             payment = await self._repository.get_payment(normalized.payment_reference)
+            validation_outcome = normalized.validation_outcome
+            if payment is None or payment.provider != provider.name:
+                validation_outcome = "quarantined_unknown_payment"
+            elif payment.amount_minor != normalized.amount_minor:
+                validation_outcome = "quarantined_wrong_amount"
+            elif payment.currency != normalized.currency:
+                validation_outcome = "quarantined_wrong_currency"
+            elif (
+                payment.provider_integration_id is not None
+                and payment.provider_integration_id != normalized.integration_id
+            ):
+                validation_outcome = "quarantined_wrong_integration"
+            elif (
+                payment.environment != "legacy_unknown"
+                and payment.environment != normalized.environment
+            ):
+                validation_outcome = "quarantined_wrong_environment"
+            elif (
+                payment.provider_merchant_id is not None
+                and payment.provider_merchant_id != normalized.merchant_id
+            ):
+                validation_outcome = "quarantined_wrong_merchant"
+            quarantined = validation_outcome != "accepted"
+            safe_payload = self._safe_payload(normalized)
+            safe_payload["validation_outcome"] = validation_outcome
             event = BillingWebhookEvent(
                 company_id=payment.company_id if payment is not None else None,
                 provider=provider.name,
@@ -810,8 +1026,12 @@ class BillingService:
                 raw_provider_event_id=normalized.raw_provider_event_id,
                 event_type=normalized.event_type,
                 payload_hash=payload_hash,
-                safe_payload=self._safe_payload(normalized),
-                status="received",
+                safe_payload=safe_payload,
+                validation_outcome=validation_outcome,
+                status="quarantined" if quarantined else "received",
+                last_error_category=validation_outcome if quarantined else None,
+                last_error=validation_outcome if quarantined else None,
+                processed_at=datetime.now(UTC) if quarantined else None,
             )
             self._repository.add_event(event)
             try:
@@ -830,12 +1050,17 @@ class BillingService:
                         "The provider event identifier was reused with different "
                         "content."
                     ) from exc
-        should_enqueue = await self._repository.claim_event_for_enqueue(event.id)
+        should_enqueue = (
+            await self._repository.claim_event_for_enqueue(event.id)
+            if event.validation_outcome == "accepted"
+            else False
+        )
         await self._session.commit()
         return WebhookIngestResult(
             event_id=event.id,
             duplicate=duplicate,
             should_enqueue=should_enqueue,
+            outcome="duplicate" if duplicate else event.validation_outcome,
         )
 
     async def release_failed_enqueue(
@@ -908,6 +1133,13 @@ class BillingService:
             "occurred_at": event.occurred_at.isoformat() if event.occurred_at else None,
             "failure_code": event.failure_code,
             "provider_customer_id": event.provider_customer_id,
+            "decision": event.decision or _decision_for_legacy_state(event.state),
+            "validation_outcome": event.validation_outcome,
+            "integration_id": event.integration_id,
+            "environment": event.environment,
+            "merchant_id": event.merchant_id,
+            "provider_order_id": event.provider_order_id,
+            "source_type": event.source_type,
         }
 
 
@@ -1026,15 +1258,17 @@ class BillingWebhookRecoveryService:
         )
 
 
-_STATE_RANK = {
-    "creating": 0,
-    "provider_error": 0,
+_DECISION_RANK = {
     "pending": 1,
+    "authorized_not_captured": 2,
     "failed": 2,
-    "succeeded": 4,
+    "under_review": 3,
+    "succeeded_eligible": 4,
     "cancelled": 5,
     "reversed": 6,
     "refunded": 7,
+    "expired": 1,
+    "quarantined": 8,
 }
 
 
@@ -1090,6 +1324,9 @@ class BillingWebhookProcessor:
                 amount_minor = int(amount_value)
                 currency = str(payload["currency"])
                 state = str(payload["state"])
+                decision = str(
+                    payload.get("decision") or _decision_for_legacy_state(state)
+                )
                 occurred_value = payload.get("occurred_at")
                 occurred_at = (
                     datetime.fromisoformat(str(occurred_value))
@@ -1117,18 +1354,23 @@ class BillingWebhookProcessor:
                 event.status = "quarantined"
                 event.last_error_category = "currency_mismatch"
                 event.last_error = "currency_mismatch"
-            elif state not in _STATE_RANK:
+            elif decision not in _DECISION_RANK:
                 event.status = "quarantined"
                 event.last_error_category = "unknown_state"
                 event.last_error = "unknown_state"
-            elif self._is_stale(payment, state, occurred_at):
+            elif self._is_stale(payment, decision, occurred_at):
                 event.status = "quarantined"
                 event.last_error_category = "out_of_order"
                 event.last_error = "out_of_order"
             else:
                 prior_state = payment.status
                 payment.provider_payment_id = provider_payment_id
-                payment.status = state
+                payment.provider_decision = decision
+                payment.provider_order_id = (
+                    str(payload["provider_order_id"])
+                    if payload.get("provider_order_id") is not None
+                    else payment.provider_order_id
+                )
                 payment.failure_code = (
                     str(payload.get("failure_code"))[:80]
                     if payload.get("failure_code")
@@ -1136,6 +1378,54 @@ class BillingWebhookProcessor:
                 )
                 payment.provider_occurred_at = occurred_at
                 event.company_id = payment.company_id
+                event_time = occurred_at or datetime.now(UTC)
+                expired_before_payment = bool(
+                    payment.checkout_expires_at is not None
+                    and _as_utc(payment.checkout_expires_at) < event_time
+                )
+                if decision == "succeeded_eligible" and (
+                    payment.checkout_intent_status == "superseded"
+                    or expired_before_payment
+                ):
+                    if (
+                        expired_before_payment
+                        and payment.checkout_intent_status == "open"
+                    ):
+                        payment.checkout_intent_status = "expired"
+                    event.status = "quarantined"
+                    event.last_error_category = "superseded_or_expired_checkout_paid"
+                    event.last_error = "manual_review_required"
+                    repository.add_audit_event(
+                        BillingAuditEvent(
+                            company_id=payment.company_id,
+                            actor_user_id=None,
+                            action="checkout.paid_manual_review",
+                            result="failed",
+                            safe_metadata={
+                                "payment_id": str(payment.id),
+                                "event_id": str(event.id),
+                                "checkout_intent_status": (
+                                    payment.checkout_intent_status
+                                ),
+                            },
+                        )
+                    )
+                    event.processed_at = event.processed_at or datetime.now(UTC)
+                    event.processing_started_at = None
+                    event.next_retry_at = None
+                    await session.commit()
+                    return
+                payment.status = {
+                    "succeeded_eligible": "succeeded",
+                    "failed": "failed",
+                    "cancelled": "cancelled",
+                    "refunded": "refunded",
+                    "reversed": "reversed",
+                }.get(decision, "pending")
+                if decision == "succeeded_eligible":
+                    payment.checkout_intent_status = "completed"
+                elif decision == "failed" and payment.checkout_intent_status == "open":
+                    payment.checkout_intent_status = "failed"
                 subscription = (
                     await repository.get_subscription(
                         payment.subscription_id, lock=True
@@ -1281,6 +1571,13 @@ class BillingWebhookProcessor:
                 subscription.grace_period_ends_at = now + timedelta(
                     days=self._policy.grace_period_days
                 )
+        elif payment.status == "failed" and payment.purpose in {
+            "plan_change",
+            "reactivation",
+        }:
+            pending = await repository.get_plan(payment.plan_code or "")
+            if pending is not None and subscription.pending_plan_id == pending.id:
+                subscription.pending_plan_id = None
         elif payment.status in {"refunded", "reversed", "cancelled"}:
             if subscription.latest_payment_id == payment.id:
                 self._transition(
@@ -1326,9 +1623,12 @@ class BillingWebhookProcessor:
 
     @staticmethod
     def _is_stale(payment: Payment, state: str, occurred_at: datetime | None) -> bool:
-        current_rank = _STATE_RANK.get(payment.status, -1)
-        incoming_rank = _STATE_RANK[state]
-        if payment.status == "cancelled" and payment.provider_payment_id is None:
+        current_rank = _DECISION_RANK.get(payment.provider_decision, -1)
+        incoming_rank = _DECISION_RANK[state]
+        if (
+            payment.checkout_intent_status == "cancelled"
+            and payment.provider_payment_id is None
+        ):
             current_rank = 1
         if incoming_rank < current_rank:
             return True

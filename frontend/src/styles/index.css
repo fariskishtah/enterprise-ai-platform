@@ -64,7 +64,10 @@
   --sidebar: #0a1022;
   --sidebar-secondary: #12182d;
   --sidebar-border: #242a43;
-  --sidebar-active: #24283f;
+  --sidebar-active: #45329e;
+  --sidebar-brand: #5941c6;
+  --sidebar-text: #b8aece;
+  --sidebar-text-strong: #ffffff;
   --primary-action: #6d4aff;
   --focus-ring: #8875e8;
   --subtle-hover: #f3f0fa;
@@ -159,7 +162,10 @@
   --sidebar: #070b18;
   --sidebar-secondary: #0d1224;
   --sidebar-border: #252a43;
-  --sidebar-active: #352b5c;
+  --sidebar-active: #45329e;
+  --sidebar-brand: #5941c6;
+  --sidebar-text: #b8aece;
+  --sidebar-text-strong: #ffffff;
   --primary-action: #8b6cff;
   --focus-ring: #a58eff;
   --subtle-hover: #2b3049;

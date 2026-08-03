@@ -22,6 +22,7 @@ class PlanListResponse(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     items: list[PlanResponse]
+    commercial_model: str = "prepaid_manual_renewal"
 
 
 class BillingDetailsRequest(BaseModel):
@@ -55,6 +56,8 @@ class CheckoutResponse(BaseModel):
     reused: bool
     purpose: str
     failure_url: str
+    checkout_expires_at: datetime | None
+    commercial_model: str
 
 
 class PaymentStatusResponse(BaseModel):
@@ -71,6 +74,16 @@ class PaymentStatusResponse(BaseModel):
     provider_occurred_at: datetime | None
     created_at: datetime
     updated_at: datetime
+    checkout_intent_status: str
+    checkout_expires_at: datetime | None
+    provider_decision: str
+    commercial_model: str
+
+
+class BillingReturnResolveRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    state: str = Field(min_length=32, max_length=256, pattern=r"^[A-Za-z0-9_-]+$")
 
 
 class SubscriptionResponse(BaseModel):
@@ -237,9 +250,36 @@ class EntitlementOverrideResponse(BaseModel):
 class WebhookAcceptedResponse(BaseModel):
     accepted: bool = True
     duplicate: bool
+    outcome: str = "accepted"
 
 
 class WebhookReplayResponse(BaseModel):
     event_id: UUID
     queued: bool
     replay_count: int
+
+
+class BillingReconciliationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    dry_run: bool = True
+    finance_approval_reference: str | None = Field(
+        default=None, min_length=3, max_length=128
+    )
+
+
+class BillingReconciliationResponse(BaseModel):
+    run_id: UUID
+    dry_run: bool
+    reused: bool
+    outcomes: dict[str, int]
+    compensating_event_count: int
+
+
+class BillingDiagnosticsResponse(BaseModel):
+    payment_provider: str
+    provider_enabled: bool
+    environment: str
+    commercial_model: str
+    recurring_collection_enabled: bool
+    provider_reconciliation_query_accepted: bool

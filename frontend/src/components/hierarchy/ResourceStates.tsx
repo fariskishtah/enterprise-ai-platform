@@ -112,7 +112,7 @@ export function LoadingSkeleton({
       <span className="sr-only">{label}</span>
       {[0, 1, 2].map((item) => (
         <div
-          className="h-24 animate-pulse rounded-lg border border-neutral-200 bg-white shadow-panel"
+          className="h-24 animate-pulse rounded-lg border border-border bg-card shadow-panel"
           key={item}
         />
       ))}

@@ -13,6 +13,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.billing import (
     BillingAuditEvent,
     BillingPlan,
+    BillingReconciliationResult,
+    BillingReconciliationRun,
     BillingWebhookEvent,
     InvoiceReference,
     Payment,
@@ -26,13 +28,19 @@ class BillingRepository:
         self._session = session
 
     async def company_is_billable(
-        self, company_id: UUID, *, platform_scope: bool = False
+        self,
+        company_id: UUID,
+        *,
+        platform_scope: bool = False,
+        lock: bool = False,
     ) -> bool:
         statement = select(Company.id).where(
             Company.id == company_id, Company.deleted_at.is_(None)
         )
         if platform_scope:
             statement = statement.execution_options(skip_tenant_scope=True)
+        if lock:
+            statement = statement.with_for_update()
         return await self._session.scalar(statement) is not None
 
     async def get_payment(
@@ -68,6 +76,35 @@ class BillingRepository:
                 )
             ),
         )
+
+    async def get_company_payment_by_return_hash(
+        self, company_id: UUID, reference_hash: str
+    ) -> Payment | None:
+        return cast(
+            Payment | None,
+            await self._session.scalar(
+                select(Payment).where(
+                    Payment.company_id == company_id,
+                    Payment.return_reference_hash == reference_hash,
+                    Payment.return_reference_purpose == "checkout_return",
+                )
+            ),
+        )
+
+    async def list_open_company_payments(
+        self, company_id: UUID, *, lock: bool = False
+    ) -> list[Payment]:
+        statement: Select[tuple[Payment]] = (
+            select(Payment)
+            .where(
+                Payment.company_id == company_id,
+                Payment.checkout_intent_status == "open",
+            )
+            .order_by(Payment.created_at, Payment.id)
+        )
+        if lock:
+            statement = statement.with_for_update()
+        return list((await self._session.scalars(statement)).all())
 
     async def get_plan(self, code: str) -> BillingPlan | None:
         return cast(
@@ -250,6 +287,43 @@ class BillingRepository:
             ).all()
         )
         return rows, total
+
+    async def list_platform_provider_payments(self, provider: str) -> list[Payment]:
+        return list(
+            (
+                await self._session.scalars(
+                    select(Payment)
+                    .where(
+                        Payment.provider == provider,
+                        Payment.provider_payment_id.is_not(None),
+                    )
+                    .order_by(Payment.created_at, Payment.id)
+                    .execution_options(skip_tenant_scope=True)
+                )
+            ).all()
+        )
+
+    async def get_reconciliation_run(
+        self, provider: str, environment: str, idempotency_key: str
+    ) -> BillingReconciliationRun | None:
+        return cast(
+            BillingReconciliationRun | None,
+            await self._session.scalar(
+                select(BillingReconciliationRun)
+                .where(
+                    BillingReconciliationRun.provider == provider,
+                    BillingReconciliationRun.environment == environment,
+                    BillingReconciliationRun.idempotency_key == idempotency_key,
+                )
+                .execution_options(skip_tenant_scope=True)
+            ),
+        )
+
+    def add_reconciliation_run(self, run: BillingReconciliationRun) -> None:
+        self._session.add(run)
+
+    def add_reconciliation_result(self, result: BillingReconciliationResult) -> None:
+        self._session.add(result)
 
     async def list_company_invoices(
         self, company_id: UUID, *, offset: int, limit: int
