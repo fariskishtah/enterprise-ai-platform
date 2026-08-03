@@ -110,6 +110,9 @@ BILLING_RETURN_REFERENCE_EXPIRY_MINUTES=60
 checkout. No provider-transaction query endpoint is claimed ready; the Paymob
 reconciliation adapter deliberately fails closed until its query contract passes
 isolated sandbox acceptance.
+
+The approval-gated isolated-host procedure is documented in the
+[Paymob sandbox deployment runbook](production/paymob-sandbox-deployment.md).
 - `PAYMENT_CURRENCY=EGP`
 - `PAYMENT_SANDBOX_MODE=true` with test keys, or `false` with live keys
 

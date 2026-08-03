@@ -2,6 +2,7 @@
 .env
 .env.*
 !.env.example
+.env.paymob-sandbox
 
 # Python
 __pycache__/
@@ -32,6 +33,7 @@ test-results/
 
 # Deployment-local generated configuration
 /.deployment/https/
+/.deployment/paymob-sandbox/
 /.staging-validation/
 
 # Local database backups

@@ -1,0 +1,143 @@
+x-paymob-sandbox-environment: &paymob-sandbox-environment
+  ENVIRONMENT: staging
+  APP_ENV: staging
+  ENABLE_API_DOCS: "false"
+  DEMO_TOOLS_ENABLED: "false"
+  EXPOSE_LOCAL_PASSWORD_RESET_TOKEN: "false"
+  EXPOSE_LOCAL_EMAIL_VERIFICATION_TOKEN: "false"
+  EXPOSE_LOCAL_TEAM_INVITATION_TOKEN: "false"
+  PAYMENT_PROVIDER: ${PAYMENT_PROVIDER:?Set PAYMENT_PROVIDER in the sandbox environment file}
+  PAYMENT_SANDBOX_MODE: ${PAYMENT_SANDBOX_MODE:?Set PAYMENT_SANDBOX_MODE in the sandbox environment file}
+  PAYMENT_CURRENCY: ${PAYMENT_CURRENCY:?Set PAYMENT_CURRENCY in the sandbox environment file}
+  PAYMOB_SECRET_KEY: ${PAYMOB_SECRET_KEY:?Set PAYMOB_SECRET_KEY in the sandbox environment file}
+  PAYMOB_PUBLIC_KEY: ${PAYMOB_PUBLIC_KEY:?Set PAYMOB_PUBLIC_KEY in the sandbox environment file}
+  PAYMOB_HMAC_SECRET: ${PAYMOB_HMAC_SECRET:?Set PAYMOB_HMAC_SECRET in the sandbox environment file}
+  PAYMOB_INTEGRATION_ID: ${PAYMOB_INTEGRATION_ID:?Set PAYMOB_INTEGRATION_ID in the sandbox environment file}
+  PAYMOB_MERCHANT_ID: ${PAYMOB_MERCHANT_ID:?Set PAYMOB_MERCHANT_ID in the sandbox environment file}
+  PAYMOB_BASE_URL: ${PAYMOB_BASE_URL:?Set PAYMOB_BASE_URL in the sandbox environment file}
+  PAYMOB_ALLOWED_CHECKOUT_HOSTS: ${PAYMOB_ALLOWED_CHECKOUT_HOSTS:?Set PAYMOB_ALLOWED_CHECKOUT_HOSTS in the sandbox environment file}
+  PAYMOB_SUPPORTED_SOURCE_TYPES: ${PAYMOB_SUPPORTED_SOURCE_TYPES:?Set PAYMOB_SUPPORTED_SOURCE_TYPES in the sandbox environment file}
+  PAYMOB_WEBHOOK_URL: ${PAYMOB_WEBHOOK_URL:?Set PAYMOB_WEBHOOK_URL in the sandbox environment file}
+  PAYMENT_SUCCESS_URL: ${PAYMENT_SUCCESS_URL:?Set PAYMENT_SUCCESS_URL in the sandbox environment file}
+  PAYMENT_FAILURE_URL: ${PAYMENT_FAILURE_URL:?Set PAYMENT_FAILURE_URL in the sandbox environment file}
+  PAYMENT_HTTP_TIMEOUT_SECONDS: ${PAYMENT_HTTP_TIMEOUT_SECONDS:-10}
+  BILLING_COMMERCIAL_MODEL: ${BILLING_COMMERCIAL_MODEL:?Set BILLING_COMMERCIAL_MODEL in the sandbox environment file}
+  BILLING_CHECKOUT_EXPIRY_MINUTES: ${BILLING_CHECKOUT_EXPIRY_MINUTES:-30}
+  BILLING_RETURN_REFERENCE_EXPIRY_MINUTES: ${BILLING_RETURN_REFERENCE_EXPIRY_MINUTES:-60}
+  BILLING_WEBHOOK_QUEUE_NAME: ${BILLING_WEBHOOK_QUEUE_NAME:?Set BILLING_WEBHOOK_QUEUE_NAME in the sandbox environment file}
+  BILLING_WEBHOOK_MAX_RETRIES: ${BILLING_WEBHOOK_MAX_RETRIES:-5}
+  BILLING_WEBHOOK_RETRY_BASE_SECONDS: ${BILLING_WEBHOOK_RETRY_BASE_SECONDS:-30}
+  BILLING_WEBHOOK_QUEUED_STALE_SECONDS: ${BILLING_WEBHOOK_QUEUED_STALE_SECONDS:-300}
+  BILLING_WEBHOOK_PROCESSING_STALE_SECONDS: ${BILLING_WEBHOOK_PROCESSING_STALE_SECONDS:-300}
+  BILLING_WEBHOOK_RECOVERY_BATCH_SIZE: ${BILLING_WEBHOOK_RECOVERY_BATCH_SIZE:-100}
+  BILLING_WEBHOOK_RECOVERY_SCHEDULING_ENABLED: ${BILLING_WEBHOOK_RECOVERY_SCHEDULING_ENABLED:-true}
+  BILLING_WEBHOOK_RECOVERY_INTERVAL_SECONDS: ${BILLING_WEBHOOK_RECOVERY_INTERVAL_SECONDS:-60}
+  BILLING_GRACE_PERIOD_DAYS: ${BILLING_GRACE_PERIOD_DAYS:-7}
+  BILLING_INCOMPLETE_EXPIRY_HOURS: ${BILLING_INCOMPLETE_EXPIRY_HOURS:-24}
+  BILLING_SUSPENSION_EXPIRY_DAYS: ${BILLING_SUSPENSION_EXPIRY_DAYS:-30}
+  BILLING_LIFECYCLE_RECONCILIATION_BATCH_SIZE: ${BILLING_LIFECYCLE_RECONCILIATION_BATCH_SIZE:-100}
+  BILLING_LIFECYCLE_RECONCILIATION_SCHEDULING_ENABLED: ${BILLING_LIFECYCLE_RECONCILIATION_SCHEDULING_ENABLED:-true}
+  BILLING_LIFECYCLE_RECONCILIATION_INTERVAL_SECONDS: ${BILLING_LIFECYCLE_RECONCILIATION_INTERVAL_SECONDS:-60}
+  BILLING_ENTITLEMENTS_ENFORCED: ${BILLING_ENTITLEMENTS_ENFORCED:?Set BILLING_ENTITLEMENTS_ENFORCED in the sandbox environment file}
+  EMAIL_QUEUE_NAME: ${EMAIL_QUEUE_NAME:?Set EMAIL_QUEUE_NAME in the sandbox environment file}
+  TRAINING_QUEUE_NAME: ${TRAINING_QUEUE_NAME:?Set TRAINING_QUEUE_NAME in the sandbox environment file}
+  DATASET_QUEUE_NAME: ${DATASET_QUEUE_NAME:?Set DATASET_QUEUE_NAME in the sandbox environment file}
+  RAG_QUEUE_NAME: ${RAG_QUEUE_NAME:?Set RAG_QUEUE_NAME in the sandbox environment file}
+  MONITORING_QUEUE_NAME: ${MONITORING_QUEUE_NAME:?Set MONITORING_QUEUE_NAME in the sandbox environment file}
+  LOG_ENVIRONMENT: staging
+  OBSERVABILITY_ENVIRONMENT: staging
+  OTEL_ENVIRONMENT: staging
+
+services:
+  migrate:
+    environment:
+      ENVIRONMENT: staging
+      APP_ENV: staging
+      ENABLE_API_DOCS: "false"
+    labels:
+      com.factorymind.environment: paymob-sandbox
+      com.factorymind.data-plane: sandbox-only
+
+  backend:
+    environment:
+      <<: *paymob-sandbox-environment
+    ports: !reset []
+    labels:
+      com.factorymind.environment: paymob-sandbox
+      com.factorymind.data-plane: sandbox-only
+
+  training-worker:
+    environment:
+      <<: *paymob-sandbox-environment
+    ports: !reset []
+    labels:
+      com.factorymind.environment: paymob-sandbox
+      com.factorymind.data-plane: sandbox-only
+
+  frontend:
+    ports: !reset []
+    labels:
+      com.factorymind.environment: paymob-sandbox
+      com.factorymind.data-plane: sandbox-only
+
+  postgres:
+    ports: !reset []
+    labels:
+      com.factorymind.environment: paymob-sandbox
+      com.factorymind.data-plane: sandbox-only
+
+  redis:
+    ports: !reset []
+    labels:
+      com.factorymind.environment: paymob-sandbox
+      com.factorymind.data-plane: sandbox-only
+
+  reverse-proxy:
+    ports: !reset []
+    expose:
+      - "8080"
+    networks:
+      application: {}
+      sandbox-edge:
+        aliases:
+          - factorymind-paymob-sandbox-upstream
+    labels:
+      com.factorymind.environment: paymob-sandbox
+      com.factorymind.ingress-role: sandbox-upstream
+
+networks:
+  application:
+    labels:
+      com.factorymind.environment: paymob-sandbox
+  data:
+    labels:
+      com.factorymind.environment: paymob-sandbox
+  egress:
+    labels:
+      com.factorymind.environment: paymob-sandbox
+  observability:
+    labels:
+      com.factorymind.environment: paymob-sandbox
+  sandbox-edge:
+    external: true
+    name: factorymind-paymob-sandbox-edge
+
+volumes:
+  ai-artifact-data:
+    labels:
+      com.factorymind.environment: paymob-sandbox
+  dataset-data:
+    labels:
+      com.factorymind.environment: paymob-sandbox
+  mlflow-data:
+    labels:
+      com.factorymind.environment: paymob-sandbox
+  model-artifact-data:
+    labels:
+      com.factorymind.environment: paymob-sandbox
+  postgres-data:
+    labels:
+      com.factorymind.environment: paymob-sandbox
+  redis-data:
+    labels:
+      com.factorymind.environment: paymob-sandbox
