@@ -14,7 +14,7 @@ export function App(): ReactElement {
           <Suspense
             fallback={
               <div
-                className="flex min-h-screen items-center justify-center bg-[var(--app-bg)] text-sm text-[var(--text-secondary)]"
+                className="flex min-h-screen items-center justify-center bg-[var(--app-background)] text-sm text-[var(--text-secondary)]"
                 role="status"
               >
                 Loading workspace…

@@ -445,7 +445,7 @@ export function BillingOverviewPage(): ReactElement {
                       </span>
                     </p>
                     {current ? (
-                      <p className="mt-4 text-sm font-semibold text-purple-700">
+                      <p className="mt-4 text-sm font-semibold text-link">
                         Current plan
                       </p>
                     ) : (

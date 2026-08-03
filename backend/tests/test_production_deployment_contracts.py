@@ -83,6 +83,22 @@ def test_data_services_are_internal_and_not_on_public_network() -> None:
     assert "data" not in services["reverse-proxy"]["networks"]
 
 
+def test_only_outbound_application_services_receive_egress_network() -> None:
+    compose = _yaml(_PRODUCTION_COMPOSE)
+    services = compose["services"]
+
+    assert compose["networks"]["egress"] is None
+    assert "egress" in services["backend"]["networks"]
+    assert "egress" in services["training-worker"]["networks"]
+    assert {
+        name
+        for name, service in services.items()
+        if "egress" in service.get("networks", [])
+    } == {"backend", "training-worker"}
+    assert services["backend"].get("ports", []) == []
+    assert services["training-worker"].get("ports", []) == []
+
+
 def test_production_services_have_restart_logs_and_resources() -> None:
     services = _yaml(_PRODUCTION_COMPOSE)["services"]
 

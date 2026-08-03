@@ -1,24 +1,30 @@
 # Docker DNS and Brevo SMTP recovery
 
-Status: **production verification required**. The repository workspace is not the
-Ubuntu EC2 deployment host and has no production environment file or AWS Compose
-override. Do not apply a DNS override until the host evidence below identifies the
-failed forwarding path.
+Status: **root cause confirmed on the production EC2 host**. The tracked recovery
+is a dedicated egress-capable network for the backend and training worker. It does
+not publish a port or weaken the internal application, data, or observability
+networks.
 
 ## Current incident evidence
 
 - The EC2 host resolves `smtp-relay.brevo.com`.
 - The backend and training-worker containers use Docker's embedded resolver at
   `127.0.0.11` and do not resolve the Brevo hostname.
-- A direct SMTP probe fails with `gaierror` before a TCP connection is opened.
-- Brevo has no corresponding transactional event.
+- A direct SMTP probe failed with `gaierror` before a TCP connection was opened.
+- Direct connections from both application containers to the VPC resolver failed
+  with `Network is unreachable`.
+- Docker's journal showed the same routing failure for public, EC2, and VPC DNS
+  upstreams. UFW was inactive and the host output policy was `ACCEPT`.
+- Both services were attached only to `internal: true` networks, which have no
+  external gateway. A disposable container on the same application network
+  reproduced the failure; the same image on a disposable routable bridge resolved
+  Brevo and connected to TCP/587 successfully.
 
-`127.0.0.11` inside a user-defined Docker network is expected. It does not prove
-that service-level `dns:` values were ignored: Docker keeps the embedded address
-inside the container and forwards queries to the selected upstream resolvers. The
-evidence currently narrows the incident to Docker DNS forwarding, its upstream
-resolver selection, or UDP/TCP 53 forwarding/NAT. It does not yet distinguish
-among them.
+`127.0.0.11` inside a user-defined Docker network is expected. Docker keeps that
+embedded address and forwards queries to upstream resolvers. In this incident,
+changing the upstream address cannot help because the containers have no route to
+any upstream. Do not add daemon-level or service-level DNS overrides for this
+failure mode.
 
 ## Read-only diagnostic sequence
 
@@ -63,16 +69,17 @@ before running the probe; do not guess it.
 
 ## Fix decision
 
-Choose the smallest result supported by the diagnostics:
+The confirmed fix is to retain all existing internal networks and add the normal
+Compose `egress` bridge only to `backend` and `training-worker`. A routable bridge
+permits outbound DNS/HTTPS/SMTP but does not publish a service port. Static tests
+enforce that no other production service joins this network and neither outbound
+service publishes a port.
 
-1. Repair host/systemd-resolved upstream selection if the host-side stub or VPC
-   resolver fails direct queries.
-2. Repair firewall/NAT forwarding if direct host queries pass but queries sourced
-   from the Docker bridge cannot reach UDP or TCP 53.
-3. Configure validated upstream resolvers in Docker's daemon configuration only
-   when bridge forwarding works and daemon upstream selection is the failure.
-4. Use a tracked service-level Compose DNS override only when a disposable
-   container on the same production network proves that exact resolver works.
+The decision order remains useful for future incidents: repair host resolution
+first, then firewall/NAT forwarding, then Docker upstream selection, and use a
+service-level DNS override only when a same-network probe proves that exact
+resolver is reachable. This incident reached an earlier routing prerequisite:
+there was no egress gateway at all.
 
 Never hardcode a Brevo IP, edit a running container's `/etc/resolv.conf`, use host
 networking, or disable firewall policy broadly.
@@ -84,8 +91,9 @@ root-owned timestamped backup of `/etc/docker/daemon.json`. Validate edited JSON
 before restarting Docker. A Docker restart affects running containers; do not run
 `docker compose down` and do not remove volumes.
 
-For a tracked Compose-only change, rollback with the reviewed reverse patch, then
-recreate only the affected services:
+For this tracked Compose-only change, rollback by removing `egress` from the two
+services and removing the top-level `egress` network declaration, then recreate
+only the affected services:
 
 ```bash
 docker compose -p ai-manufacturing-platform --env-file .env.production \

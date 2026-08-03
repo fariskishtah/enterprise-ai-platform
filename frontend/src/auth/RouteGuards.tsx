@@ -11,14 +11,14 @@ export function AuthLoadingScreen(): ReactElement {
   return (
     <main
       aria-busy="true"
-      className="flex min-h-screen items-center justify-center bg-stone-50 px-6"
+      className="flex min-h-screen items-center justify-center bg-canvas px-6 text-foreground"
     >
       <div className="text-center">
         <span
           aria-hidden="true"
-          className="mx-auto block h-8 w-8 animate-spin rounded-full border-2 border-neutral-300 border-t-purple-700"
+          className="mx-auto block h-8 w-8 animate-spin rounded-full border-2 border-border-strong border-t-[var(--primary-action)]"
         />
-        <p className="mt-4 text-sm font-medium text-neutral-600">
+        <p className="mt-4 text-sm font-medium text-secondary-foreground">
           Restoring your session…
         </p>
       </div>

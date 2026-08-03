@@ -119,6 +119,7 @@ services:
       - application
       - data
       - observability
+      - egress
     mem_limit: 1g
     mem_reservation: 256m
     cpus: 0.50
@@ -222,6 +223,7 @@ services:
     networks:
       - data
       - observability
+      - egress
     mem_limit: 1536m
     mem_reservation: 512m
     cpus: 0.75
@@ -483,6 +485,7 @@ services:
 
 networks:
   public:
+  egress:
   application:
     internal: true
   data:

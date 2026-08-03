@@ -1,7 +1,8 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page, type Route } from "@playwright/test";
 
-const API_PATTERN = /^http:\/\/(?:localhost|127\.0\.0\.1):8000(\/.*)$/;
+const API_PATTERN =
+  /^(?:http:\/\/(?:localhost|127\.0\.0\.1):8000\/|https?:\/\/[^/]+\/api\/).*$/;
 const NOW = "2026-07-29T10:00:00Z";
 const PERIOD_END = "2026-08-29T10:00:00Z";
 const PAYMENT_ID = "11111111-1111-4111-8111-111111111111";
@@ -179,6 +180,7 @@ async function mockBilling(page: Page, options: BillingMockOptions = {}) {
   await page.route(API_PATTERN, async (route) => {
     const request = route.request();
     const url = new URL(request.url());
+    if (url.pathname.startsWith("/api/")) url.pathname = url.pathname.slice(4);
     if (url.pathname === "/auth/refresh") {
       return json(route, {
         access_token: "billing-e2e-access",
@@ -355,6 +357,47 @@ test("public pricing renders backend plans for an unauthenticated visitor", asyn
   ).toBeVisible();
   await expect(page.getByRole("heading", { name: "Starter" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Create workspace" })).toHaveCount(3);
+  await page.screenshot({
+    fullPage: true,
+    path: "../artifacts/screenshots/production-pricing-desktop-light.png",
+  });
+  expect(
+    (await new AxeBuilder({ page }).analyze()).violations.filter(
+      ({ impact }) => impact === "critical" || impact === "serious",
+    ),
+  ).toEqual([]);
+
+  await page.evaluate(() => localStorage.setItem("fk-theme-preference", "dark"));
+  await page.reload();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  await expect(
+    page.getByRole("heading", { name: "Choose the operating scale your team needs" }),
+  ).toBeVisible();
+  await page.screenshot({
+    fullPage: true,
+    path: "../artifacts/screenshots/production-pricing-desktop-dark.png",
+  });
+  expect(
+    (await new AxeBuilder({ page }).analyze()).violations.filter(
+      ({ impact }) => impact === "critical" || impact === "serious",
+    ),
+  ).toEqual([]);
+
+  await page.setViewportSize({ height: 844, width: 390 });
+  await page.screenshot({
+    fullPage: true,
+    path: "../artifacts/screenshots/production-pricing-mobile-dark.png",
+  });
+  await page.evaluate(() => localStorage.setItem("fk-theme-preference", "light"));
+  await page.reload();
+  await expect(
+    page.getByRole("heading", { name: "Choose the operating scale your team needs" }),
+  ).toBeVisible();
+  await page.screenshot({
+    fullPage: true,
+    path: "../artifacts/screenshots/production-pricing-mobile-light.png",
+  });
+  expect(await page.evaluate(() => document.body.scrollWidth)).toBeLessThanOrEqual(390);
 });
 
 test("owner sees current plan, usage limits, payments, and invoices", async ({
@@ -412,6 +455,46 @@ test("owner sees current plan, usage limits, payments, and invoices", async ({
     fullPage: true,
     path: "../artifacts/screenshots/phase-h-admin-billing.png",
   });
+});
+
+test("billing overview remains readable across the production theme matrix", async ({
+  page,
+}) => {
+  await mockBilling(page);
+  await page.goto("/settings/billing");
+  await expect(
+    page.getByRole("heading", { name: "Billing & subscription" }),
+  ).toBeVisible();
+
+  for (const theme of ["light", "dark"] as const) {
+    await page.evaluate(
+      (preference) => localStorage.setItem("fk-theme-preference", preference),
+      theme,
+    );
+    await page.reload();
+    await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
+    await expect(
+      page.getByRole("heading", { name: "Billing & subscription" }),
+    ).toBeVisible();
+    await page.setViewportSize({ height: 1000, width: 1440 });
+    await page.screenshot({
+      fullPage: true,
+      path: `../artifacts/screenshots/production-billing-desktop-${theme}.png`,
+    });
+    expect(
+      (await new AxeBuilder({ page }).analyze()).violations.filter(
+        ({ impact }) => impact === "critical" || impact === "serious",
+      ),
+    ).toEqual([]);
+    await page.setViewportSize({ height: 844, width: 390 });
+    await page.screenshot({
+      fullPage: true,
+      path: `../artifacts/screenshots/production-billing-mobile-${theme}.png`,
+    });
+    expect(await page.evaluate(() => document.body.scrollWidth)).toBeLessThanOrEqual(
+      390,
+    );
+  }
 });
 
 test("hosted upgrade redirect is followed but success query data is not trusted", async ({

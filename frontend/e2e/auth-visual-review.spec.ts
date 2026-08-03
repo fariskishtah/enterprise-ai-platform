@@ -8,6 +8,8 @@ function json(route: Route, body: unknown, status = 200): Promise<void> {
   });
 }
 
+const PRODUCTION_API_PATTERN = /^https?:\/\/[^/]+\/api\//;
+
 async function captureMatrix(page: Page, name: string): Promise<void> {
   const heading = page.locator("h1");
   await expect(heading).toBeVisible();
@@ -48,7 +50,9 @@ async function captureMatrix(page: Page, name: string): Promise<void> {
 }
 
 test("captures the complete authentication visual review matrix", async ({ page }) => {
+  test.setTimeout(120_000);
   let loginSucceeds = false;
+  await page.route(PRODUCTION_API_PATTERN, (route) => json(route, {}));
   await page.route("**/auth/refresh", (route) =>
     json(route, { detail: "No active session" }, 401),
   );
