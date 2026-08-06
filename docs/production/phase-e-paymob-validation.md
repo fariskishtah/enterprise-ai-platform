@@ -27,7 +27,11 @@ cd backend
   tests/test_billing_migration.py
 ```
 
-## Exact manual sandbox procedure
+## Historical manual sandbox procedure
+
+This procedure applies only to an isolated non-production environment. Current
+production configuration must remain `PAYMENT_PROVIDER=disabled`; use the
+isolated Sandbox runbook for the supported workflow.
 
 1. In the Paymob dashboard, select test mode, enable the intended Egypt payment
    method, and copy its test Secret Key, Public Key, Integration ID, and HMAC

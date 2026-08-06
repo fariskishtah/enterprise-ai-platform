@@ -104,15 +104,20 @@ def _service(
                 "sandbox"
                 if settings.payment_provider == "paymob"
                 and settings.payment_sandbox_mode
-                else "live"
-                if settings.payment_provider == "paymob"
-                else "legacy_unknown"
+                else (
+                    "live"
+                    if settings.payment_provider == "paymob"
+                    else "legacy_unknown"
+                )
             ),
             provider_integration_id=settings.paymob_integration_id,
             provider_merchant_id=(
                 str(settings.paymob_merchant_id)
                 if settings.paymob_merchant_id is not None
                 else None
+            ),
+            provider_source_types=tuple(
+                value.lower() for value in settings.paymob_supported_source_types
             ),
         )
         if settings is not None

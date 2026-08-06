@@ -60,6 +60,11 @@ class BillingReconciliationService:
             provider.name, environment, idempotency_key
         )
         if existing is not None:
+            if existing.status != "completed":
+                raise BillingReconciliationError(
+                    "The prior reconciliation attempt did not complete; use a new "
+                    "idempotency key only after provider retrieval is available."
+                )
             stored_outcomes = existing.summary.get("outcomes", {})
             outcomes = {
                 str(key): int(value)
@@ -256,9 +261,7 @@ class BillingReconciliationService:
                 provider_payment_id=(
                     truth.provider_payment_id
                     if truth is not None
-                    else payment.provider_payment_id
-                    if payment is not None
-                    else None
+                    else payment.provider_payment_id if payment is not None else None
                 ),
                 outcome=outcome,
                 local_state=payment.provider_decision if payment is not None else None,

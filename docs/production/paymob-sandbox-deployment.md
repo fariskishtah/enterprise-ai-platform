@@ -151,13 +151,20 @@ Public activation is a separate command:
   --confirm ACTIVATE-SANDBOX-INGRESS
 ```
 
-Activation performs a fresh read-only production preflight, discovers the live
-Nginx config and certificate mounts, preserves a byte-for-byte config backup,
-copies the sandbox certificate beside the production pair, connects only the
-production proxy to the controlled edge network, renders the dual-host template,
-runs `nginx -t`, and reloads only Nginx. Any validation error restores the backup.
-Production backend, worker, PostgreSQL, Redis, certificate paths, and routes are
-not restarted or replaced.
+The approved production HTTPS overlay pre-provisions two read-only mounts:
+`/etc/nginx/sandbox-conf.d` for independently managed virtual hosts and
+`/etc/nginx/paymob-sandbox-certs` for the separate Sandbox certificate. The
+production `default.conf` contains only a wildcard include for the first mount;
+activation refuses unknown or older layouts.
+
+Activation performs a fresh read-only production preflight, validates those
+mounts, connects only the production proxy to the controlled edge network,
+atomically installs `paymob-sandbox.conf`, runs `nginx -t`, and reloads only
+Nginx. It never rewrites or backs up the production `default.conf`. On failure it
+removes only the new Sandbox include, reloads the prior active configuration,
+and disconnects an edge membership created by that attempt. Repeated activation
+is a no-op only when the marker, include content, certificate mount, and edge
+membership all match.
 
 After a successful Certbot renewal, restaging and Nginx reload remain explicit:
 
@@ -176,15 +183,20 @@ The verifier confirms:
 
 - production provider remains disabled;
 - sandbox provider is Paymob in staging sandbox mode;
-- production and sandbox PostgreSQL data mounts differ;
-- sandbox backend, PostgreSQL, and Redis publish no host ports;
+- production and sandbox PostgreSQL and Redis data mounts differ;
+- database names, users, passwords, backend database URLs, Redis URLs, signing
+  keys, and every queue namespace differ without printing their values;
+- production and Sandbox data-plane containers share no Docker network IDs;
+- only the two reverse proxies may join the controlled edge network;
+- the production proxy is the sole owner of host ports 80 and 443;
+- sandbox backend, reverse proxy, PostgreSQL, and Redis publish no host ports;
 - production health remains available;
 - when ingress is active, sandbox health works and `/api/metrics` remains hidden.
 
 ## Rollback and teardown
 
-Restore production Nginx and disconnect the production proxy before stopping the
-sandbox:
+Remove only the managed Sandbox include and disconnect the production proxy
+before stopping the Sandbox:
 
 ```bash
 ./scripts/paymob-sandbox.sh deactivate-ingress \
@@ -193,8 +205,11 @@ sandbox:
 ./scripts/paymob-sandbox.sh stop --confirm STOP-SANDBOX
 ```
 
-Stop removes only sandbox containers. Networks, database, Redis state, queued
-callbacks, reconciliation evidence, and every named volume remain retained.
+Deactivation validates and reloads Nginx after removing the include and restores
+that include if validation or reload fails. It never replaces production server
+blocks or production certificates. Stop removes only Sandbox containers.
+Networks, database, Redis state, queued callbacks, reconciliation evidence, and
+every named volume remain retained.
 
 Volume removal is a separate exceptional action:
 

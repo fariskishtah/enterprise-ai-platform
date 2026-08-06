@@ -78,6 +78,7 @@ class BillingPolicy:
     environment: str = "legacy_unknown"
     provider_integration_id: int | None = None
     provider_merchant_id: str | None = None
+    provider_source_types: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,6 +105,17 @@ class BillingDetails:
     city: str
     country: str
     street: str
+
+
+_REPLAYABLE_WEBHOOK_STATES = frozenset({"failed", "dead_letter"})
+_REPLAYABLE_WEBHOOK_FAILURES = frozenset(
+    {
+        "processing_error",
+        "queue_unavailable",
+        "replay_queue_failed",
+        "worker_stale",
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -1085,24 +1097,91 @@ class BillingService:
         event_id: UUID,
         reason: str,
     ) -> BillingWebhookEvent:
+        if not actor.is_platform_operator:
+            raise BillingConflictError(
+                "Platform-operator authorization is required for webhook replay."
+            )
         event = await self._repository.get_company_event(
             event_id, company_id, lock=True
         )
         if event is None:
             raise BillingNotFoundError("The provider event does not exist.")
-        if event.status == "processing":
-            raise BillingConflictError(
-                "A processing provider event cannot be replayed."
-            )
         previous_status = event.status
         previous_error_category = event.last_error_category
-        event.status = "queued"
-        event.queued_at = datetime.now(UTC)
-        event.processing_started_at = None
-        event.next_retry_at = None
-        event.last_error = None
-        event.last_error_category = None
-        event.replay_count += 1
+        rejection_reason: str | None = None
+        if event.validation_outcome != "accepted":
+            rejection_reason = "validation_not_accepted"
+        elif event.safe_payload is None or (
+            event.safe_payload.get("validation_outcome") != "accepted"
+        ):
+            rejection_reason = "validation_evidence_missing"
+        elif event.status not in _REPLAYABLE_WEBHOOK_STATES:
+            rejection_reason = "state_not_replayable"
+        elif event.processed_at is not None:
+            rejection_reason = "already_completed"
+        elif event.last_error_category not in _REPLAYABLE_WEBHOOK_FAILURES:
+            rejection_reason = "failure_not_recoverable"
+        if rejection_reason is not None:
+            self._audit(
+                company_id=company_id,
+                actor_user_id=actor.id,
+                action="webhook.replay_rejected",
+                result="failed",
+                metadata={
+                    "event_id": str(event.id),
+                    "provider": event.provider,
+                    "previous_status": previous_status,
+                    "resulting_status": previous_status,
+                    "previous_error_category": previous_error_category,
+                    "replay_eligibility": "rejected",
+                    "rejection_reason": rejection_reason,
+                    "reason": reason,
+                    "request_id": current_request_id(),
+                    "correlation_id": current_correlation_id(),
+                },
+            )
+            await self._session.commit()
+            raise BillingConflictError(
+                "The provider event is not eligible for operational replay."
+            )
+
+        queued_at = datetime.now(UTC)
+        replay_count = event.replay_count
+        event_provider = event.provider
+        actor_id = actor.id
+        queued = await self._repository.queue_event_for_replay(
+            event.id,
+            company_id,
+            previous_status=previous_status,
+            previous_error_category=previous_error_category,
+            replay_count=replay_count,
+            now=queued_at,
+        )
+        if not queued:
+            await self._session.rollback()
+            self._audit(
+                company_id=company_id,
+                actor_user_id=actor_id,
+                action="webhook.replay_rejected",
+                result="failed",
+                metadata={
+                    "event_id": str(event_id),
+                    "provider": event_provider,
+                    "previous_status": previous_status,
+                    "resulting_status": "concurrent_change",
+                    "previous_error_category": previous_error_category,
+                    "replay_eligibility": "rejected",
+                    "rejection_reason": "concurrent_change",
+                    "reason": reason,
+                    "request_id": current_request_id(),
+                    "correlation_id": current_correlation_id(),
+                },
+            )
+            await self._session.commit()
+            raise BillingConflictError(
+                "The provider event changed while replay was being requested."
+            )
+        await self._session.refresh(event)
         self._audit(
             company_id=company_id,
             actor_user_id=actor.id,
@@ -1111,8 +1190,10 @@ class BillingService:
                 "event_id": str(event.id),
                 "provider": event.provider,
                 "previous_status": previous_status,
+                "resulting_status": event.status,
                 "previous_error_category": previous_error_category,
                 "replay_count": event.replay_count,
+                "replay_eligibility": "accepted",
                 "reason": reason,
                 "request_id": current_request_id(),
                 "correlation_id": current_correlation_id(),
@@ -1313,6 +1394,24 @@ class BillingWebhookProcessor:
             if event is None or event.status != "processing":
                 return
             payload = event.safe_payload or {}
+            if event.validation_outcome != "accepted":
+                self._quarantine_processing(
+                    repository, event, "validation_not_accepted"
+                )
+                await session.commit()
+                return
+            if payload.get("validation_outcome") != "accepted":
+                self._quarantine_processing(
+                    repository, event, "validation_evidence_missing"
+                )
+                await session.commit()
+                return
+            if event.provider != self._provider_name or event.company_id is None:
+                self._quarantine_processing(
+                    repository, event, "provider_tenant_mismatch"
+                )
+                await session.commit()
+                return
             try:
                 reference = UUID(str(payload["payment_reference"]))
                 provider_payment_id = str(payload["provider_payment_id"])
@@ -1324,6 +1423,31 @@ class BillingWebhookProcessor:
                 amount_minor = int(amount_value)
                 currency = str(payload["currency"])
                 state = str(payload["state"])
+                integration_value = payload.get("integration_id")
+                integration_id = (
+                    int(integration_value)
+                    if isinstance(integration_value, (int, str))
+                    and not isinstance(integration_value, bool)
+                    else None
+                )
+                environment_value = payload.get("environment")
+                environment = (
+                    str(environment_value) if environment_value is not None else None
+                )
+                merchant_value = payload.get("merchant_id")
+                merchant_id = (
+                    str(merchant_value) if merchant_value is not None else None
+                )
+                source_value = payload.get("source_type")
+                source_type = (
+                    str(source_value).lower() if source_value is not None else None
+                )
+                provider_order_value = payload.get("provider_order_id")
+                provider_order_id = (
+                    str(provider_order_value)
+                    if provider_order_value is not None
+                    else None
+                )
                 decision = str(
                     payload.get("decision") or _decision_for_legacy_state(state)
                 )
@@ -1334,42 +1458,81 @@ class BillingWebhookProcessor:
                     else None
                 )
             except (KeyError, TypeError, ValueError):
-                event.status = "quarantined"
-                event.last_error_category = "invalid_normalized_payload"
-                event.last_error = "invalid_normalized_payload"
-                event.processed_at = event.processed_at or datetime.now(UTC)
-                event.processing_started_at = None
+                self._quarantine_processing(
+                    repository, event, "invalid_normalized_payload"
+                )
                 await session.commit()
                 return
             payment = await repository.get_payment(reference, lock=True)
-            if payment is None or payment.provider != self._provider_name:
-                event.status = "quarantined"
-                event.last_error_category = "payment_not_found"
-                event.last_error = "payment_not_found"
+            rejection_reason: str | None = None
+            if payment is None:
+                rejection_reason = "payment_not_found"
+            elif payment.provider != self._provider_name:
+                rejection_reason = "provider_mismatch"
+            elif event.company_id != payment.company_id:
+                rejection_reason = "tenant_mismatch"
             elif payment.amount_minor != amount_minor:
-                event.status = "quarantined"
-                event.last_error_category = "amount_mismatch"
-                event.last_error = "amount_mismatch"
+                rejection_reason = "amount_mismatch"
             elif payment.currency != currency:
-                event.status = "quarantined"
-                event.last_error_category = "currency_mismatch"
-                event.last_error = "currency_mismatch"
+                rejection_reason = "currency_mismatch"
+            elif (
+                payment.provider_integration_id is not None
+                and payment.provider_integration_id != integration_id
+            ):
+                rejection_reason = "integration_mismatch"
+            elif self._policy.provider_integration_id is not None and (
+                self._policy.provider_integration_id != integration_id
+                or payment.provider_integration_id
+                != self._policy.provider_integration_id
+            ):
+                rejection_reason = "configured_integration_mismatch"
+            elif (
+                payment.environment != "legacy_unknown"
+                and payment.environment != environment
+            ):
+                rejection_reason = "environment_mismatch"
+            elif self._policy.environment != "legacy_unknown" and (
+                self._policy.environment != environment
+                or payment.environment != self._policy.environment
+            ):
+                rejection_reason = "configured_environment_mismatch"
+            elif (
+                payment.provider_merchant_id is not None
+                and payment.provider_merchant_id != merchant_id
+            ):
+                rejection_reason = "merchant_mismatch"
+            elif self._policy.provider_merchant_id is not None and (
+                self._policy.provider_merchant_id != merchant_id
+                or payment.provider_merchant_id != self._policy.provider_merchant_id
+            ):
+                rejection_reason = "configured_merchant_mismatch"
+            elif (
+                payment.provider_order_id is not None
+                and payment.provider_order_id != provider_order_id
+            ):
+                rejection_reason = "provider_order_mismatch"
+            elif (
+                payment.provider_integration_id is not None
+                or payment.environment != "legacy_unknown"
+            ) and source_type is None:
+                rejection_reason = "source_missing"
+            elif self._policy.provider_source_types and (
+                source_type not in self._policy.provider_source_types
+            ):
+                rejection_reason = "source_mismatch"
             elif decision not in _DECISION_RANK:
-                event.status = "quarantined"
-                event.last_error_category = "unknown_state"
-                event.last_error = "unknown_state"
+                rejection_reason = "unknown_state"
             elif self._is_stale(payment, decision, occurred_at):
-                event.status = "quarantined"
-                event.last_error_category = "out_of_order"
-                event.last_error = "out_of_order"
+                rejection_reason = "out_of_order"
+            if rejection_reason is not None:
+                self._quarantine_processing(repository, event, rejection_reason)
             else:
+                assert payment is not None
                 prior_state = payment.status
                 payment.provider_payment_id = provider_payment_id
                 payment.provider_decision = decision
                 payment.provider_order_id = (
-                    str(payload["provider_order_id"])
-                    if payload.get("provider_order_id") is not None
-                    else payment.provider_order_id
+                    provider_order_id or payment.provider_order_id
                 )
                 payment.failure_code = (
                     str(payload.get("failure_code"))[:80]
@@ -1449,6 +1612,34 @@ class BillingWebhookProcessor:
             event.processing_started_at = None
             event.next_retry_at = None
             await session.commit()
+
+    @staticmethod
+    def _quarantine_processing(
+        repository: BillingRepository,
+        event: BillingWebhookEvent,
+        reason: str,
+    ) -> None:
+        """Move an unsafe callback to a durable terminal state without payload logs."""
+        event.status = "quarantined"
+        event.last_error_category = reason[:64]
+        event.last_error = reason[:64]
+        event.processed_at = event.processed_at or datetime.now(UTC)
+        event.processing_started_at = None
+        event.next_retry_at = None
+        if event.company_id is not None:
+            repository.add_audit_event(
+                BillingAuditEvent(
+                    company_id=event.company_id,
+                    actor_user_id=None,
+                    action="webhook.processing_rejected",
+                    result="failed",
+                    safe_metadata={
+                        "event_id": str(event.id),
+                        "provider": event.provider,
+                        "rejection_reason": reason[:64],
+                    },
+                )
+            )
 
     async def _record_processing_failure(self, event_id: UUID, exc: Exception) -> None:
         category = (

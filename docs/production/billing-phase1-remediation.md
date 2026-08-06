@@ -57,7 +57,8 @@ received -> queued -> processing -> processed
 
 processing -> dead_letter (attempt limit)
 processing -> quarantined (permanent validation mismatch)
-processed/quarantined/failed/dead_letter -> queued (audited safe replay)
+failed/dead_letter -> queued (accepted validation and audited operational replay)
+processed/quarantined -> terminal (never replayable)
 ```
 
 The worker commits `processing_started_at` and increments `attempts` before
@@ -101,6 +102,11 @@ Migration `0032_billing_phase1_remediation` is additive. Its downgrade is only
 for a failed pre-traffic migration. After Phase 1 traffic, retain the schema and
 roll back to a compatible application image. Never delete webhook/audit rows,
 queues, volumes, payments, subscriptions, overrides, or migration history.
+The migration now refuses downgrade when any webhook or platform-operator
+evidence exists. Migration `0031_entitlement_overrides` likewise refuses to drop
+overrides, usage ledgers, or document quota support after entitlement,
+subscription, or document evidence exists. Production remains roll-forward-only;
+these guards are last-resort protection, not an approved downgrade procedure.
 
 Before and after rollback, stop new checkouts while continuing verified callback
 ingestion; compare event states/counts/ages; reconcile every succeeded payment to

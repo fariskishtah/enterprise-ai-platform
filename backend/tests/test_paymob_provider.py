@@ -284,7 +284,7 @@ def test_paymob_configuration_requires_complete_environment_and_key_mode(
         Settings.model_validate(values)
 
 
-def test_production_rejects_paymob_sandbox_mode(settings: Settings) -> None:
+def test_production_rejects_any_enabled_payment_provider(settings: Settings) -> None:
     values = settings.model_dump()
     values.update(
         {
@@ -311,5 +311,5 @@ def test_production_rejects_paymob_sandbox_mode(settings: Settings) -> None:
             "payment_sandbox_mode": True,
         }
     )
-    with pytest.raises(ValidationError, match="sandbox_mode must be false"):
+    with pytest.raises(ValidationError, match="must remain disabled in production"):
         Settings.model_validate(values)

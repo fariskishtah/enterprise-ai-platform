@@ -10,8 +10,10 @@ readonly EDGE_ALIAS="factorymind-paymob-sandbox-upstream"
 readonly REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 readonly ENV_FILE="$REPO_ROOT/.env.paymob-sandbox"
 readonly STATE_DIR="$REPO_ROOT/.deployment/paymob-sandbox"
-readonly GENERATED_NGINX="$STATE_DIR/nginx/dual-host.conf"
-readonly NGINX_BACKUP="$STATE_DIR/nginx/production-edge.backup.conf"
+readonly GENERATED_NGINX="$STATE_DIR/nginx/sandbox-vhost.conf"
+readonly NGINX_INCLUDE_DESTINATION="/etc/nginx/sandbox-conf.d"
+readonly NGINX_MANAGED_FILENAME="paymob-sandbox.conf"
+readonly NGINX_CERT_DESTINATION="/etc/nginx/paymob-sandbox-certs"
 readonly INGRESS_MARKER="$STATE_DIR/ingress-active"
 readonly TEMPLATE="$REPO_ROOT/infrastructure/nginx/paymob-sandbox-edge.conf.template"
 readonly DOCKER_BIN="${DOCKER_BIN:-docker}"
@@ -291,7 +293,8 @@ preflight() {
     echo "Production PAYMENT_PROVIDER is not confirmed disabled." >&2
     exit 1
   }
-  echo "Read-only preflight passed; production payment collection is disabled."
+  require_managed_ingress_layout >/dev/null
+  echo "Read-only preflight passed; production payment collection is disabled and the isolated ingress layout is present."
 }
 
 print_dry_run() {
@@ -584,14 +587,120 @@ sandbox_proxy_id() {
   printf '%s' "${ids[0]}"
 }
 
+sandbox_service_id() {
+  local service="$1" ids=() id
+  while IFS= read -r id; do
+    [[ -n "$id" ]] && ids+=("$id")
+  done < <(
+    "$DOCKER_BIN" ps -q \
+      --filter "label=com.docker.compose.project=$SANDBOX_PROJECT" \
+      --filter "label=com.docker.compose.service=$service"
+  )
+  [[ "${#ids[@]}" -eq 1 ]] || {
+    echo "Expected exactly one running Sandbox $service container." >&2
+    exit 1
+  }
+  [[ "$(inspect_label "${ids[0]}" com.docker.compose.project)" == "$SANDBOX_PROJECT" ]] || {
+    echo "A Sandbox container has an unexpected project label." >&2
+    exit 1
+  }
+  [[ "$(inspect_label "${ids[0]}" com.factorymind.environment)" == paymob-sandbox ]] || {
+    echo "A Sandbox container lacks the required ownership label." >&2
+    exit 1
+  }
+  printf '%s' "${ids[0]}"
+}
+
+inspect_environment_value() {
+  local container_id="$1" variable="$2"
+  "$DOCKER_BIN" inspect --format '{{range .Config.Env}}{{println .}}{{end}}' \
+    "$container_id" | sed -n "s/^${variable}=//p" | tail -n 1
+}
+
+container_network_ids() {
+  "$DOCKER_BIN" inspect --format \
+    '{{range $name, $network := .NetworkSettings.Networks}}{{println $network.NetworkID}}{{end}}' \
+    "$1" | sed '/^[[:space:]]*$/d' | sort -u
+}
+
+assert_no_shared_networks() {
+  local left="$1" right="$2"
+  [[ -z "$(comm -12 <(container_network_ids "$left") <(container_network_ids "$right"))" ]] || {
+    echo "Production and Sandbox data-plane containers share a Docker network." >&2
+    exit 1
+  }
+}
+
+assert_proxy_network_boundary() {
+  local production_proxy="$1" sandbox_proxy="$2" edge_id shared_ids
+  edge_id="$("$DOCKER_BIN" network inspect --format '{{.Id}}' "$EDGE_NETWORK")"
+  [[ -n "$edge_id" ]] || {
+    echo "The controlled edge network has no inspectable ID." >&2
+    exit 1
+  }
+  shared_ids="$(comm -12 \
+    <(container_network_ids "$production_proxy") \
+    <(container_network_ids "$sandbox_proxy"))"
+  if [[ -e "$INGRESS_MARKER" ]]; then
+    [[ "$shared_ids" == "$edge_id" ]] || {
+      echo "The reverse proxies do not share exactly the controlled edge network." >&2
+      exit 1
+    }
+  else
+    [[ -z "$shared_ids" ]] || {
+      echo "Inactive Sandbox ingress still shares a network with production." >&2
+      exit 1
+    }
+  fi
+}
+
+assert_distinct_environment_value() {
+  local production_container="$1" sandbox_container="$2" variable="$3"
+  local production_value sandbox_value
+  production_value="$(inspect_environment_value "$production_container" "$variable")"
+  sandbox_value="$(inspect_environment_value "$sandbox_container" "$variable")"
+  [[ -n "$production_value" && -n "$sandbox_value" && "$production_value" != "$sandbox_value" ]] || {
+    echo "Production and Sandbox must have distinct $variable values." >&2
+    exit 1
+  }
+}
+
+assert_host_port_owner() {
+  local port="$1" expected_container="$2" owners=() id
+  while IFS= read -r id; do
+    [[ -n "$id" ]] && owners+=("$id")
+  done < <("$DOCKER_BIN" ps -q --filter "publish=$port")
+  [[ "${#owners[@]}" -eq 1 && "${owners[0]}" == "$expected_container" ]] || {
+    echo "Production reverse proxy is not the sole owner of host port $port." >&2
+    exit 1
+  }
+}
+
 render_nginx() {
   mkdir -p "$STATE_DIR/nginx"
   sed \
-    -e "s/__PRODUCTION_DOMAIN__/$PRODUCTION_DOMAIN/g" \
     -e "s/__SANDBOX_DOMAIN__/$SANDBOX_DOMAIN/g" \
     "$TEMPLATE" >"$GENERATED_NGINX.next"
   chmod 0644 "$GENERATED_NGINX.next"
   mv -f -- "$GENERATED_NGINX.next" "$GENERATED_NGINX"
+}
+
+require_managed_ingress_layout() {
+  local config_mount_source certificate_mount_source
+  config_mount_source="$(mount_source_for_destination \
+    "$PRODUCTION_PROXY_ID" "$NGINX_INCLUDE_DESTINATION")"
+  certificate_mount_source="$(mount_source_for_destination \
+    "$PRODUCTION_PROXY_ID" "$NGINX_CERT_DESTINATION")"
+  [[ -d "$config_mount_source" && -d "$certificate_mount_source" ]] || {
+    echo "The production proxy lacks the dedicated Sandbox ingress mounts." >&2
+    exit 1
+  }
+  "$DOCKER_BIN" exec "$PRODUCTION_PROXY_ID" /bin/sh -c \
+    'test -d /etc/nginx/sandbox-conf.d && test -d /etc/nginx/paymob-sandbox-certs && grep -Fqx "include /etc/nginx/sandbox-conf.d/*.conf;" /etc/nginx/conf.d/default.conf' || {
+    echo "The active production Nginx layout does not support isolated includes." >&2
+    exit 1
+  }
+  printf '%s\n%s\n' "$config_mount_source" "$certificate_mount_source"
 }
 
 network_contains_container() {
@@ -601,13 +710,11 @@ network_contains_container() {
 }
 
 activate_ingress() {
-  local config_source certificate_mount_source sandbox_proxy rollback_required=false
+  local config_mount_source certificate_mount_source managed_config sandbox_proxy
+  local connected_here=false installed_here=false rollback_required=false
+  local ingress_mounts=()
   require_confirmation ACTIVATE-SANDBOX-INGRESS
   require_environment
-  [[ ! -e "$INGRESS_MARKER" ]] || {
-    echo "Sandbox ingress is already marked active." >&2
-    exit 1
-  }
   [[ -f "$STATE_DIR/https/certs/fullchain.pem" && -f "$STATE_DIR/https/certs/privkey.pem" ]] || {
     echo "Issue and stage the sandbox certificate before ingress activation." >&2
     exit 1
@@ -615,50 +722,70 @@ activate_ingress() {
   preflight
   sandbox_proxy="$(sandbox_proxy_id)"
   ensure_edge_network
-  config_source="$(mount_source_for_destination "$PRODUCTION_PROXY_ID" /etc/nginx/conf.d/default.conf)"
-  certificate_mount_source="$(mount_source_for_destination \
-    "$PRODUCTION_PROXY_ID" "/etc/letsencrypt/live/$PRODUCTION_DOMAIN")"
-  [[ -f "$config_source" && -d "$certificate_mount_source" ]] || {
-    echo "Active production Nginx mounts could not be validated." >&2
-    exit 1
-  }
-  [[ ! -e "$NGINX_BACKUP" ]] || {
-    echo "A prior ingress backup exists; deactivate or archive it first." >&2
+  mapfile -t ingress_mounts < <(require_managed_ingress_layout)
+  [[ "${#ingress_mounts[@]}" -eq 2 ]] || exit 1
+  config_mount_source="${ingress_mounts[0]}"
+  certificate_mount_source="${ingress_mounts[1]}"
+  managed_config="$config_mount_source/$NGINX_MANAGED_FILENAME"
+  [[ "$(cd "$certificate_mount_source" && pwd -P)" == \
+    "$(cd "$STATE_DIR/https/certs" && pwd -P)" ]] || {
+    echo "The Sandbox certificate mount does not resolve to the managed state directory." >&2
     exit 1
   }
   render_nginx
+  if [[ -e "$INGRESS_MARKER" ]]; then
+    [[ -f "$managed_config" ]] && cmp -s "$GENERATED_NGINX" "$managed_config" || {
+      echo "Ingress is marked active but the managed Sandbox include differs." >&2
+      exit 1
+    }
+    network_contains_container "$EDGE_NETWORK" "$PRODUCTION_PROXY_ID" &&
+      network_contains_container "$EDGE_NETWORK" "$sandbox_proxy" || {
+      echo "Ingress is marked active but edge membership is incomplete." >&2
+      exit 1
+    }
+    "$DOCKER_BIN" exec "$PRODUCTION_PROXY_ID" nginx -t
+    echo "Sandbox ingress is already active with the approved managed include."
+    return 0
+  fi
+  [[ ! -e "$managed_config" ]] || {
+    echo "An unmanaged Sandbox include exists without an activation marker." >&2
+    exit 1
+  }
   if [[ "$DRY_RUN" == true ]]; then
     quote_command docker-network-connect "$EDGE_NETWORK" "$PRODUCTION_PROXY_ID"
-    quote_command stage-sandbox-certificate-beside-production-certificate
-    quote_command validate-and-reload-production-nginx
+    quote_command install-managed-nginx-include "$GENERATED_NGINX" "$managed_config"
+    quote_command validate-and-reload-production-nginx-without-replacing-default
     return 0
   fi
 
-  cp -p -- "$config_source" "$NGINX_BACKUP"
   rollback_required=true
   rollback_activation() {
-    if [[ "$rollback_required" == true && -f "$NGINX_BACKUP" ]]; then
-      sudo cp -- "$NGINX_BACKUP" "$config_source"
+    if [[ "$rollback_required" == true ]]; then
+      if [[ "$installed_here" == true ]]; then
+        sudo rm -f -- "$managed_config" "$managed_config.next"
+      fi
       "$DOCKER_BIN" exec "$PRODUCTION_PROXY_ID" nginx -t >/dev/null 2>&1 || true
       "$DOCKER_BIN" exec "$PRODUCTION_PROXY_ID" nginx -s reload >/dev/null 2>&1 || true
+      if [[ "$connected_here" == true ]] &&
+        network_contains_container "$EDGE_NETWORK" "$PRODUCTION_PROXY_ID"; then
+        "$DOCKER_BIN" network disconnect \
+          "$EDGE_NETWORK" "$PRODUCTION_PROXY_ID" >/dev/null 2>&1 || true
+      fi
     fi
   }
   trap rollback_activation ERR
 
   if ! network_contains_container "$EDGE_NETWORK" "$PRODUCTION_PROXY_ID"; then
     "$DOCKER_BIN" network connect "$EDGE_NETWORK" "$PRODUCTION_PROXY_ID"
+    connected_here=true
   fi
   network_contains_container "$EDGE_NETWORK" "$sandbox_proxy" || {
     echo "Sandbox ingress is not attached to the controlled edge network." >&2
     false
   }
-  sudo install -o 101 -g 101 -m 0640 \
-    "$STATE_DIR/https/certs/fullchain.pem" \
-    "$certificate_mount_source/factorymind-sandbox-fullchain.pem"
-  sudo install -o 101 -g 101 -m 0640 \
-    "$STATE_DIR/https/certs/privkey.pem" \
-    "$certificate_mount_source/factorymind-sandbox-privkey.pem"
-  sudo cp -- "$GENERATED_NGINX" "$config_source"
+  sudo install -m 0644 "$GENERATED_NGINX" "$managed_config.next"
+  sudo mv -- "$managed_config.next" "$managed_config"
+  installed_here=true
   "$DOCKER_BIN" exec "$PRODUCTION_PROXY_ID" nginx -t
   "$DOCKER_BIN" exec "$PRODUCTION_PROXY_ID" nginx -s reload
   : >"$INGRESS_MARKER"
@@ -668,46 +795,85 @@ activate_ingress() {
 }
 
 refresh_certificate() {
-  local certificate_mount_source
+  local rollback_required=false
+  local certificate_backup="$STATE_DIR/https/certificate-backup.$(date -u +%Y%m%dT%H%M%SZ)"
   require_confirmation REFRESH-SANDBOX-CERTIFICATE
   [[ -e "$INGRESS_MARKER" ]] || {
     echo "Sandbox ingress is not active." >&2
     exit 1
   }
   preflight
+  require_managed_ingress_layout >/dev/null
+  run install -d -m 0700 "$certificate_backup"
+  run sudo cp -p -- "$STATE_DIR/https/certs/fullchain.pem" \
+    "$certificate_backup/fullchain.pem"
+  run sudo cp -p -- "$STATE_DIR/https/certs/privkey.pem" \
+    "$certificate_backup/privkey.pem"
+  rollback_required=true
+  rollback_certificate_refresh() {
+    if [[ "$rollback_required" == true ]]; then
+      sudo install -o 101 -g 101 -m 0640 \
+        "$certificate_backup/fullchain.pem" \
+        "$STATE_DIR/https/certs/fullchain.pem" >/dev/null 2>&1 || true
+      sudo install -o 101 -g 101 -m 0640 \
+        "$certificate_backup/privkey.pem" \
+        "$STATE_DIR/https/certs/privkey.pem" >/dev/null 2>&1 || true
+      "$DOCKER_BIN" exec "$PRODUCTION_PROXY_ID" nginx -t >/dev/null 2>&1 || true
+      "$DOCKER_BIN" exec "$PRODUCTION_PROXY_ID" nginx -s reload >/dev/null 2>&1 || true
+    fi
+  }
+  trap rollback_certificate_refresh ERR
   stage_sandbox_certificate "/etc/letsencrypt/live/$SANDBOX_DOMAIN"
-  certificate_mount_source="$(mount_source_for_destination \
-    "$PRODUCTION_PROXY_ID" "/etc/letsencrypt/live/$PRODUCTION_DOMAIN")"
-  run sudo install -o 101 -g 101 -m 0640 \
-    "$STATE_DIR/https/certs/fullchain.pem" \
-    "$certificate_mount_source/factorymind-sandbox-fullchain.pem"
-  run sudo install -o 101 -g 101 -m 0640 \
-    "$STATE_DIR/https/certs/privkey.pem" \
-    "$certificate_mount_source/factorymind-sandbox-privkey.pem"
   run "$DOCKER_BIN" exec "$PRODUCTION_PROXY_ID" nginx -t
   run "$DOCKER_BIN" exec "$PRODUCTION_PROXY_ID" nginx -s reload
+  rollback_required=false
+  trap - ERR
+  echo "Sandbox certificate refreshed; the prior pair remains in the managed backup directory."
 }
 
 deactivate_ingress() {
-  local archived_backup config_source
+  local archived_config config_mount_source managed_config rollback_required=false
+  local ingress_mounts=()
   require_confirmation DEACTIVATE-SANDBOX-INGRESS
-  [[ -f "$NGINX_BACKUP" ]] || {
-    echo "No preserved production Nginx backup is available." >&2
+  preflight
+  mapfile -t ingress_mounts < <(require_managed_ingress_layout)
+  [[ "${#ingress_mounts[@]}" -eq 2 ]] || exit 1
+  config_mount_source="${ingress_mounts[0]}"
+  managed_config="$config_mount_source/$NGINX_MANAGED_FILENAME"
+  if [[ ! -e "$INGRESS_MARKER" && ! -e "$managed_config" ]]; then
+    echo "Sandbox ingress is already inactive."
+    return 0
+  fi
+  [[ -e "$INGRESS_MARKER" && -f "$managed_config" ]] || {
+    echo "Sandbox ingress marker and managed include are inconsistent." >&2
     exit 1
   }
-  preflight
-  config_source="$(mount_source_for_destination "$PRODUCTION_PROXY_ID" /etc/nginx/conf.d/default.conf)"
-  [[ -f "$config_source" ]] || exit 1
-  run sudo cp -- "$NGINX_BACKUP" "$config_source"
-  run "$DOCKER_BIN" exec "$PRODUCTION_PROXY_ID" nginx -t
-  run "$DOCKER_BIN" exec "$PRODUCTION_PROXY_ID" nginx -s reload
-  if network_contains_container "$EDGE_NETWORK" "$PRODUCTION_PROXY_ID"; then
-    run "$DOCKER_BIN" network disconnect "$EDGE_NETWORK" "$PRODUCTION_PROXY_ID"
+  archived_config="$STATE_DIR/nginx/sandbox-vhost.deactivated.$(date -u +%Y%m%dT%H%M%SZ).disabled"
+  if [[ "$DRY_RUN" == true ]]; then
+    quote_command remove-only-managed-nginx-include "$managed_config"
+    quote_command validate-and-reload-production-nginx
+    return 0
   fi
-  archived_backup="$STATE_DIR/nginx/production-edge.restored.$(date -u +%Y%m%dT%H%M%SZ).conf"
-  run mv -- "$NGINX_BACKUP" "$archived_backup"
-  run rm -f -- "$INGRESS_MARKER"
-  echo "Production Nginx routes restored; rollback evidence and sandbox data retained."
+  cp -p -- "$managed_config" "$archived_config"
+  rollback_required=true
+  rollback_deactivation() {
+    if [[ "$rollback_required" == true && -f "$archived_config" ]]; then
+      sudo install -m 0644 "$archived_config" "$managed_config"
+      "$DOCKER_BIN" exec "$PRODUCTION_PROXY_ID" nginx -t >/dev/null 2>&1 || true
+      "$DOCKER_BIN" exec "$PRODUCTION_PROXY_ID" nginx -s reload >/dev/null 2>&1 || true
+    fi
+  }
+  trap rollback_deactivation ERR
+  sudo rm -- "$managed_config"
+  "$DOCKER_BIN" exec "$PRODUCTION_PROXY_ID" nginx -t
+  "$DOCKER_BIN" exec "$PRODUCTION_PROXY_ID" nginx -s reload
+  if network_contains_container "$EDGE_NETWORK" "$PRODUCTION_PROXY_ID"; then
+    "$DOCKER_BIN" network disconnect "$EDGE_NETWORK" "$PRODUCTION_PROXY_ID"
+  fi
+  rm -f -- "$INGRESS_MARKER"
+  rollback_required=false
+  trap - ERR
+  echo "Sandbox Nginx include removed; production configuration was untouched."
 }
 
 status() {
@@ -716,31 +882,82 @@ status() {
 }
 
 verify_isolation() {
-  local sandbox_backend sandbox_postgres sandbox_redis production_volume sandbox_volume
+  local sandbox_backend sandbox_postgres sandbox_proxy sandbox_redis
+  local production_postgres_volume production_redis_volume
+  local sandbox_postgres_volume sandbox_redis_volume variable sandbox_queue
   preflight
-  sandbox_backend="$("$DOCKER_BIN" ps -q \
-    --filter "label=com.docker.compose.project=$SANDBOX_PROJECT" \
-    --filter label=com.docker.compose.service=backend)"
-  sandbox_postgres="$("$DOCKER_BIN" ps -q \
-    --filter "label=com.docker.compose.project=$SANDBOX_PROJECT" \
-    --filter label=com.docker.compose.service=postgres)"
-  sandbox_redis="$("$DOCKER_BIN" ps -q \
-    --filter "label=com.docker.compose.project=$SANDBOX_PROJECT" \
-    --filter label=com.docker.compose.service=redis)"
-  [[ -n "$sandbox_backend" && -n "$sandbox_postgres" && -n "$sandbox_redis" ]] || {
-    echo "Sandbox core services are not running." >&2
-    exit 1
-  }
+  sandbox_backend="$(sandbox_service_id backend)"
+  sandbox_postgres="$(sandbox_service_id postgres)"
+  sandbox_redis="$(sandbox_service_id redis)"
+  sandbox_proxy="$(sandbox_service_id reverse-proxy)"
   "$DOCKER_BIN" exec "$sandbox_backend" /bin/sh -c \
     'test "$PAYMENT_PROVIDER" = paymob && test "$PAYMENT_SANDBOX_MODE" = true && test "$ENVIRONMENT" = staging'
   [[ -z "$("$DOCKER_BIN" port "$sandbox_backend")" ]]
   [[ -z "$("$DOCKER_BIN" port "$sandbox_postgres")" ]]
   [[ -z "$("$DOCKER_BIN" port "$sandbox_redis")" ]]
-  production_volume="$(mount_source_for_destination "$PRODUCTION_POSTGRES_ID" /var/lib/postgresql/data)"
-  sandbox_volume="$(mount_source_for_destination "$sandbox_postgres" /var/lib/postgresql/data)"
-  [[ -n "$production_volume" && -n "$sandbox_volume" && "$production_volume" != "$sandbox_volume" ]]
+  [[ -z "$("$DOCKER_BIN" port "$sandbox_proxy")" ]]
+
+  production_postgres_volume="$(mount_source_for_destination "$PRODUCTION_POSTGRES_ID" /var/lib/postgresql/data)"
+  sandbox_postgres_volume="$(mount_source_for_destination "$sandbox_postgres" /var/lib/postgresql/data)"
+  production_redis_volume="$(mount_source_for_destination "$PRODUCTION_REDIS_ID" /data)"
+  sandbox_redis_volume="$(mount_source_for_destination "$sandbox_redis" /data)"
+  [[ -n "$production_postgres_volume" && -n "$sandbox_postgres_volume" && \
+    "$production_postgres_volume" != "$sandbox_postgres_volume" ]] || {
+    echo "Production and Sandbox PostgreSQL storage is not isolated." >&2
+    exit 1
+  }
+  [[ -n "$production_redis_volume" && -n "$sandbox_redis_volume" && \
+    "$production_redis_volume" != "$sandbox_redis_volume" ]] || {
+    echo "Production and Sandbox Redis storage is not isolated." >&2
+    exit 1
+  }
+
+  assert_distinct_environment_value "$PRODUCTION_POSTGRES_ID" "$sandbox_postgres" POSTGRES_DB
+  assert_distinct_environment_value "$PRODUCTION_POSTGRES_ID" "$sandbox_postgres" POSTGRES_USER
+  assert_distinct_environment_value "$PRODUCTION_POSTGRES_ID" "$sandbox_postgres" POSTGRES_PASSWORD
+  assert_distinct_environment_value "$PRODUCTION_BACKEND_ID" "$sandbox_backend" DATABASE_URL
+  assert_distinct_environment_value "$PRODUCTION_BACKEND_ID" "$sandbox_backend" REDIS_URL
+  assert_distinct_environment_value "$PRODUCTION_BACKEND_ID" "$sandbox_backend" SECRET_KEY
+  for variable in \
+    BILLING_WEBHOOK_QUEUE_NAME EMAIL_QUEUE_NAME TRAINING_QUEUE_NAME \
+    DATASET_QUEUE_NAME RAG_QUEUE_NAME MONITORING_QUEUE_NAME; do
+    assert_distinct_environment_value \
+      "$PRODUCTION_BACKEND_ID" "$sandbox_backend" "$variable"
+    sandbox_queue="$(inspect_environment_value "$sandbox_backend" "$variable")"
+    [[ "$sandbox_queue" == factorymind-sandbox-* ]] || {
+      echo "Sandbox queue $variable lacks the required namespace." >&2
+      exit 1
+    }
+  done
+
+  for sandbox_container in "$sandbox_backend" "$sandbox_postgres" "$sandbox_redis"; do
+    assert_no_shared_networks "$PRODUCTION_PROXY_ID" "$sandbox_container"
+    assert_no_shared_networks "$PRODUCTION_BACKEND_ID" "$sandbox_container"
+    assert_no_shared_networks "$PRODUCTION_POSTGRES_ID" "$sandbox_container"
+    assert_no_shared_networks "$PRODUCTION_REDIS_ID" "$sandbox_container"
+    network_contains_container "$EDGE_NETWORK" "$sandbox_container" && {
+      echo "A Sandbox data-plane container is attached to the shared edge." >&2
+      exit 1
+    }
+  done
+  for production_container in \
+    "$PRODUCTION_BACKEND_ID" "$PRODUCTION_POSTGRES_ID" "$PRODUCTION_REDIS_ID"; do
+    assert_no_shared_networks "$production_container" "$sandbox_proxy"
+  done
+  network_contains_container "$EDGE_NETWORK" "$sandbox_proxy" || {
+    echo "The Sandbox reverse proxy is not attached to its controlled edge." >&2
+    exit 1
+  }
+  assert_proxy_network_boundary "$PRODUCTION_PROXY_ID" "$sandbox_proxy"
+  assert_host_port_owner 80 "$PRODUCTION_PROXY_ID"
+  assert_host_port_owner 443 "$PRODUCTION_PROXY_ID"
   curl --fail --silent --show-error "https://$PRODUCTION_DOMAIN/healthz" >/dev/null
   if [[ -e "$INGRESS_MARKER" ]]; then
+    require_managed_ingress_layout >/dev/null
+    network_contains_container "$EDGE_NETWORK" "$PRODUCTION_PROXY_ID" || {
+      echo "Active ingress lacks production proxy edge membership." >&2
+      exit 1
+    }
     curl --fail --silent --show-error "https://$SANDBOX_DOMAIN/healthz" >/dev/null
     [[ "$(curl --silent --output /dev/null --write-out '%{http_code}' \
       "https://$SANDBOX_DOMAIN/api/metrics")" == 404 ]]

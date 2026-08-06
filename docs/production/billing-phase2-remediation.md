@@ -59,6 +59,16 @@ only, record per-payment outcomes, and never overwrite event history. A money-st
 correction requires an explicit finance approval reference and creates an audited
 compensating provider event; the normal webhook processor applies that event.
 
+Real Paymob retrieval remains deliberately unavailable. The repository does not
+contain an accepted Paymob transaction-list endpoint, authentication scheme,
+pagination contract, bounded date-window semantics, rate-limit behavior, or a
+provider-query representation of source type and merchant/payment bindings.
+`PaymobPaymentProvider.list_reconciliation_transactions` therefore fails closed,
+diagnostics report the query contract as unaccepted, and failed runs cannot be
+reused as apparent successful reconciliations. Production payment activation is
+blocked until that external contract is accepted and covered by provider-query
+tests.
+
 ## Rollback
 
 Rollback is an application rollback to Phase 1 while retaining migration `0033`.

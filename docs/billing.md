@@ -35,8 +35,10 @@ uses Unified Checkout instead.
 ## Callback trust and state ordering
 
 `POST /billing/webhooks/paymob?hmac=...` is public by necessity but verifies the
-documented SHA-512 transaction HMAC before persistence. The HMAC value is read
-from the callback query parameter. Invalid signatures return 403.
+documented SHA-512 transaction HMAC before normal processing. The HMAC value is
+read from the callback query parameter. Invalid signatures are persisted only as
+card-free quarantined evidence, return a non-accepted outcome, and are never
+queued.
 
 Paymob's raw transaction ID is stored separately from a deterministic event ID.
 Only a hash of the raw callback and a normalized, card-free payload are stored.
@@ -65,8 +67,9 @@ state.
 
 ## Configuration
 
-The provider is fail-closed with `PAYMENT_PROVIDER=disabled`. A Paymob
-deployment needs:
+The provider is fail-closed with `PAYMENT_PROVIDER=disabled`. Production remains
+disabled throughout Sandbox acceptance. Only the isolated non-production Paymob
+Sandbox deployment uses:
 
 - `PAYMENT_PROVIDER=paymob`
 - `PAYMOB_SECRET_KEY`, `PAYMOB_PUBLIC_KEY`, and `PAYMOB_HMAC_SECRET`
@@ -113,8 +116,6 @@ isolated sandbox acceptance.
 
 The approval-gated isolated-host procedure is documented in the
 [Paymob sandbox deployment runbook](production/paymob-sandbox-deployment.md).
-- `PAYMENT_CURRENCY=EGP`
-- `PAYMENT_SANDBOX_MODE=true` with test keys, or `false` with live keys
 
 Settings reject known live key prefixes in sandbox mode, known test key prefixes
 in live mode, sandbox mode in production, non-HTTPS production URLs, incomplete

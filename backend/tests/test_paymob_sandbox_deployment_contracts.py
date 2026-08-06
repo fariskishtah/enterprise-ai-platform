@@ -13,10 +13,16 @@ from yaml.nodes import MappingNode, ScalarNode, SequenceNode
 
 _ROOT = Path(__file__).resolve().parents[2]
 _COMPOSE = _ROOT / "docker-compose.paymob-sandbox.yml"
+_PRODUCTION_COMPOSE = _ROOT / "docker-compose.prod.yml"
+_HTTPS_COMPOSE = _ROOT / "docker-compose.https.yml"
 _SCRIPT = _ROOT / "scripts/paymob-sandbox.sh"
+_PREPARE_HTTPS = _ROOT / "scripts/prepare-production-https.sh"
 _SEED = _ROOT / "scripts/seed_paymob_sandbox_users.py"
 _NGINX = _ROOT / "infrastructure/nginx/paymob-sandbox-edge.conf.template"
+_PRODUCTION_NGINX = _ROOT / "infrastructure/nginx/https.conf.template"
 _RUNBOOK = _ROOT / "docs/production/paymob-sandbox-deployment.md"
+_PRODUCTION_ENV_TEMPLATE = _ROOT / "docs/production/environment-template.md"
+_ENV_EXAMPLE = _ROOT / ".env.example"
 _GITIGNORE = _ROOT / ".gitignore"
 
 
@@ -134,17 +140,116 @@ def test_provider_contract_is_required_and_sandbox_only() -> None:
     assert environment["APP_ENV"] == "staging"
 
 
-def test_shared_edge_preserves_production_routes_and_certificate() -> None:
-    nginx = _text(_NGINX)
+def test_production_payment_provider_is_hard_disabled_without_credentials() -> None:
+    compose = _yaml(_PRODUCTION_COMPOSE)
+    for service_name in ("backend", "training-worker"):
+        environment = compose["services"][service_name]["environment"]
+        assert environment["PAYMENT_PROVIDER"] == "disabled"
+        assert environment["PAYMENT_SANDBOX_MODE"] == "true"
+        for secret_name in (
+            "PAYMOB_API_KEY",
+            "PAYMOB_SECRET_KEY",
+            "PAYMOB_PUBLIC_KEY",
+            "PAYMOB_HMAC_SECRET",
+            "PAYMOB_INTEGRATION_ID",
+            "PAYMOB_MERCHANT_ID",
+        ):
+            assert environment[secret_name] == ""
 
-    assert "include /etc/nginx/routes.inc;" in nginx
-    assert "/etc/letsencrypt/live/__PRODUCTION_DOMAIN__/fullchain.pem" in nginx
-    assert "/etc/letsencrypt/live/__PRODUCTION_DOMAIN__/privkey.pem" in nginx
-    assert "factorymind-sandbox-fullchain.pem" in nginx
-    assert "factorymind-sandbox-privkey.pem" in nginx
+    production_template = _text(_PRODUCTION_ENV_TEMPLATE)
+    example = _text(_ENV_EXAMPLE)
+    assert "PAYMENT_PROVIDER=disabled" in production_template
+    assert "PAYMENT_SANDBOX_MODE=true" in production_template
+    assert "PAYMENT_PROVIDER=paymob" not in production_template
+    assert "Production remains PAYMENT_PROVIDER=disabled" in example
+
+
+def test_shared_edge_uses_an_isolated_include_and_certificate_mount() -> None:
+    nginx = _text(_NGINX)
+    production_nginx = _text(_PRODUCTION_NGINX)
+    https_compose = _yaml(_HTTPS_COMPOSE)
+    mounts = https_compose["services"]["reverse-proxy"]["volumes"]
+
+    assert "__PRODUCTION_DOMAIN__" not in nginx
+    assert "include /etc/nginx/routes.inc;" not in nginx
+    assert "include /etc/nginx/sandbox-conf.d/*.conf;" in production_nginx
+    assert "/etc/nginx/paymob-sandbox-certs/fullchain.pem" in nginx
+    assert "/etc/nginx/paymob-sandbox-certs/privkey.pem" in nginx
     assert "proxy_pass http://factorymind-paymob-sandbox-upstream:8080;" in nginx
-    assert nginx.count("server_name __PRODUCTION_DOMAIN__;") == 2
     assert nginx.count("server_name __SANDBOX_DOMAIN__;") == 2
+    assert any("/etc/nginx/sandbox-conf.d:ro" in mount for mount in mounts)
+    assert any("/etc/nginx/paymob-sandbox-certs:ro" in mount for mount in mounts)
+
+
+def test_ingress_activation_never_replaces_production_configuration() -> None:
+    script = _text(_SCRIPT)
+    activation = script.split("activate_ingress()", maxsplit=1)[1].split(
+        "refresh_certificate()", maxsplit=1
+    )[0]
+    deactivation = script.split("deactivate_ingress()", maxsplit=1)[1].split(
+        "status()", maxsplit=1
+    )[0]
+    refresh = script.split("refresh_certificate()", maxsplit=1)[1].split(
+        "deactivate_ingress()", maxsplit=1
+    )[0]
+
+    assert 'NGINX_INCLUDE_DESTINATION="/etc/nginx/sandbox-conf.d"' in script
+    assert 'NGINX_MANAGED_FILENAME="paymob-sandbox.conf"' in script
+    assert "require_managed_ingress_layout" in activation
+    assert 'sudo mv -- "$managed_config.next" "$managed_config"' in activation
+    assert 'sudo rm -f -- "$managed_config" "$managed_config.next"' in activation
+    assert "nginx -t" in activation
+    assert "nginx -s reload" in activation
+    assert activation.index("nginx -t") < activation.index("nginx -s reload")
+    assert "/etc/nginx/conf.d/default.conf" not in activation
+    assert "NGINX_BACKUP" not in script
+    assert 'cmp -s "$GENERATED_NGINX" "$managed_config"' in activation
+    assert 'sudo rm -- "$managed_config"' in deactivation
+    assert "/etc/nginx/conf.d/default.conf" not in deactivation
+    assert "certificate-backup" in refresh
+    assert "rollback_certificate_refresh" in refresh
+    assert "trap rollback_certificate_refresh ERR" in refresh
+
+
+def test_https_preparation_precreates_and_validates_managed_mounts() -> None:
+    prepare = _text(_PREPARE_HTTPS)
+
+    assert 'generated_sandbox_config_dir="$generated_dir/sandbox-conf.d"' in prepare
+    assert ".deployment/paymob-sandbox/https/certs" in prepare
+    assert "/etc/nginx/sandbox-conf.d:ro" in prepare
+    assert "/etc/nginx/paymob-sandbox-certs:ro" in prepare
+
+
+def test_runtime_verifier_covers_data_plane_and_namespace_isolation() -> None:
+    script = _text(_SCRIPT)
+    verifier = script.split("verify_isolation()", maxsplit=1)[1].split(
+        "stop_sandbox()", maxsplit=1
+    )[0]
+
+    for contract in (
+        "production_redis_volume",
+        "sandbox_redis_volume",
+        "POSTGRES_DB",
+        "POSTGRES_USER",
+        "POSTGRES_PASSWORD",
+        "DATABASE_URL",
+        "REDIS_URL",
+        "SECRET_KEY",
+        "BILLING_WEBHOOK_QUEUE_NAME",
+        "EMAIL_QUEUE_NAME",
+        "TRAINING_QUEUE_NAME",
+        "DATASET_QUEUE_NAME",
+        "RAG_QUEUE_NAME",
+        "MONITORING_QUEUE_NAME",
+        "assert_no_shared_networks",
+        "assert_proxy_network_boundary",
+        'assert_no_shared_networks "$PRODUCTION_PROXY_ID" "$sandbox_container"',
+        'assert_no_shared_networks "$production_container" "$sandbox_proxy"',
+        "assert_host_port_owner 80",
+        "assert_host_port_owner 443",
+    ):
+        assert contract in verifier
+    assert 'network_contains_container "$EDGE_NETWORK" "$sandbox_container"' in verifier
 
 
 def test_mutating_actions_are_separate_and_confirmation_guarded() -> None:
@@ -223,6 +328,10 @@ def test_sandbox_shell_script_syntax_and_dry_run() -> None:
 def test_read_only_preflight_discovers_nonstandard_service_labels(
     tmp_path: Path,
 ) -> None:
+    sandbox_config_mount = tmp_path / "sandbox-conf.d"
+    sandbox_certificate_mount = tmp_path / "sandbox-certs"
+    sandbox_config_mount.mkdir()
+    sandbox_certificate_mount.mkdir()
     fake_docker = tmp_path / "docker"
     fake_docker.write_text(
         """#!/usr/bin/env bash
@@ -263,9 +372,20 @@ case "$command_name" in
         postgres-id) printf 'database-main\\n' ;;
         redis-id) printf 'cache-primary\\n' ;;
       esac
+    elif [[ "$format" == *'if eq .Destination'* ]]; then
+      if [[ "$format" == *'/etc/nginx/sandbox-conf.d'* ]]; then
+        printf '%s\\n' "$FAKE_SANDBOX_CONFIG_MOUNT"
+      elif [[ "$format" == *'/etc/nginx/paymob-sandbox-certs'* ]]; then
+        printf '%s\\n' "$FAKE_SANDBOX_CERTIFICATE_MOUNT"
+      fi
     elif [[ "$format" == *'.Mounts'* ]]; then
       case "$identifier" in
-        proxy-id) printf '/etc/nginx/conf.d/default.conf\\n/etc/nginx/routes.inc\\n' ;;
+        proxy-id)
+          printf '/etc/nginx/conf.d/default.conf\\n'
+          printf '/etc/nginx/routes.inc\\n'
+          printf '/etc/nginx/sandbox-conf.d\\n'
+          printf '/etc/nginx/paymob-sandbox-certs\\n'
+          ;;
         postgres-id) printf '/var/lib/postgresql/data\\n' ;;
         redis-id) printf '/data\\n' ;;
       esac
@@ -299,6 +419,8 @@ esac
     fake_docker.chmod(0o755)
     environment = os.environ.copy()
     environment["DOCKER_BIN"] = str(fake_docker)
+    environment["FAKE_SANDBOX_CONFIG_MOUNT"] = str(sandbox_config_mount)
+    environment["FAKE_SANDBOX_CERTIFICATE_MOUNT"] = str(sandbox_certificate_mount)
 
     result = subprocess.run(
         [str(_SCRIPT), "preflight"],
@@ -313,3 +435,4 @@ esac
     assert "postgres: database-main" in result.stdout
     assert "redis: cache-primary" in result.stdout
     assert "production payment collection is disabled" in result.stdout
+    assert "isolated ingress layout is present" in result.stdout

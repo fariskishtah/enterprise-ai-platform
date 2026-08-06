@@ -98,9 +98,15 @@ fi
 
 generated_dir="$REPO_ROOT/.deployment/https"
 generated_certificate_dir="$generated_dir/certs"
+generated_sandbox_config_dir="$generated_dir/sandbox-conf.d"
+sandbox_certificate_dir="$REPO_ROOT/.deployment/paymob-sandbox/https/certs"
 generated_config="$generated_dir/default.conf"
 template="$REPO_ROOT/infrastructure/nginx/https.conf.template"
-mkdir -p "$generated_dir" "$generated_certificate_dir"
+mkdir -p \
+  "$generated_dir" \
+  "$generated_certificate_dir" \
+  "$generated_sandbox_config_dir" \
+  "$sandbox_certificate_dir"
 
 echo "Staging the active certificate for the unprivileged reverse proxy..."
 if ! docker run --rm \
@@ -144,8 +150,10 @@ docker run --rm \
   --add-host backend:127.0.0.1 \
   --add-host frontend:127.0.0.1 \
   --volume "$temporary_config:/etc/nginx/conf.d/default.conf:ro" \
+  --volume "$generated_sandbox_config_dir:/etc/nginx/sandbox-conf.d:ro" \
   --volume "$REPO_ROOT/infrastructure/nginx/routes.inc:/etc/nginx/routes.inc:ro" \
   --volume "$generated_certificate_dir:/etc/letsencrypt/live/$HTTPS_DOMAIN:ro" \
+  --volume "$sandbox_certificate_dir:/etc/nginx/paymob-sandbox-certs:ro" \
   nginxinc/nginx-unprivileged:1.28.0-alpine nginx -t
 
 mv "$temporary_config" "$generated_config"

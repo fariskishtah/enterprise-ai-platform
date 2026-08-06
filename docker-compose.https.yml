@@ -5,6 +5,8 @@ services:
       - "${PUBLIC_HTTPS_PORT:-443}:8443"
     volumes:
       - ./.deployment/https/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./.deployment/https/sandbox-conf.d:/etc/nginx/sandbox-conf.d:ro
       - ./infrastructure/nginx/routes.inc:/etc/nginx/routes.inc:ro
       - ./.deployment/https/certs:/etc/letsencrypt/live/${HTTPS_DOMAIN:?Set HTTPS_DOMAIN in the production environment file}:ro
+      - ./.deployment/paymob-sandbox/https/certs:/etc/nginx/paymob-sandbox-certs:ro
       - ${CERTBOT_WEBROOT:-/var/www/certbot}:/var/www/certbot:ro

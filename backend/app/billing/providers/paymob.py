@@ -329,9 +329,7 @@ class PaymobPaymentProvider:
             environment=(
                 "live"
                 if obj.get("is_live") is True
-                else "sandbox"
-                if obj.get("is_live") is False
-                else None
+                else "sandbox" if obj.get("is_live") is False else None
             ),
             merchant_id=(str(obj["owner"]) if obj.get("owner") is not None else None),
             provider_order_id=(

@@ -93,6 +93,18 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    connection = op.get_bind()
+    webhook_event_count = connection.execute(
+        sa.text("SELECT count(*) FROM billing_webhook_events")
+    ).scalar()
+    platform_operator_count = connection.execute(
+        sa.text("SELECT count(*) FROM users WHERE is_platform_operator")
+    ).scalar()
+    if webhook_event_count or platform_operator_count:
+        raise RuntimeError(
+            "Webhook or platform-authority evidence exists; use application "
+            "rollback and retain 0032."
+        )
     with op.batch_alter_table("billing_webhook_events") as batch:
         batch.drop_index("ix_billing_webhook_recovery")
         batch.drop_constraint("ck_billing_webhook_status", type_="check")

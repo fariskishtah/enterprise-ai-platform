@@ -7,7 +7,9 @@ keys, generated Nginx configuration, and production environment files remain
 outside Git. Preparation stages only the active domain certificate into the
 gitignored `.deployment/https/certs` directory with permissions for the
 unprivileged proxy; the complete Certbot account tree is never mounted into the
-container.
+container. Preparation also creates an empty, dedicated `sandbox-conf.d` include
+mount and an isolated Sandbox certificate mount. Production server blocks remain
+in `default.conf`; an optional virtual host cannot replace that file.
 
 ## Prerequisites
 

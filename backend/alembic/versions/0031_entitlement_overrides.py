@@ -119,6 +119,26 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    connection = op.get_bind()
+    evidence_counts = {
+        "entitlement overrides": connection.execute(
+            sa.text("SELECT count(*) FROM entitlement_overrides")
+        ).scalar(),
+        "usage ledger events": connection.execute(
+            sa.text("SELECT count(*) FROM usage_ledger_events")
+        ).scalar(),
+        "subscriptions": connection.execute(
+            sa.text("SELECT count(*) FROM subscriptions")
+        ).scalar(),
+        "document records": connection.execute(
+            sa.text("SELECT count(*) FROM document_records")
+        ).scalar(),
+    }
+    if any(evidence_counts.values()):
+        raise RuntimeError(
+            "Entitlement or operational evidence exists; use application rollback "
+            "and retain 0031."
+        )
     op.execute(sa.text("DELETE FROM plan_entitlements WHERE key = 'documents'"))
     op.drop_table("usage_ledger_events")
     op.drop_table("entitlement_overrides")

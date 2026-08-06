@@ -44,9 +44,7 @@ function billingStatusTone(status: string): StatusBadgeStatus {
   }
   if (["pending", "creating", "incomplete", "open"].includes(status)) return "running";
   if (
-    ["past_due", "refunded", "reversed", "under_review", "superseded"].includes(
-      status,
-    )
+    ["past_due", "refunded", "reversed", "under_review", "superseded"].includes(status)
   )
     return "warning";
   if (["failed", "provider_error", "suspended", "quarantined"].includes(status)) {

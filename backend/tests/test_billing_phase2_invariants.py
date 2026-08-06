@@ -35,7 +35,10 @@ from app.services.billing import (
     BillingService,
     BillingWebhookProcessor,
 )
-from app.services.billing_reconciliation import BillingReconciliationService
+from app.services.billing_reconciliation import (
+    BillingReconciliationError,
+    BillingReconciliationService,
+)
 from pydantic import ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -345,6 +348,15 @@ async def test_reconciliation_provider_timeout_and_malformed_truth_fail_safely(
                 dry_run=True,
                 finance_approval_reference=None,
             )
+        with pytest.raises(BillingReconciliationError, match="did not complete"):
+            await service.run(
+                actor=actor,
+                provider=ReconciliationFixtureProvider([]),
+                environment="sandbox",
+                idempotency_key="phase2-reconciliation-timeout-0001",
+                dry_run=True,
+                finance_approval_reference=None,
+            )
         malformed = ProviderTransactionTruth(
             provider_payment_id="malformed-provider-transaction",
             payment_reference=None,
@@ -560,6 +572,22 @@ async def test_new_checkout_supersedes_old_and_old_success_cannot_grant_access(
     assert event.last_error == "manual_review_required"
     assert subscription.status == "incomplete"
 
+    actor.is_platform_operator = True
+    async with session_factory() as session:
+        with pytest.raises(BillingConflictError, match="not eligible"):
+            await BillingService(session, provider).replay_webhook_event(
+                actor=actor,
+                company_id=actor.company_id,
+                event_id=ingested.event_id,
+                reason="Superseded checkout must remain quarantined",
+            )
+        replay_audit = await session.scalar(
+            select(BillingAuditEvent).where(
+                BillingAuditEvent.action == "webhook.replay_rejected"
+            )
+        )
+        assert replay_audit is not None
+
 
 @pytest.mark.anyio
 async def test_expired_checkout_cannot_be_reused(
@@ -586,6 +614,34 @@ async def test_expired_checkout_cannot_be_reused(
                 billing_details=_billing_details(),
                 idempotency_key="phase2-expired-checkout-0001",
             )
+        provider.webhooks["expired-paid"] = _event(
+            payment, fixture="expired-paid", state="succeeded"
+        )
+        ingested = await service.ingest_webhook(
+            {"fixture": "expired-paid"}, signature="valid"
+        )
+
+    await BillingWebhookProcessor(session_factory, "paymob").execute(ingested.event_id)
+    actor.is_platform_operator = True
+    async with session_factory() as session:
+        with pytest.raises(BillingConflictError, match="not eligible"):
+            await BillingService(session, provider).replay_webhook_event(
+                actor=actor,
+                company_id=actor.company_id,
+                event_id=ingested.event_id,
+                reason="Expired checkout must remain quarantined",
+            )
+        stored_payment = await session.get(Payment, checkout.payment_id)
+        event = await session.get(BillingWebhookEvent, ingested.event_id)
+        subscription = await session.scalar(
+            select(Subscription).where(Subscription.company_id == actor.company_id)
+        )
+        assert stored_payment is not None and event is not None
+        assert subscription is not None
+        assert stored_payment.checkout_intent_status == "expired"
+        assert event.status == "quarantined"
+        assert subscription.status == "incomplete"
+        assert subscription.current_period_end is None
 
 
 @pytest.mark.anyio

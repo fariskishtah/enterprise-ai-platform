@@ -194,6 +194,16 @@ def process_billing_webhook(event_id: str) -> None:
                 grace_period_days=_settings.billing_grace_period_days,
                 incomplete_expiry_hours=_settings.billing_incomplete_expiry_hours,
                 suspension_expiry_days=_settings.billing_suspension_expiry_days,
+                environment=("sandbox" if _settings.payment_sandbox_mode else "live"),
+                provider_integration_id=_settings.paymob_integration_id,
+                provider_merchant_id=(
+                    str(_settings.paymob_merchant_id)
+                    if _settings.paymob_merchant_id is not None
+                    else None
+                ),
+                provider_source_types=tuple(
+                    value.lower() for value in _settings.paymob_supported_source_types
+                ),
             ),
             max_attempts=_settings.billing_webhook_max_retries,
             retry_base_seconds=_settings.billing_webhook_retry_base_seconds,

@@ -610,6 +610,11 @@ class Settings(BaseSettings):
             or paymob_base.fragment
         ):
             raise ValueError("paymob_base_url must be a credential-free HTTP(S) URL.")
+        if self.environment == "production" and self.payment_provider != "disabled":
+            raise ValueError(
+                "payment_provider must remain disabled in production until a "
+                "separate live-payment approval changes this release invariant."
+            )
         if self.payment_provider == "paymob":
             required_paymob_values = {
                 "paymob_secret_key": self.paymob_secret_key,
@@ -660,18 +665,6 @@ class Settings(BaseSettings):
                 public_key.startswith("pk_test_") or secret_key.startswith("sk_test_")
             ):
                 raise ValueError("Test Paymob keys cannot be used in live mode.")
-        if self.environment == "production" and self.payment_provider == "paymob":
-            if self.payment_sandbox_mode:
-                raise ValueError("payment_sandbox_mode must be false in production.")
-            if paymob_base.scheme != "https":
-                raise ValueError("paymob_base_url must use HTTPS in production.")
-            for name, value in (
-                ("paymob_webhook_url", self.paymob_webhook_url),
-                ("payment_success_url", self.payment_success_url),
-                ("payment_failure_url", self.payment_failure_url),
-            ):
-                if urlsplit(value or "").scheme != "https":
-                    raise ValueError(f"{name} must use HTTPS in production.")
         if self.billing_commercial_model == "provider_recurring_subscription":
             raise ValueError(
                 "provider recurring billing is not implemented or sandbox accepted."

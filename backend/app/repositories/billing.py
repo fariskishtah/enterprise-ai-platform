@@ -462,6 +462,8 @@ class BillingRepository:
                 update(BillingWebhookEvent)
                 .where(
                     BillingWebhookEvent.id == event_id,
+                    BillingWebhookEvent.company_id.is_not(None),
+                    BillingWebhookEvent.validation_outcome == "accepted",
                     or_(
                         BillingWebhookEvent.status == "received",
                         and_(
@@ -488,6 +490,25 @@ class BillingRepository:
     async def claim_event_for_processing(
         self, event_id: UUID, *, now: datetime
     ) -> bool:
+        await self._session.execute(
+            update(BillingWebhookEvent)
+            .where(
+                BillingWebhookEvent.id == event_id,
+                BillingWebhookEvent.status == "queued",
+                or_(
+                    BillingWebhookEvent.company_id.is_(None),
+                    BillingWebhookEvent.validation_outcome != "accepted",
+                ),
+            )
+            .values(
+                status="quarantined",
+                processing_started_at=None,
+                next_retry_at=None,
+                processed_at=now,
+                last_error="validation_not_accepted",
+                last_error_category="validation_not_accepted",
+            )
+        )
         result = cast(
             CursorResult[object],
             await self._session.execute(
@@ -495,6 +516,8 @@ class BillingRepository:
                 .where(
                     BillingWebhookEvent.id == event_id,
                     BillingWebhookEvent.status == "queued",
+                    BillingWebhookEvent.company_id.is_not(None),
+                    BillingWebhookEvent.validation_outcome == "accepted",
                 )
                 .values(
                     status="processing",
@@ -503,6 +526,42 @@ class BillingRepository:
                     next_retry_at=None,
                     last_error=None,
                     last_error_category=None,
+                )
+            ),
+        )
+        return bool(result.rowcount)
+
+    async def queue_event_for_replay(
+        self,
+        event_id: UUID,
+        company_id: UUID,
+        *,
+        previous_status: str,
+        previous_error_category: str | None,
+        replay_count: int,
+        now: datetime,
+    ) -> bool:
+        """Atomically queue one already-validated recoverable provider event."""
+        result = cast(
+            CursorResult[object],
+            await self._session.execute(
+                update(BillingWebhookEvent)
+                .where(
+                    BillingWebhookEvent.id == event_id,
+                    BillingWebhookEvent.company_id == company_id,
+                    BillingWebhookEvent.validation_outcome == "accepted",
+                    BillingWebhookEvent.status == previous_status,
+                    BillingWebhookEvent.last_error_category == previous_error_category,
+                    BillingWebhookEvent.replay_count == replay_count,
+                )
+                .values(
+                    status="queued",
+                    queued_at=now,
+                    processing_started_at=None,
+                    next_retry_at=None,
+                    last_error=None,
+                    last_error_category=None,
+                    replay_count=BillingWebhookEvent.replay_count + 1,
                 )
             ),
         )
@@ -521,6 +580,8 @@ class BillingRepository:
                 await self._session.scalars(
                     select(BillingWebhookEvent)
                     .where(
+                        BillingWebhookEvent.company_id.is_not(None),
+                        BillingWebhookEvent.validation_outcome == "accepted",
                         or_(
                             BillingWebhookEvent.status == "received",
                             and_(
@@ -545,7 +606,7 @@ class BillingRepository:
                                     <= processing_before,
                                 ),
                             ),
-                        )
+                        ),
                     )
                     .order_by(BillingWebhookEvent.received_at, BillingWebhookEvent.id)
                     .limit(limit)

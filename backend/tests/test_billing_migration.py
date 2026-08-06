@@ -9,6 +9,21 @@ from alembic.config import Config
 from app.config.settings import get_settings
 
 
+def test_billing_downgrade_guards_are_explicit() -> None:
+    versions = Path(__file__).resolve().parents[1] / "alembic" / "versions"
+    phase_0031 = (versions / "0031_entitlement_overrides.py").read_text()
+    phase_0032 = (versions / "0032_billing_phase1_remediation.py").read_text()
+    phase_0033 = (versions / "0033_billing_phase2_contracts.py").read_text()
+
+    assert "Entitlement or operational evidence exists" in phase_0031
+    assert "SELECT count(*) FROM usage_ledger_events" in phase_0031
+    assert "SELECT count(*) FROM document_records" in phase_0031
+    assert "Webhook or platform-authority evidence exists" in phase_0032
+    assert "SELECT count(*) FROM billing_webhook_events" in phase_0032
+    assert "SELECT count(*) FROM users WHERE is_platform_operator" in phase_0032
+    assert "Billing evidence exists; use application rollback" in phase_0033
+
+
 def test_billing_migration_round_trip(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
