@@ -14,6 +14,7 @@ _PRODUCTION_COMPOSE = _ROOT / "docker-compose.prod.yml"
 _BASE_COMPOSE = _ROOT / "docker-compose.yml"
 _NGINX_ROUTES = _ROOT / "infrastructure/nginx/routes.inc"
 _NGINX_HTTP = _ROOT / "infrastructure/nginx/reverse-proxy.conf"
+_NGINX_HTTPS = _ROOT / "infrastructure/nginx/https.conf.template"
 _RUNBOOK = _ROOT / "docs/google-cloud-production-deployment.md"
 _CI = _ROOT / ".github/workflows/ci.yml"
 _SCRIPTS = (
@@ -161,6 +162,19 @@ def test_nginx_routes_only_to_valid_application_upstreams() -> None:
     assert "client_max_body_size" in routes
     assert "location = /healthz" in http
     assert "listen 8080" in http
+
+
+def test_https_edge_emits_single_authoritative_security_headers() -> None:
+    https = _text(_NGINX_HTTPS)
+
+    for header in (
+        "X-Content-Type-Options",
+        "X-Frame-Options",
+        "Referrer-Policy",
+        "Permissions-Policy",
+    ):
+        assert https.count(f"add_header {header} ") == 1
+        assert https.count(f"proxy_hide_header {header};") == 1
 
 
 def test_deployment_scripts_are_executable_and_non_destructive() -> None:

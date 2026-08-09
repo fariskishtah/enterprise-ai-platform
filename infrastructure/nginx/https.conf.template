@@ -43,6 +43,13 @@ server {
     add_header Referrer-Policy "strict-origin-when-cross-origin" always;
     add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
 
+    # The frontend and API apply these headers themselves. Hide their copies so
+    # the public response has one unambiguous edge policy per header.
+    proxy_hide_header X-Content-Type-Options;
+    proxy_hide_header X-Frame-Options;
+    proxy_hide_header Referrer-Policy;
+    proxy_hide_header Permissions-Policy;
+
     location = /healthz {
         access_log off;
         default_type text/plain;

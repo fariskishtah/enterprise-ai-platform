@@ -59,9 +59,12 @@ def _yaml(path: Path) -> dict[str, Any]:
 
 def _permission_functions() -> str:
     script = _text(_SCRIPT)
-    return "file_mode()" + script.split("file_mode()", maxsplit=1)[1].split(
-        "read_env_value()", maxsplit=1
-    )[0]
+    return (
+        "file_mode()"
+        + script.split("file_mode()", maxsplit=1)[1].split(
+            "read_env_value()", maxsplit=1
+        )[0]
+    )
 
 
 def _fake_stat(tmp_path: Path, implementation: str, mode: str) -> Path:
@@ -101,10 +104,14 @@ def _run_permission_probe(
     file_permissions: int = 0o600,
 ) -> subprocess.CompletedProcess[str]:
     env_file = tmp_path / ".env.paymob-sandbox"
-    env_file.write_text("PAYMOB_SECRET_KEY=never-display-this-secret\n", encoding="utf-8")
+    env_file.write_text(
+        "PAYMOB_SECRET_KEY=never-display-this-secret\n", encoding="utf-8"
+    )
     env_file.chmod(file_permissions)
     probe = tmp_path / "permission-probe.sh"
-    operation = "require_environment" if require_environment else 'file_mode "$ENV_FILE"'
+    operation = (
+        "require_environment" if require_environment else 'file_mode "$ENV_FILE"'
+    )
     probe.write_text(
         f"""#!/usr/bin/env bash
 set -Eeuo pipefail
@@ -129,9 +136,12 @@ ENV_FILE={str(env_file)!r}
 
 def _redis_functions() -> str:
     script = _text(_SCRIPT)
-    return "redis_resolved_ip()" + script.split(
-        "redis_resolved_ip()", maxsplit=1
-    )[1].split("assert_host_port_owner()", maxsplit=1)[0]
+    return (
+        "redis_resolved_ip()"
+        + script.split("redis_resolved_ip()", maxsplit=1)[1].split(
+            "assert_host_port_owner()", maxsplit=1
+        )[0]
+    )
 
 
 def _redis_isolation_state() -> dict[str, Any]:
@@ -295,17 +305,23 @@ assert_redis_runtime_isolation \\
 
 def _certificate_stage_function() -> str:
     script = _text(_SCRIPT)
-    return "stage_sandbox_certificate()" + script.split(
-        "stage_sandbox_certificate()", maxsplit=1
-    )[1].split("issue_certificate()", maxsplit=1)[0]
+    return (
+        "stage_sandbox_certificate()"
+        + script.split("stage_sandbox_certificate()", maxsplit=1)[1].split(
+            "issue_certificate()", maxsplit=1
+        )[0]
+    )
 
 
 def _shell_function(function_name: str, next_function_name: str) -> str:
     script = _text(_SCRIPT)
     marker = f"{function_name}()"
-    return marker + script.split(marker, maxsplit=1)[1].split(
-        f"{next_function_name}()", maxsplit=1
-    )[0]
+    return (
+        marker
+        + script.split(marker, maxsplit=1)[1].split(
+            f"{next_function_name}()", maxsplit=1
+        )[0]
+    )
 
 
 def _run_certificate_stage_probe(
@@ -388,9 +404,7 @@ done
         encoding="utf-8",
     )
     environment = os.environ.copy()
-    environment["PATH"] = os.pathsep.join(
-        (str(fake_bin), "/usr/bin", "/bin")
-    )
+    environment["PATH"] = os.pathsep.join((str(fake_bin), "/usr/bin", "/bin"))
     environment["FAKE_COMMAND_LOG"] = str(command_log)
     environment["FAKE_FAIL_DESTINATION"] = fail_destination
     result = subprocess.run(
@@ -540,7 +554,8 @@ case "$command_name" in
       -T)
         printf '# configuration file /etc/nginx/conf.d/default.conf:\n'
         cat "$FAKE_PRODUCTION_DEFAULT"
-        if [[ "${FAIL_STEP:-}" != active_config_missing && -f "$FAKE_MANAGED_CONFIG" ]]; then
+        if [[ "${FAIL_STEP:-}" != active_config_missing ]] \
+          && [[ -f "$FAKE_MANAGED_CONFIG" ]]; then
           printf '# configuration file /etc/nginx/sandbox-conf.d/paymob-sandbox.conf:\n'
           cat "$FAKE_MANAGED_CONFIG"
         fi
@@ -556,11 +571,16 @@ esac
     fake_docker.chmod(0o755)
 
     probe = tmp_path / "ingress-probe.sh"
+    confirmation = (
+        "ACTIVATE-SANDBOX-INGRESS"
+        if action == "activate"
+        else "DEACTIVATE-SANDBOX-INGRESS"
+    )
     probe.write_text(
         f"""#!/usr/bin/env bash
 set -Eeuo pipefail
 DRY_RUN=false
-CONFIRMATION={('ACTIVATE-SANDBOX-INGRESS' if action == 'activate' else 'DEACTIVATE-SANDBOX-INGRESS')!r}
+CONFIRMATION={confirmation!r}
 DOCKER_BIN={str(fake_docker)!r}
 PRODUCTION_PROXY_ID=production-proxy
 SANDBOX_DOMAIN=factorymind-sandbox.ddnsgeek.com
@@ -613,9 +633,7 @@ done
         encoding="utf-8",
     )
     environment = os.environ.copy()
-    environment["PATH"] = os.pathsep.join(
-        (str(fake_bin), "/usr/bin", "/bin")
-    )
+    environment["PATH"] = os.pathsep.join((str(fake_bin), "/usr/bin", "/bin"))
     environment["FAIL_STEP"] = fail_step
     environment["FAKE_COMMAND_LOG"] = str(command_log)
     environment["FAKE_EDGE_STATE"] = str(edge_state)
@@ -770,6 +788,14 @@ def test_shared_edge_uses_an_isolated_include_and_certificate_mount() -> None:
     assert nginx.count("server_name __SANDBOX_DOMAIN__;") == 2
     assert any("/etc/nginx/sandbox-conf.d:ro" in mount for mount in mounts)
     assert any("/etc/nginx/paymob-sandbox-certs:ro" in mount for mount in mounts)
+    for header in (
+        "X-Content-Type-Options",
+        "X-Frame-Options",
+        "Referrer-Policy",
+        "Permissions-Policy",
+    ):
+        assert nginx.count(f"add_header {header} ") == 1
+        assert nginx.count(f"proxy_hide_header {header};") == 1
 
 
 def test_sandbox_certificate_owner_matches_unprivileged_nginx_runtime() -> None:
@@ -845,7 +871,9 @@ def test_failed_sandbox_certificate_stage_is_closed_and_production_is_untouched(
     assert "production-private-key-never-print" not in output
 
 
-def test_sandbox_certificate_staging_is_narrow_and_refresh_remains_rollback_safe() -> None:
+def test_sandbox_certificate_staging_is_narrow_and_refresh_remains_rollback_safe() -> (
+    None
+):
     script = _text(_SCRIPT)
     stage = _certificate_stage_function()
     refresh = script.split("refresh_certificate()", maxsplit=1)[1].split(
@@ -856,9 +884,12 @@ def test_sandbox_certificate_staging_is_narrow_and_refresh_remains_rollback_safe
     assert "chown -R" not in script
     assert "rm " not in stage
     assert ".deployment/https/certs" not in stage
-    assert script.count(
-        'stage_sandbox_certificate "/etc/letsencrypt/live/$SANDBOX_DOMAIN"'
-    ) == 2
+    assert (
+        script.count(
+            'stage_sandbox_certificate "/etc/letsencrypt/live/$SANDBOX_DOMAIN"'
+        )
+        == 2
+    )
     assert refresh.index("trap rollback_certificate_refresh ERR") < refresh.index(
         'stage_sandbox_certificate "/etc/letsencrypt/live/$SANDBOX_DOMAIN"'
     )
@@ -921,8 +952,7 @@ def test_ingress_activation_installs_exact_managed_sandbox_vhost(
         in managed_config
     )
     assert (
-        "proxy_pass http://factorymind-paymob-sandbox-upstream:8080;"
-        in managed_config
+        "proxy_pass http://factorymind-paymob-sandbox-upstream:8080;" in managed_config
     )
     assert "/etc/letsencrypt/" not in managed_config
     assert "proxy_pass http://backend" not in managed_config
@@ -1039,9 +1069,7 @@ def test_ingress_activation_is_idempotent_and_never_changes_production_files(
     assert result.returncode == 0
     assert _text(paths["reload_count"]) == "2\n"
     assert _text(paths["production_default"]) == "production-default-unchanged\n"
-    assert _text(paths["production_fullchain"]) == (
-        "production-fullchain-unchanged\n"
-    )
+    assert _text(paths["production_fullchain"]) == ("production-fullchain-unchanged\n")
     assert _text(paths["production_private_key"]) == (
         "production-private-key-never-print\n"
     )
@@ -1170,9 +1198,9 @@ def test_shared_redis_network_is_rejected(tmp_path: Path) -> None:
 
 def test_shared_redis_volume_is_rejected(tmp_path: Path) -> None:
     state = _redis_isolation_state()
-    state["containers"]["sandbox-redis"]["volume"] = (
-        "ai-manufacturing-platform_redis-data"
-    )
+    state["containers"]["sandbox-redis"][
+        "volume"
+    ] = "ai-manufacturing-platform_redis-data"
 
     result = _run_redis_isolation_probe(tmp_path, state)
 
@@ -1239,9 +1267,7 @@ def test_unverifiable_redis_dns_or_container_identity_is_rejected(
     ]["id"] = "ambiguous-network-id"
 
     unresolved = _run_redis_isolation_probe(tmp_path / "dns", unresolved_state)
-    wrong_target = _run_redis_isolation_probe(
-        tmp_path / "identity", wrong_target_state
-    )
+    wrong_target = _run_redis_isolation_probe(tmp_path / "identity", wrong_target_state)
     wrong_network = _run_redis_isolation_probe(
         tmp_path / "network", wrong_network_state
     )
@@ -1257,12 +1283,10 @@ def test_redis_identity_verifier_never_prints_url_credentials(
     tmp_path: Path,
 ) -> None:
     state = _redis_isolation_state()
-    state["urls"]["production-backend"] = (
-        "redis://production:production-password@redis:6379/0"
-    )
-    state["urls"]["sandbox-backend"] = (
-        "redis://sandbox:sandbox-password@redis:6379/0"
-    )
+    state["urls"][
+        "production-backend"
+    ] = "redis://production:production-password@redis:6379/0"
+    state["urls"]["sandbox-backend"] = "redis://sandbox:sandbox-password@redis:6379/0"
     state["resolved_ips"]["sandbox-backend"] = "172.28.0.99"
 
     result = _run_redis_isolation_probe(tmp_path, state)
@@ -1393,8 +1417,8 @@ def test_permission_check_never_reads_or_displays_secret_content(
     assert "never-display-this-secret" not in result.stderr
     permission_functions = _permission_functions()
     assert "read_env_value" not in permission_functions
-    assert 'sed ' not in permission_functions
-    assert 'cat ' not in permission_functions
+    assert "sed " not in permission_functions
+    assert "cat " not in permission_functions
 
 
 def test_sandbox_shell_script_syntax_and_dry_run() -> None:
