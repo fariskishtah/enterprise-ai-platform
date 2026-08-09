@@ -761,8 +761,26 @@ test("dataset schema, document safety, archiving, and accessibility", async ({
 test("operator cannot navigate to dataset or RAG workspaces", async ({ page }) => {
   const errors = collectUnexpectedBrowserErrors(page);
   await authenticated(page, "operator");
+  await page.route("http://127.0.0.1:8000/operations/**", (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path.endsWith("/operations/summary")) {
+      return json(route, {
+        action_counts: {},
+        active_shift_count: 0,
+        alert_counts: {},
+        data_freshness_seconds: null,
+        overdue_actions: 0,
+        risk_counts: {},
+        unassigned_urgent_actions: 0,
+      });
+    }
+    return json(route, { items: [], limit: 6, offset: 0, total: 0 });
+  });
   await page.goto("/datasets");
   await expect(page).toHaveURL(/\/$/);
+  await expect(
+    page.getByRole("heading", { name: "Your operations home" }),
+  ).toBeVisible();
   await expect(page.getByRole("link", { name: "Dataset Registry" })).toHaveCount(0);
   await expect(page.getByRole("link", { name: "Knowledge Bases" })).toHaveCount(0);
   await expect(page.getByRole("link", { name: "AI Assistant" })).toHaveCount(0);
