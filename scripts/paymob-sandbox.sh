@@ -549,7 +549,7 @@ stage_sandbox_certificate() {
     echo "The sandbox certificate is incomplete." >&2
     exit 1
   }
-  run install -d -m 750 "$target_dir"
+  run sudo install -d -o 101 -g 101 -m 0750 "$target_dir"
   run sudo install -o 101 -g 101 -m 0640 \
     "$live_dir/fullchain.pem" "$target_dir/fullchain.pem"
   run sudo install -o 101 -g 101 -m 0640 \

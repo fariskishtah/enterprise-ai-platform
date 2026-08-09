@@ -18,6 +18,7 @@ _PRODUCTION_COMPOSE = _ROOT / "docker-compose.prod.yml"
 _HTTPS_COMPOSE = _ROOT / "docker-compose.https.yml"
 _SCRIPT = _ROOT / "scripts/paymob-sandbox.sh"
 _PREPARE_HTTPS = _ROOT / "scripts/prepare-production-https.sh"
+_REVERSE_PROXY_DOCKERFILE = _ROOT / "docker/reverse-proxy/Dockerfile"
 _SEED = _ROOT / "scripts/seed_paymob_sandbox_users.py"
 _NGINX = _ROOT / "infrastructure/nginx/paymob-sandbox-edge.conf.template"
 _PRODUCTION_NGINX = _ROOT / "infrastructure/nginx/https.conf.template"
@@ -292,6 +293,113 @@ assert_redis_runtime_isolation \\
     )
 
 
+def _certificate_stage_function() -> str:
+    script = _text(_SCRIPT)
+    return "stage_sandbox_certificate()" + script.split(
+        "stage_sandbox_certificate()", maxsplit=1
+    )[1].split("issue_certificate()", maxsplit=1)[0]
+
+
+def _run_certificate_stage_probe(
+    tmp_path: Path,
+    *,
+    repetitions: int = 1,
+    fail_destination: str = "",
+) -> tuple[subprocess.CompletedProcess[str], dict[str, Path]]:
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir(parents=True)
+    command_log = tmp_path / "commands.log"
+    fake_sudo = fake_bin / "sudo"
+    fake_sudo.write_text(
+        """#!/usr/bin/env bash
+set -eu
+printf 'sudo' >>"$FAKE_COMMAND_LOG"
+printf ' %q' "$@" >>"$FAKE_COMMAND_LOG"
+printf '\n' >>"$FAKE_COMMAND_LOG"
+FAKE_PRIVILEGED=true "$@"
+""",
+        encoding="utf-8",
+    )
+    fake_sudo.chmod(0o755)
+    fake_install = fake_bin / "install"
+    fake_install.write_text(
+        """#!/usr/bin/env bash
+set -eu
+printf 'install' >>"$FAKE_COMMAND_LOG"
+printf ' %q' "$@" >>"$FAKE_COMMAND_LOG"
+printf '\n' >>"$FAKE_COMMAND_LOG"
+[[ "${FAKE_PRIVILEGED:-}" == true ]] || {
+  printf 'simulated root-owned parent rejected unprivileged install\n' >&2
+  exit 77
+}
+destination="${!#}"
+directory_install=false
+for argument in "$@"; do
+  [[ "$argument" == -d ]] && directory_install=true
+done
+if [[ "$directory_install" == true ]]; then
+  mkdir -p -- "$destination"
+  chmod 0750 "$destination"
+  exit 0
+fi
+source_index=$(($# - 1))
+source_path="${!source_index}"
+if [[ "${destination##*/}" == "${FAKE_FAIL_DESTINATION:-}" ]]; then
+  exit 78
+fi
+cp -- "$source_path" "$destination"
+chmod 0640 "$destination"
+""",
+        encoding="utf-8",
+    )
+    fake_install.chmod(0o755)
+
+    state_dir = tmp_path / "root-owned-sandbox-state"
+    target_dir = state_dir / "https/certs"
+    target_dir.mkdir(parents=True)
+    target_dir.chmod(0o700)
+    live_dir = tmp_path / "letsencrypt/live/factorymind-sandbox.ddnsgeek.com"
+    live_dir.mkdir(parents=True)
+    fullchain = live_dir / "fullchain.pem"
+    private_key = live_dir / "privkey.pem"
+    fullchain.write_text("sandbox-fullchain-material\n", encoding="utf-8")
+    private_key.write_text("never-print-private-key-material\n", encoding="utf-8")
+    probe = tmp_path / "certificate-stage-probe.sh"
+    probe.write_text(
+        f"""#!/usr/bin/env bash
+set -Eeuo pipefail
+DRY_RUN=false
+STATE_DIR={str(state_dir)!r}
+run() {{ "$@"; }}
+quote_command() {{ printf 'dry-run only\n'; }}
+{_certificate_stage_function()}
+for ((attempt = 0; attempt < {repetitions}; attempt++)); do
+  stage_sandbox_certificate {str(live_dir)!r}
+done
+""",
+        encoding="utf-8",
+    )
+    environment = os.environ.copy()
+    environment["PATH"] = os.pathsep.join(
+        (str(fake_bin), "/usr/bin", "/bin")
+    )
+    environment["FAKE_COMMAND_LOG"] = str(command_log)
+    environment["FAKE_FAIL_DESTINATION"] = fail_destination
+    result = subprocess.run(
+        ["bash", str(probe)],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=environment,
+    )
+    return result, {
+        "command_log": command_log,
+        "fullchain": target_dir / "fullchain.pem",
+        "private_key": target_dir / "privkey.pem",
+        "target_dir": target_dir,
+    }
+
+
 def test_sandbox_project_and_production_label_are_exact() -> None:
     suite = "\n".join((_text(_SCRIPT), _text(_RUNBOOK)))
 
@@ -416,6 +524,100 @@ def test_shared_edge_uses_an_isolated_include_and_certificate_mount() -> None:
     assert nginx.count("server_name __SANDBOX_DOMAIN__;") == 2
     assert any("/etc/nginx/sandbox-conf.d:ro" in mount for mount in mounts)
     assert any("/etc/nginx/paymob-sandbox-certs:ro" in mount for mount in mounts)
+
+
+def test_sandbox_certificate_owner_matches_unprivileged_nginx_runtime() -> None:
+    dockerfile = _text(_REVERSE_PROXY_DOCKERFILE)
+    prepare_https = _text(_PREPARE_HTTPS)
+
+    assert "FROM nginxinc/nginx-unprivileged:1.28.0-alpine" in dockerfile
+    assert "USER 101:101" in dockerfile
+    assert "--user 101:101" in prepare_https
+    assert "chown 101:101 /target/fullchain.pem.new /target/privkey.pem.new" in (
+        prepare_https
+    )
+    assert "chown 101:101 /target" in prepare_https
+
+
+def test_root_owned_sandbox_certificate_path_is_staged_privileged_and_idempotent(
+    tmp_path: Path,
+) -> None:
+    result, paths = _run_certificate_stage_probe(tmp_path, repetitions=2)
+    command_log = _text(paths["command_log"])
+    directory_commands = [
+        line for line in command_log.splitlines() if line.startswith("sudo install -d ")
+    ]
+    certificate_commands = [
+        line
+        for line in command_log.splitlines()
+        if line.startswith("sudo install -o 101 -g 101 -m 0640 ")
+    ]
+
+    assert result.returncode == 0
+    assert result.stdout == ""
+    assert result.stderr == ""
+    assert len(directory_commands) == 2
+    assert all("-o 101 -g 101 -m 0750" in line for line in directory_commands)
+    assert len(certificate_commands) == 4
+    assert sum("fullchain.pem" in line for line in certificate_commands) == 2
+    assert sum("privkey.pem" in line for line in certificate_commands) == 2
+    assert stat.S_IMODE(paths["target_dir"].stat().st_mode) == 0o750
+    assert stat.S_IMODE(paths["fullchain"].stat().st_mode) == 0o640
+    assert stat.S_IMODE(paths["private_key"].stat().st_mode) == 0o640
+    assert _text(paths["fullchain"]) == "sandbox-fullchain-material\n"
+    assert _text(paths["private_key"]) == "never-print-private-key-material\n"
+    assert "never-print-private-key-material" not in result.stdout + result.stderr
+
+
+def test_failed_sandbox_certificate_stage_is_closed_and_production_is_untouched(
+    tmp_path: Path,
+) -> None:
+    production_dir = tmp_path / "production-certs"
+    production_dir.mkdir()
+    production_fullchain = production_dir / "fullchain.pem"
+    production_private_key = production_dir / "privkey.pem"
+    production_fullchain.write_text("production-fullchain\n", encoding="utf-8")
+    production_private_key.write_text(
+        "production-private-key-never-print\n", encoding="utf-8"
+    )
+    production_fullchain.chmod(0o640)
+    production_private_key.chmod(0o640)
+
+    result, paths = _run_certificate_stage_probe(
+        tmp_path / "sandbox-stage",
+        fail_destination="privkey.pem",
+    )
+    output = result.stdout + result.stderr
+
+    assert result.returncode != 0
+    assert not paths["private_key"].exists()
+    assert _text(production_fullchain) == "production-fullchain\n"
+    assert _text(production_private_key) == "production-private-key-never-print\n"
+    assert stat.S_IMODE(production_fullchain.stat().st_mode) == 0o640
+    assert stat.S_IMODE(production_private_key.stat().st_mode) == 0o640
+    assert "never-print-private-key-material" not in output
+    assert "production-private-key-never-print" not in output
+
+
+def test_sandbox_certificate_staging_is_narrow_and_refresh_remains_rollback_safe() -> None:
+    script = _text(_SCRIPT)
+    stage = _certificate_stage_function()
+    refresh = script.split("refresh_certificate()", maxsplit=1)[1].split(
+        "deactivate_ingress()", maxsplit=1
+    )[0]
+
+    assert "chown" not in stage
+    assert "chown -R" not in script
+    assert "rm " not in stage
+    assert ".deployment/https/certs" not in stage
+    assert script.count(
+        'stage_sandbox_certificate "/etc/letsencrypt/live/$SANDBOX_DOMAIN"'
+    ) == 2
+    assert refresh.index("trap rollback_certificate_refresh ERR") < refresh.index(
+        'stage_sandbox_certificate "/etc/letsencrypt/live/$SANDBOX_DOMAIN"'
+    )
+    assert refresh.count('"$certificate_backup/fullchain.pem"') >= 2
+    assert refresh.count('"$certificate_backup/privkey.pem"') >= 2
 
 
 def test_ingress_activation_never_replaces_production_configuration() -> None:
