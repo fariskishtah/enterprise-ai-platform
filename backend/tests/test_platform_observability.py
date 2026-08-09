@@ -11,10 +11,20 @@ from app.config.settings import Settings
 from app.core.application import create_app
 from app.observability.metrics import (
     BACKGROUND_JOBS_PROCESSED,
+    BILLING_PAYMENT_OLDEST_PENDING_AGE,
+    BILLING_PROVIDER_RECONCILIATION_ATTEMPTS,
+    BILLING_PROVIDER_RECONCILIATION_CORRECTIONS,
+    BILLING_SUBSCRIPTION_OLDEST_INCOMPLETE_AGE,
+    BILLING_WEBHOOK_INGEST,
+    BILLING_WEBHOOK_PROCESSING_LATENCY,
     HTTP_REQUESTS,
     TRAINING_JOBS_SUBMITTED,
     configure_metrics,
     record_background_job_processed,
+    record_billing_provider_reconciliation,
+    record_billing_webhook_ingest,
+    record_billing_webhook_processing,
+    record_billing_webhook_recovery,
     record_monitoring_evaluation,
     record_prediction,
     record_training_job_submitted,
@@ -140,6 +150,90 @@ def test_custom_metric_recorders_increment_bounded_series() -> None:
     assert _background_processed_value() == processed + 1
 
 
+def test_billing_metrics_use_bounded_labels_and_identifier_free_ages() -> None:
+    service = "billing-observability-test"
+    environment = "test"
+    configure_metrics(enabled=True, service=service, environment=environment)
+
+    accepted = BILLING_WEBHOOK_INGEST.labels(
+        service=service, environment=environment, outcome="accepted"
+    )
+    unknown = BILLING_WEBHOOK_INGEST.labels(
+        service=service, environment=environment, outcome="unknown"
+    )
+    accepted_before = _counter_sample(accepted, "billing_webhook_ingest_total")
+    unknown_before = _counter_sample(unknown, "billing_webhook_ingest_total")
+    record_billing_webhook_ingest(outcome="accepted")
+    record_billing_webhook_ingest(outcome="tenant-private-value")
+
+    record_billing_webhook_processing(outcome="dead_letter", latency_seconds=12.5)
+    correction = BILLING_PROVIDER_RECONCILIATION_ATTEMPTS.labels(
+        service=service,
+        environment=environment,
+        outcome="correction_queued",
+    )
+    correction_before = _counter_sample(
+        correction, "billing_provider_reconciliation_attempts_total"
+    )
+    corrections_before = _counter_sample(
+        BILLING_PROVIDER_RECONCILIATION_CORRECTIONS.labels(
+            service=service, environment=environment
+        ),
+        "billing_provider_reconciliation_corrections_total",
+    )
+    record_billing_provider_reconciliation(outcome="correction_queued", count=2)
+    record_billing_webhook_recovery(
+        queue_depth=0,
+        oldest_queued_age_seconds=0.0,
+        oldest_processing_age_seconds=0.0,
+        failed_count=0,
+        dead_letter_count=0,
+        oldest_pending_payment_age_seconds=901.0,
+        oldest_incomplete_subscription_age_seconds=3_601.0,
+    )
+
+    assert _counter_sample(accepted, "billing_webhook_ingest_total") == (
+        accepted_before + 1
+    )
+    assert _counter_sample(unknown, "billing_webhook_ingest_total") == (
+        unknown_before + 1
+    )
+    assert (
+        _histogram_count(
+            BILLING_WEBHOOK_PROCESSING_LATENCY.labels(
+                service=service, environment=environment, outcome="dead_letter"
+            ),
+            "billing_webhook_processing_latency_seconds_count",
+        )
+        >= 1
+    )
+    assert (
+        _counter_sample(correction, "billing_provider_reconciliation_attempts_total")
+        == correction_before + 2
+    )
+    assert (
+        _counter_sample(
+            BILLING_PROVIDER_RECONCILIATION_CORRECTIONS.labels(
+                service=service, environment=environment
+            ),
+            "billing_provider_reconciliation_corrections_total",
+        )
+        == corrections_before + 2
+    )
+    assert (
+        BILLING_PAYMENT_OLDEST_PENDING_AGE.labels(
+            service=service, environment=environment
+        )._value.get()
+        == 901.0
+    )
+    assert (
+        BILLING_SUBSCRIPTION_OLDEST_INCOMPLETE_AGE.labels(
+            service=service, environment=environment
+        )._value.get()
+        == 3_601.0
+    )
+
+
 def test_worker_middleware_records_bounded_terminal_outcomes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -207,6 +301,24 @@ def _background_processed_value() -> float:
         for metric in counter.collect()
         for sample in metric.samples
         if sample.name == "background_jobs_processed_total"
+    )
+
+
+def _counter_sample(counter: object, sample_name: str) -> float:
+    return next(
+        sample.value
+        for metric in counter.collect()  # type: ignore[attr-defined]
+        for sample in metric.samples
+        if sample.name == sample_name
+    )
+
+
+def _histogram_count(histogram: object, sample_name: str) -> float:
+    return next(
+        sample.value
+        for metric in histogram.collect()  # type: ignore[attr-defined]
+        for sample in metric.samples
+        if sample.name == sample_name
     )
 
 

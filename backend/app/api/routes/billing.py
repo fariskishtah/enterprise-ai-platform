@@ -937,10 +937,10 @@ async def run_provider_reconciliation(
 )
 async def paymob_webhook(
     payload: Annotated[dict[str, object], Body()],
-    signature: Annotated[str, Query(alias="hmac")],
     session: Annotated[AsyncSession, Depends(get_db_session)],
     provider: Annotated[PaymentProvider, Depends(get_payment_provider)],
     queue: Annotated[BillingWebhookQueue, Depends(get_billing_webhook_queue)],
+    signature: Annotated[str | None, Query(alias="hmac")] = None,
 ) -> WebhookAcceptedResponse:
     """Authenticate, durably deduplicate, and queue a Paymob callback."""
     service = BillingService(session, provider)

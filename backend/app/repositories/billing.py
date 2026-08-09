@@ -680,6 +680,27 @@ class BillingRepository:
             int(statuses.get("dead_letter", 0)),
         )
 
+    async def billing_state_ages(self, *, now: datetime) -> tuple[float, float]:
+        """Return global unresolved ages without tenant or payment identifiers."""
+        oldest_pending = await self._session.scalar(
+            select(func.min(Payment.created_at))
+            .where(Payment.status.in_(("creating", "pending", "provider_error")))
+            .execution_options(skip_tenant_scope=True)
+        )
+        oldest_incomplete = await self._session.scalar(
+            select(func.min(Subscription.status_changed_at))
+            .where(Subscription.status == "incomplete")
+            .execution_options(skip_tenant_scope=True)
+        )
+
+        def age(value: datetime | None) -> float:
+            if value is None:
+                return 0.0
+            safe = value.replace(tzinfo=UTC) if value.tzinfo is None else value
+            return max(0.0, (now - safe).total_seconds())
+
+        return age(oldest_pending), age(oldest_incomplete)
+
     async def release_event_enqueue(
         self,
         event_id: UUID,

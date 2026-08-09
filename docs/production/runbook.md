@@ -149,8 +149,9 @@ or chat. Use correlation IDs and provider reference IDs for investigation.
 ## Known monitoring limits before launch
 
 Prometheus rules cover availability, latency, errors, worker failures, provider
-failures, database/Redis connectivity and saturation, and container resource
-pressure. Production is not operationally accepted until deployment owners add
-an external Alertmanager receiver and prove delivery. Queue depth/oldest age and
-backup success/freshness are not exported as Prometheus metrics yet; operators
-must check them directly until those alerts are implemented and tested.
+failures, database/Redis connectivity and saturation, container resource pressure,
+and durable billing webhook depth/age. Production is not operationally accepted
+until deployment owners add an external Alertmanager receiver and prove delivery.
+General background-queue depth/oldest age and backup success/freshness are not
+exported as Prometheus metrics yet; operators must check them directly until those
+alerts are implemented and tested.

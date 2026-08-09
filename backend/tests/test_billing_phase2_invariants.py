@@ -564,7 +564,13 @@ async def test_reconciliation_compensation_requires_approval_and_is_audited(
 @pytest.mark.anyio
 async def test_automatic_reconciliation_recovers_lost_callback_exactly_once(
     session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    metric_outcomes: list[tuple[str, int]] = []
+    monkeypatch.setattr(
+        "app.services.billing_reconciliation.record_billing_provider_reconciliation",
+        lambda *, outcome, count=1: metric_outcomes.append((outcome, count)),
+    )
     actor = await _actor(session_factory)
     checkout_provider = FixtureProvider()
     checkout_provider.provider_order_id = "provider-order-recovery"
@@ -614,6 +620,14 @@ async def test_automatic_reconciliation_recovers_lost_callback_exactly_once(
     assert first.queued == 1
     assert repeated.queued == 0
     assert len(queue.event_ids) == 1
+    assert (
+        sum(
+            count
+            for outcome, count in metric_outcomes
+            if outcome == "correction_queued"
+        )
+        == 1
+    )
 
     await BillingWebhookProcessor(session_factory, "paymob", policy=policy).execute(
         queue.event_ids[0]
@@ -646,7 +660,13 @@ async def test_automatic_reconciliation_recovers_lost_callback_exactly_once(
 @pytest.mark.anyio
 async def test_automatic_reconciliation_holds_binding_mismatch_for_manual_review(
     session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    metric_outcomes: list[tuple[str, int]] = []
+    monkeypatch.setattr(
+        "app.services.billing_reconciliation.record_billing_provider_reconciliation",
+        lambda *, outcome, count=1: metric_outcomes.append((outcome, count)),
+    )
     async with session_factory() as session:
         company = await session.scalar(select(Company).limit(1))
         assert company is not None
@@ -693,6 +713,7 @@ async def test_automatic_reconciliation_holds_binding_mismatch_for_manual_review
     assert summary.manual_review == 1
     assert summary.queued == 0
     assert queue.event_ids == []
+    assert ("manual_review", 1) in metric_outcomes
 
 
 @pytest.mark.anyio

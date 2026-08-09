@@ -509,10 +509,32 @@ async def test_checkout_and_webhook_api_contracts(
             "/billing/webhooks/paymob?hmac=fixture",
             json={"fixture": "api-success"},
         )
+        missing_hmac = await client.post(
+            "/billing/webhooks/paymob",
+            json={"secret_content": "must-not-be-stored"},
+        )
         assert webhook.status_code == 202, webhook.text
         assert duplicate.status_code == 202
         assert duplicate.json()["duplicate"] is True
+        assert missing_hmac.status_code == 202
+        assert missing_hmac.json() == {
+            "accepted": False,
+            "duplicate": False,
+            "outcome": "quarantined_missing_hmac",
+        }
         assert len(queue.event_ids) == 1
+        async with session_factory() as session:
+            quarantined = await session.scalar(
+                select(BillingWebhookEvent).where(
+                    BillingWebhookEvent.validation_outcome == "quarantined_missing_hmac"
+                )
+            )
+            assert quarantined is not None
+            assert quarantined.status == "quarantined"
+            assert quarantined.safe_payload == {
+                "validation_outcome": "quarantined_missing_hmac"
+            }
+            assert "must-not-be-stored" not in str(quarantined.safe_payload)
 
 
 def _event(

@@ -91,6 +91,33 @@ _RECONCILIATION_WORKLOADS = frozenset(
     {"dataset_processing", "rag_indexing", "chatbot_generation"}
 )
 _RECONCILIATION_OUTCOMES = frozenset({"repaired", "unchanged", "failed"})
+_BILLING_WEBHOOK_INGEST_OUTCOMES = frozenset(
+    {
+        "received",
+        "accepted",
+        "duplicate_suppressed",
+        "crypto_missing_hmac",
+        "crypto_invalid_hmac",
+        "business_unknown_payment",
+        "business_wrong_amount",
+        "business_wrong_currency",
+        "business_wrong_integration",
+        "business_wrong_environment",
+        "business_wrong_merchant",
+    }
+)
+_BILLING_WEBHOOK_PROCESSING_OUTCOMES = frozenset(
+    {"processed", "quarantined", "retry_scheduled", "dead_letter"}
+)
+_BILLING_PROVIDER_RECONCILIATION_OUTCOMES = frozenset(
+    {
+        "matched",
+        "provider_missing",
+        "manual_review",
+        "provider_failure",
+        "correction_queued",
+    }
+)
 
 HTTP_REQUESTS = Counter(
     "http_requests_total",
@@ -318,6 +345,37 @@ BILLING_WEBHOOK_REPLAYS = Counter(
     "Audited platform-operator billing webhook replays.",
     ("service", "environment"),
 )
+BILLING_WEBHOOK_INGEST = Counter(
+    "billing_webhook_ingest_total",
+    "Billing callback ingress outcomes using bounded security categories.",
+    ("service", "environment", "outcome"),
+)
+BILLING_WEBHOOK_PROCESSING_LATENCY = Histogram(
+    "billing_webhook_processing_latency_seconds",
+    "Time from durable callback receipt to the current processing outcome.",
+    ("service", "environment", "outcome"),
+    buckets=_JOB_DURATION_BUCKETS,
+)
+BILLING_PAYMENT_OLDEST_PENDING_AGE = Gauge(
+    "billing_payment_oldest_pending_age_seconds",
+    "Age of the oldest unresolved payment visible to provider reconciliation.",
+    ("service", "environment"),
+)
+BILLING_SUBSCRIPTION_OLDEST_INCOMPLETE_AGE = Gauge(
+    "billing_subscription_oldest_incomplete_age_seconds",
+    "Age of the oldest incomplete subscription.",
+    ("service", "environment"),
+)
+BILLING_PROVIDER_RECONCILIATION_ATTEMPTS = Counter(
+    "billing_provider_reconciliation_attempts_total",
+    "Authenticated provider reconciliation outcomes without payment identifiers.",
+    ("service", "environment", "outcome"),
+)
+BILLING_PROVIDER_RECONCILIATION_CORRECTIONS = Counter(
+    "billing_provider_reconciliation_corrections_total",
+    "Idempotent compensating billing events queued from authenticated provider truth.",
+    ("service", "environment"),
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -460,6 +518,8 @@ def record_billing_webhook_recovery(
     oldest_processing_age_seconds: float,
     failed_count: int,
     dead_letter_count: int,
+    oldest_pending_payment_age_seconds: float = 0.0,
+    oldest_incomplete_subscription_age_seconds: float = 0.0,
 ) -> None:
     labels = _base_labels()
 
@@ -490,6 +550,18 @@ def record_billing_webhook_recovery(
             "billing_webhook_oldest_age_seconds",
             set_age(state, age),
         )
+    _safe_record(
+        "billing_payment_oldest_pending_age_seconds",
+        lambda: BILLING_PAYMENT_OLDEST_PENDING_AGE.labels(**labels).set(
+            max(oldest_pending_payment_age_seconds, 0.0)
+        ),
+    )
+    _safe_record(
+        "billing_subscription_oldest_incomplete_age_seconds",
+        lambda: BILLING_SUBSCRIPTION_OLDEST_INCOMPLETE_AGE.labels(**labels).set(
+            max(oldest_incomplete_subscription_age_seconds, 0.0)
+        ),
+    )
 
 
 def record_billing_webhook_replay() -> None:
@@ -498,6 +570,50 @@ def record_billing_webhook_replay() -> None:
         "billing_webhook_replays_total",
         lambda: BILLING_WEBHOOK_REPLAYS.labels(**labels).inc(),
     )
+
+
+def record_billing_webhook_ingest(*, outcome: str) -> None:
+    """Count one callback without identifiers, payloads, or signature material."""
+    labels = _base_labels()
+    _safe_record(
+        "billing_webhook_ingest_total",
+        lambda: BILLING_WEBHOOK_INGEST.labels(
+            **labels,
+            outcome=_bounded_label(outcome, _BILLING_WEBHOOK_INGEST_OUTCOMES),
+        ).inc(),
+    )
+
+
+def record_billing_webhook_processing(*, outcome: str, latency_seconds: float) -> None:
+    """Observe one durable processing outcome using a fixed vocabulary."""
+    labels = _base_labels()
+    _safe_record(
+        "billing_webhook_processing_latency_seconds",
+        lambda: BILLING_WEBHOOK_PROCESSING_LATENCY.labels(
+            **labels,
+            outcome=_bounded_label(outcome, _BILLING_WEBHOOK_PROCESSING_OUTCOMES),
+        ).observe(max(latency_seconds, 0.0)),
+    )
+
+
+def record_billing_provider_reconciliation(*, outcome: str, count: int = 1) -> None:
+    """Count provider-truth outcomes and corrections without provider IDs."""
+    labels = _base_labels()
+    safe_count = max(count, 0)
+    safe_outcome = _bounded_label(outcome, _BILLING_PROVIDER_RECONCILIATION_OUTCOMES)
+    _safe_record(
+        "billing_provider_reconciliation_attempts_total",
+        lambda: BILLING_PROVIDER_RECONCILIATION_ATTEMPTS.labels(
+            **labels, outcome=safe_outcome
+        ).inc(safe_count),
+    )
+    if safe_outcome == "correction_queued":
+        _safe_record(
+            "billing_provider_reconciliation_corrections_total",
+            lambda: BILLING_PROVIDER_RECONCILIATION_CORRECTIONS.labels(**labels).inc(
+                safe_count
+            ),
+        )
 
 
 def record_training_job_finished(

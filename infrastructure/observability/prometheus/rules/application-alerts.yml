@@ -53,8 +53,8 @@ groups:
       - alert: PaymentWebhookFailures
         expr: |
           sum by (service, environment) (
-            increase(background_jobs_processed_total{
-              job_name="billing_webhook",final_status="failed"
+            increase(billing_webhook_processing_latency_seconds_count{
+              outcome=~"retry_scheduled|dead_letter"
             }[15m])
           ) > 0
         for: 2m
@@ -66,9 +66,71 @@ groups:
           slo: background-job-success
         annotations:
           summary: Verified payment callbacks are failing during processing
-          description: At least one durable billing webhook actor failed in the last fifteen minutes.
-          runbook_url: docs/runbooks/background-job-failures.md
-          dashboard_url: http://localhost:3000/d/ai-operations
+          description: At least one durable billing callback required retry or reached dead letter in the last fifteen minutes.
+          runbook_url: docs/runbooks/billing-payment-verification.md
+          dashboard_url: http://localhost:3000/d/billing-operations
+
+      - alert: PaymentWebhookBusinessQuarantine
+        expr: |
+          sum by (service, environment) (
+            increase(billing_webhook_ingest_total{
+              outcome=~"business_.*"
+            }[15m])
+          ) > 0
+        for: 2m
+        labels:
+          severity: critical
+          service: '{{ $labels.service }}'
+          component: billing-webhook
+          team: platform
+          slo: background-job-success
+        annotations:
+          summary: Authenticated payment callbacks are failing business validation
+          description: A callback entered a bounded business-rule quarantine and requires safe investigation or provider reconciliation.
+          runbook_url: docs/runbooks/billing-payment-verification.md
+          dashboard_url: http://localhost:3000/d/billing-operations
+
+      - alert: PaymentVerificationStalled
+        expr: |
+          max by (service, environment) (
+            billing_payment_oldest_pending_age_seconds
+          ) > 1800
+          or
+          max by (service, environment) (
+            billing_subscription_oldest_incomplete_age_seconds
+          ) > 3600
+        for: 15m
+        labels:
+          severity: warning
+          service: '{{ $labels.service }}'
+          component: billing-reconciliation
+          team: platform
+          slo: background-job-success
+        annotations:
+          summary: Payment or subscription verification is stalled
+          description: An unresolved payment or incomplete subscription has exceeded its bounded operational investigation threshold.
+          runbook_url: docs/runbooks/billing-payment-verification.md
+          dashboard_url: http://localhost:3000/d/billing-operations
+
+      - alert: PaymentProviderReconciliationAttention
+        expr: |
+          sum by (service, environment) (
+            increase(billing_provider_reconciliation_attempts_total{
+              outcome=~"provider_failure|manual_review"
+            }[15m])
+          ) > 0
+        for: 5m
+        labels:
+          severity: critical
+          service: '{{ $labels.service }}'
+          component: billing-reconciliation
+          team: platform
+          slo: background-job-success
+        annotations:
+          summary: Payment reconciliation needs operator attention
+          description: Authenticated provider inquiry failed or returned an identity/state mismatch that cannot be corrected automatically.
+          runbook_url: docs/runbooks/billing-payment-verification.md
+          dashboard_url: http://localhost:3000/d/billing-operations
 
       - alert: TransactionalEmailDeliveryFailures
         expr: |

@@ -439,7 +439,15 @@ async def test_stale_processing_at_retry_limit_enters_dead_letter(
 @pytest.mark.anyio
 async def test_processing_failures_back_off_then_exhaust_to_dead_letter(
     session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    processing_outcomes: list[tuple[str, float]] = []
+    monkeypatch.setattr(
+        "app.services.billing.record_billing_webhook_processing",
+        lambda *, outcome, latency_seconds: processing_outcomes.append(
+            (outcome, latency_seconds)
+        ),
+    )
     actor = await _actor(session_factory)
     provider = FixtureProvider()
     queue = RecordingBillingQueue()
@@ -499,6 +507,11 @@ async def test_processing_failures_back_off_then_exhaust_to_dead_letter(
         assert event.dead_lettered_at is not None
         assert event.last_error_category == "billing_state_error"
         assert payment.status == "pending"
+    assert [outcome for outcome, _latency in processing_outcomes] == [
+        "retry_scheduled",
+        "dead_letter",
+    ]
+    assert all(latency >= 0.0 for _outcome, latency in processing_outcomes)
 
     actor.is_platform_operator = True
     async with session_factory() as session:

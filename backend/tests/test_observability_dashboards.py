@@ -125,3 +125,27 @@ def test_trace_identity_is_not_an_alloy_or_loki_label() -> None:
     assert "trace_id" not in alloy
     for required_label in ("service", "container", "environment", "stream"):
         assert required_label in alloy
+
+
+def test_billing_dashboard_uses_only_bounded_prometheus_series() -> None:
+    dashboard = _load_dashboard(
+        _REPOSITORY_ROOT
+        / "infrastructure/observability/grafana/dashboards/billing-operations.json"
+    )
+
+    assert dashboard["uid"] == "billing-operations"
+    expressions = "\n".join(
+        target["expr"] for panel in dashboard["panels"] for target in panel["targets"]
+    )
+    for metric in (
+        "billing_webhook_ingest_total",
+        "billing_webhook_processing_latency_seconds_bucket",
+        "billing_webhook_events",
+        "billing_payment_oldest_pending_age_seconds",
+        "billing_subscription_oldest_incomplete_age_seconds",
+        "billing_provider_reconciliation_attempts_total",
+        "billing_provider_reconciliation_corrections_total",
+    ):
+        assert metric in expressions
+    for sensitive_term in ("tenant", "email", "provider_id", "payment_id"):
+        assert sensitive_term not in expressions

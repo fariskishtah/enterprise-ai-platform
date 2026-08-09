@@ -81,6 +81,9 @@ def test_json_formatter_emits_stable_schema_and_redacts_sensitive_values() -> No
                 extra={
                     "job_name": "training",
                     "attempt_number": 2,
+                    "scanned": 4,
+                    "provider_failures": 1,
+                    "oldest_pending_age_seconds": 901.0,
                     "not_allowlisted": "must-not-appear",
                 },
                 exc_info=True,
@@ -96,6 +99,9 @@ def test_json_formatter_emits_stable_schema_and_redacts_sensitive_values() -> No
     assert payload["trace_id"] is None
     assert payload["job_name"] == "training"
     assert payload["attempt_number"] == 2
+    assert payload["scanned"] == 4
+    assert payload["provider_failures"] == 1
+    assert payload["oldest_pending_age_seconds"] == 901.0
     assert payload["exception"]["type"] == "RuntimeError"
     assert payload["exception"]["stack"]
     rendered = json.dumps(payload)
@@ -405,6 +411,7 @@ def test_worker_keeps_valid_retry_correlation_and_maps_all_actors() -> None:
         for name in (
             "deliver_transactional_email",
             "process_billing_webhook",
+            "reconcile_billing_provider",
             "execute_training_job",
             "execute_scheduled_monitoring",
             "execute_prediction_event_retention",
@@ -416,6 +423,7 @@ def test_worker_keeps_valid_retry_correlation_and_maps_all_actors() -> None:
     } == {
         "transactional_email",
         "billing_webhook",
+        "billing_provider_reconciliation",
         "training",
         "monitoring_evaluation",
         "prediction_event_retention",

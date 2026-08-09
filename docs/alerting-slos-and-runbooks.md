@@ -103,6 +103,8 @@ Rule files under `infrastructure/observability/prometheus/rules/` contain:
 
 - API error and latency degradation, background actor failure bursts, terminal
   training failures, and monitoring/retraining orchestration failures.
+- Durable billing callback retry/dead-letter outcomes, business quarantines,
+  stalled payment verification, and provider-reconciliation attention states.
 - Backend, worker, exporter, and cAdvisor target availability.
 - Alertmanager, Loki, Tempo, and Grafana target/config health, plus Prometheus
   rule-evaluation and alert-delivery failures.

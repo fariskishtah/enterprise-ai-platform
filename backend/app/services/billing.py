@@ -39,6 +39,8 @@ from app.models.user import User
 from app.observability.logging import current_correlation_id, current_request_id
 from app.observability.metrics import (
     record_billing_lifecycle_reconciliation,
+    record_billing_webhook_ingest,
+    record_billing_webhook_processing,
     record_billing_webhook_recovery,
     record_billing_webhook_replay,
 )
@@ -77,6 +79,24 @@ class BillingWebhookPayloadError(BillingError):
 
 class BillingStateError(BillingConflictError):
     code = "invalid_subscription_transition"
+
+
+_WEBHOOK_INGEST_METRIC_OUTCOMES = {
+    "accepted": "accepted",
+    "duplicate": "duplicate_suppressed",
+    "quarantined_missing_hmac": "crypto_missing_hmac",
+    "quarantined_invalid_hmac": "crypto_invalid_hmac",
+    "quarantined_unknown_payment": "business_unknown_payment",
+    "quarantined_wrong_amount": "business_wrong_amount",
+    "quarantined_wrong_currency": "business_wrong_currency",
+    "quarantined_wrong_integration": "business_wrong_integration",
+    "quarantined_wrong_environment": "business_wrong_environment",
+    "quarantined_wrong_merchant": "business_wrong_merchant",
+}
+
+
+def _webhook_ingest_metric_outcome(outcome: str) -> str:
+    return _WEBHOOK_INGEST_METRIC_OUTCOMES.get(outcome, "unknown")
 
 
 @dataclass(frozen=True, slots=True)
@@ -949,45 +969,26 @@ class BillingService:
         )
 
     async def ingest_webhook(
-        self, payload: dict[str, object], *, signature: str
+        self, payload: dict[str, object], *, signature: str | None
     ) -> WebhookIngestResult:
         provider = self._require_provider()
+        record_billing_webhook_ingest(outcome="received")
         payload_hash = hashlib.sha256(
             json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
         ).hexdigest()
+        if not signature:
+            return await self._quarantine_signature_failure(
+                provider_name=provider.name,
+                payload_hash=payload_hash,
+                category="quarantined_missing_hmac",
+            )
         try:
             normalized = provider.parse_webhook(payload, signature=signature)
         except PaymentProviderSignatureError:
-            provider_event_id = f"invalid-hmac:{payload_hash[:40]}"
-            existing = await self._repository.get_event_by_provider_id(
-                provider.name, provider_event_id
-            )
-            if existing is None:
-                event = BillingWebhookEvent(
-                    provider=provider.name,
-                    provider_event_id=provider_event_id,
-                    event_type="transaction.invalid_hmac",
-                    payload_hash=payload_hash,
-                    safe_payload={"validation_outcome": "quarantined_invalid_hmac"},
-                    validation_outcome="quarantined_invalid_hmac",
-                    status="quarantined",
-                    last_error_category="quarantined_invalid_hmac",
-                    last_error="quarantined_invalid_hmac",
-                    processed_at=datetime.now(UTC),
-                )
-                self._repository.add_event(event)
-                await self._session.commit()
-                return WebhookIngestResult(
-                    event_id=event.id,
-                    duplicate=False,
-                    should_enqueue=False,
-                    outcome="quarantined_invalid_hmac",
-                )
-            return WebhookIngestResult(
-                event_id=existing.id,
-                duplicate=True,
-                should_enqueue=False,
-                outcome="duplicate",
+            return await self._quarantine_signature_failure(
+                provider_name=provider.name,
+                payload_hash=payload_hash,
+                category="quarantined_invalid_hmac",
             )
         existing = await self._repository.get_event_by_provider_id(
             provider.name, normalized.provider_event_id
@@ -1063,12 +1064,60 @@ class BillingService:
             else False
         )
         await self._session.commit()
-        return WebhookIngestResult(
+        result = WebhookIngestResult(
             event_id=event.id,
             duplicate=duplicate,
             should_enqueue=should_enqueue,
             outcome="duplicate" if duplicate else event.validation_outcome,
         )
+        record_billing_webhook_ingest(
+            outcome=_webhook_ingest_metric_outcome(result.outcome)
+        )
+        return result
+
+    async def _quarantine_signature_failure(
+        self,
+        *,
+        provider_name: str,
+        payload_hash: str,
+        category: Literal["quarantined_missing_hmac", "quarantined_invalid_hmac"],
+    ) -> WebhookIngestResult:
+        provider_event_id = f"{category}:{payload_hash[:40]}"
+        existing = await self._repository.get_event_by_provider_id(
+            provider_name, provider_event_id
+        )
+        if existing is None:
+            event = BillingWebhookEvent(
+                provider=provider_name,
+                provider_event_id=provider_event_id,
+                event_type=f"transaction.{category.removeprefix('quarantined_')}",
+                payload_hash=payload_hash,
+                safe_payload={"validation_outcome": category},
+                validation_outcome=category,
+                status="quarantined",
+                last_error_category=category,
+                last_error=category,
+                processed_at=datetime.now(UTC),
+            )
+            self._repository.add_event(event)
+            await self._session.commit()
+            result = WebhookIngestResult(
+                event_id=event.id,
+                duplicate=False,
+                should_enqueue=False,
+                outcome=category,
+            )
+        else:
+            result = WebhookIngestResult(
+                event_id=existing.id,
+                duplicate=True,
+                should_enqueue=False,
+                outcome="duplicate",
+            )
+        record_billing_webhook_ingest(
+            outcome=_webhook_ingest_metric_outcome(result.outcome)
+        )
+        return result
 
     async def release_failed_enqueue(
         self,
@@ -1297,9 +1346,9 @@ class BillingWebhookRecoveryService:
                     await session.commit()
 
         async with self._session_factory() as session:
-            stats = await BillingRepository(session).webhook_operational_stats(
-                now=effective_now
-            )
+            repository = BillingRepository(session)
+            stats = await repository.webhook_operational_stats(now=effective_now)
+            state_ages = await repository.billing_state_ages(now=effective_now)
         logger.info(
             "billing_webhook_recovery_completed",
             extra={
@@ -1320,6 +1369,8 @@ class BillingWebhookRecoveryService:
             oldest_processing_age_seconds=stats[2],
             failed_count=stats[3],
             dead_letter_count=stats[4],
+            oldest_pending_payment_age_seconds=state_ages[0],
+            oldest_incomplete_subscription_age_seconds=state_ages[1],
         )
         return WebhookRecoverySummary(
             scanned=len(events),
@@ -1381,6 +1432,32 @@ class BillingWebhookProcessor:
             await self._process_claimed_event(event_id)
         except Exception as exc:
             await self._record_processing_failure(event_id, exc)
+        await self._record_processing_observation(event_id)
+
+    async def _record_processing_observation(self, event_id: UUID) -> None:
+        try:
+            async with self._session_factory() as session:
+                event = await BillingRepository(session).get_event(event_id)
+        except Exception:
+            logger.warning("billing_webhook_processing_metric_unavailable")
+            return
+        if event is None:
+            return
+        outcome = {
+            "processed": "processed",
+            "quarantined": "quarantined",
+            "failed": "retry_scheduled",
+            "dead_letter": "dead_letter",
+        }.get(event.status)
+        if outcome is None:
+            return
+        record_billing_webhook_processing(
+            outcome=outcome,
+            latency_seconds=max(
+                0.0,
+                (datetime.now(UTC) - _as_utc(event.received_at)).total_seconds(),
+            ),
+        )
 
     async def _process_claimed_event(self, event_id: UUID) -> None:
         async with self._session_factory() as session:

@@ -30,6 +30,7 @@ _REQUIRED_RUNBOOKS = {
     "backend-down.md",
     "worker-down.md",
     "background-job-failures.md",
+    "billing-payment-verification.md",
     "training-failures.md",
     "monitoring-retraining-failures.md",
     "postgres-issues.md",
@@ -210,10 +211,36 @@ def test_production_provider_and_infrastructure_alerts_are_present() -> None:
         "RedisUnavailable",
         "ContainerFilesystemPressure",
         "PaymentWebhookFailures",
+        "PaymentWebhookBusinessQuarantine",
+        "PaymentVerificationStalled",
+        "PaymentProviderReconciliationAttention",
         "TransactionalEmailDeliveryFailures",
         "APILatencyDegradation",
         "APIHighErrorRate",
     } <= alert_names
+
+
+def test_billing_alerts_use_durable_billing_metrics() -> None:
+    alerts = {rule["alert"]: rule for rule in _alert_rules()}
+
+    assert "billing_webhook_processing_latency_seconds_count" in str(
+        alerts["PaymentWebhookFailures"]["expr"]
+    )
+    assert "background_jobs_processed_total" not in str(
+        alerts["PaymentWebhookFailures"]["expr"]
+    )
+    assert "billing_webhook_ingest_total" in str(
+        alerts["PaymentWebhookBusinessQuarantine"]["expr"]
+    )
+    assert "billing_payment_oldest_pending_age_seconds" in str(
+        alerts["PaymentVerificationStalled"]["expr"]
+    )
+    assert "billing_subscription_oldest_incomplete_age_seconds" in str(
+        alerts["PaymentVerificationStalled"]["expr"]
+    )
+    assert "billing_provider_reconciliation_attempts_total" in str(
+        alerts["PaymentProviderReconciliationAttention"]["expr"]
+    )
 
 
 def test_each_primary_slo_has_four_paired_burn_alerts() -> None:

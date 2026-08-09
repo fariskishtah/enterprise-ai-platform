@@ -27,6 +27,7 @@ from app.models.billing import (
     Payment,
 )
 from app.models.user import User
+from app.observability.metrics import record_billing_provider_reconciliation
 from app.repositories.billing import BillingRepository
 
 logger = logging.getLogger(__name__)
@@ -282,9 +283,7 @@ class BillingReconciliationService:
                 provider_payment_id=(
                     truth.provider_payment_id
                     if truth is not None
-                    else payment.provider_payment_id
-                    if payment is not None
-                    else None
+                    else payment.provider_payment_id if payment is not None else None
                 ),
                 outcome=outcome,
                 local_state=payment.provider_decision if payment is not None else None,
@@ -481,6 +480,14 @@ class AutomaticBillingReconciliationService:
             provider_failures=provider_failures,
             oldest_pending_age_seconds=max(oldest_pending_age, 0.0),
         )
+        for outcome, count in (
+            ("matched", summary.matched),
+            ("provider_missing", summary.provider_missing),
+            ("manual_review", summary.manual_review),
+            ("provider_failure", summary.provider_failures),
+            ("correction_queued", summary.queued),
+        ):
+            record_billing_provider_reconciliation(outcome=outcome, count=count)
         logger.info(
             "billing_automatic_reconciliation_completed",
             extra={

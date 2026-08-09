@@ -1,0 +1,85 @@
+{
+  "annotations": {"list": []},
+  "editable": false,
+  "graphTooltip": 1,
+  "panels": [
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+      "id": 1,
+      "options": {"legend": {"displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"editorMode": "code", "expr": "sum by (outcome) (rate(billing_webhook_ingest_total{service=~\"$service\",environment=~\"$environment\"}[$__rate_interval]))", "legendFormat": "{{outcome}}", "range": true, "refId": "A"}],
+      "title": "Webhook ingress outcomes",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+      "id": 2,
+      "options": {"legend": {"displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"editorMode": "code", "expr": "histogram_quantile(0.95, sum by (le, outcome) (rate(billing_webhook_processing_latency_seconds_bucket{service=~\"$service\",environment=~\"$environment\"}[$__rate_interval])))", "legendFormat": "P95 {{outcome}}", "range": true, "refId": "A"}],
+      "title": "Webhook processing latency",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+      "id": 3,
+      "options": {"legend": {"displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"editorMode": "code", "expr": "billing_webhook_events{service=~\"$service\",environment=~\"$environment\"}", "legendFormat": "{{state}}", "range": true, "refId": "A"}],
+      "title": "Durable webhook queue state",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+      "id": 4,
+      "options": {"legend": {"displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [
+        {"editorMode": "code", "expr": "billing_payment_oldest_pending_age_seconds{service=~\"$service\",environment=~\"$environment\"}", "legendFormat": "pending payment", "range": true, "refId": "A"},
+        {"editorMode": "code", "expr": "billing_subscription_oldest_incomplete_age_seconds{service=~\"$service\",environment=~\"$environment\"}", "legendFormat": "incomplete subscription", "range": true, "refId": "B"}
+      ],
+      "title": "Unresolved billing age",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+      "id": 5,
+      "options": {"legend": {"displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"editorMode": "code", "expr": "sum by (outcome) (rate(billing_provider_reconciliation_attempts_total{service=~\"$service\",environment=~\"$environment\"}[$__rate_interval]))", "legendFormat": "{{outcome}}", "range": true, "refId": "A"}],
+      "title": "Provider reconciliation outcomes",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+      "id": 6,
+      "options": {"legend": {"displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"editorMode": "code", "expr": "rate(billing_provider_reconciliation_corrections_total{service=~\"$service\",environment=~\"$environment\"}[$__rate_interval])", "legendFormat": "corrections", "range": true, "refId": "A"}],
+      "title": "Reconciliation corrections",
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 41,
+  "tags": ["billing", "paymob", "observability"],
+  "templating": {
+    "list": [
+      {"current": {"text": "All", "value": "$__all"}, "datasource": {"type": "prometheus", "uid": "prometheus"}, "definition": "label_values({__name__=~\"billing_.*\"}, service)", "includeAll": true, "label": "Service", "name": "service", "options": [], "query": {"query": "label_values({__name__=~\"billing_.*\"}, service)", "refId": "PrometheusVariableQueryEditor-VariableQuery"}, "refresh": 1, "regex": "", "type": "query"},
+      {"current": {"text": "All", "value": "$__all"}, "datasource": {"type": "prometheus", "uid": "prometheus"}, "definition": "label_values(billing_webhook_ingest_total{service=~\"$service\"}, environment)", "includeAll": true, "label": "Environment", "name": "environment", "options": [], "query": {"query": "label_values(billing_webhook_ingest_total{service=~\"$service\"}, environment)", "refId": "PrometheusVariableQueryEditor-VariableQuery"}, "refresh": 1, "regex": "", "type": "query"}
+    ]
+  },
+  "time": {"from": "now-24h", "to": "now"},
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Billing Operations",
+  "uid": "billing-operations",
+  "version": 1
+}
