@@ -453,6 +453,29 @@ class BillingRepository:
             ),
         )
 
+    async def get_trusted_provider_event_received_at(
+        self,
+        provider: str,
+        raw_provider_event_id: str,
+        company_id: UUID,
+    ) -> datetime | None:
+        """Return trusted local receipt time for accepted webhook evidence only."""
+        return cast(
+            datetime | None,
+            await self._session.scalar(
+                select(BillingWebhookEvent.received_at)
+                .where(
+                    BillingWebhookEvent.provider == provider,
+                    BillingWebhookEvent.raw_provider_event_id == raw_provider_event_id,
+                    BillingWebhookEvent.company_id == company_id,
+                    BillingWebhookEvent.validation_outcome == "accepted",
+                    BillingWebhookEvent.event_type != "reconciliation.compensating",
+                )
+                .order_by(BillingWebhookEvent.received_at, BillingWebhookEvent.id)
+                .limit(1)
+            ),
+        )
+
     async def get_event(
         self, event_id: UUID, *, lock: bool = False
     ) -> BillingWebhookEvent | None:

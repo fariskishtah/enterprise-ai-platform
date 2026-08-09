@@ -12,7 +12,7 @@ import json
 import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any, cast
+from typing import Any, Literal, cast
 from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 from uuid import UUID
 
@@ -119,6 +119,22 @@ def _parse_timestamp(value: object) -> datetime | None:
     except ValueError:
         return None
     return None if parsed.tzinfo is None else parsed.astimezone(UTC)
+
+
+def _provider_timestamp_evidence(
+    obj: dict[str, Any],
+) -> tuple[datetime | None, str | None, Literal["explicit", "ambiguous"]]:
+    """Prefer an offset-qualified provider timestamp without inventing a zone."""
+    raw_values = tuple(
+        value.strip()
+        for field in ("paid_at", "updated_at", "created_at")
+        if isinstance((value := obj.get(field)), str) and value.strip()
+    )
+    for raw_value in raw_values:
+        parsed = _parse_timestamp(raw_value)
+        if parsed is not None:
+            return parsed, raw_value, "explicit"
+    return None, (raw_values[0] if raw_values else None), "ambiguous"
 
 
 def _safe_failure_code(obj: dict[str, Any]) -> str | None:
@@ -336,9 +352,7 @@ class PaymobPaymentProvider:
             environment=(
                 "live"
                 if obj.get("is_live") is True
-                else "sandbox"
-                if obj.get("is_live") is False
-                else None
+                else "sandbox" if obj.get("is_live") is False else None
             ),
             merchant_id=(str(obj["owner"]) if obj.get("owner") is not None else None),
             provider_order_id=(
@@ -628,7 +642,9 @@ class PaymobPaymentProvider:
         owner = self._integer(obj.get("owner"))
         source_type = self._source_type(obj)
         is_live = obj.get("is_live")
-        occurred_at = _parse_timestamp(obj.get("updated_at") or obj.get("created_at"))
+        occurred_at, provider_timestamp, timestamp_confidence = (
+            _provider_timestamp_evidence(obj)
+        )
         order = obj.get("order")
         order_id = order.get("id") if isinstance(order, dict) else order
         merchant_reference = (
@@ -659,7 +675,9 @@ class PaymobPaymentProvider:
                 and owner != self._configuration.expected_callback_owner
             )
             or source_type not in self._configuration.supported_source_types
-            or occurred_at is None
+            or provider_timestamp is None
+            or not isinstance(obj.get("success"), bool)
+            or not isinstance(obj.get("pending"), bool)
             or order_id is None
             or payment_reference != target.payment_reference
             or (
@@ -688,4 +706,6 @@ class PaymobPaymentProvider:
             merchant_id=str(owner) if owner is not None else None,
             provider_order_id=str(order_id),
             source_type=source_type,
+            provider_timestamp=provider_timestamp,
+            provider_timestamp_confidence=timestamp_confidence,
         )

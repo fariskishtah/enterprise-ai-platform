@@ -122,10 +122,12 @@ class ProviderTransactionTruth:
     decision: PaymentDecision
     integration_id: int
     environment: Literal["sandbox", "live"]
-    occurred_at: datetime
+    occurred_at: datetime | None
     merchant_id: str | None = None
     provider_order_id: str | None = None
     source_type: str | None = None
+    provider_timestamp: str | None = None
+    provider_timestamp_confidence: Literal["explicit", "ambiguous"] = "explicit"
 
 
 @dataclass(frozen=True, slots=True)

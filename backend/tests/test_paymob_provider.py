@@ -185,6 +185,111 @@ async def test_reconciliation_uses_legacy_auth_token_and_exact_transaction() -> 
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("timestamps", "confidence", "expected_time"),
+    [
+        (
+            {"created_at": "2026-08-09T06:57:00Z"},
+            "explicit",
+            "2026-08-09T06:57:00+00:00",
+        ),
+        (
+            {"created_at": "2026-08-09T09:57:00+03:00"},
+            "explicit",
+            "2026-08-09T06:57:00+00:00",
+        ),
+        (
+            {"created_at": "2026-08-09T01:57:00-05:00"},
+            "explicit",
+            "2026-08-09T06:57:00+00:00",
+        ),
+        ({"created_at": "2026-08-09T06:57:00"}, "ambiguous", None),
+        ({"updated_at": "2026-08-09T06:58:00"}, "ambiguous", None),
+        ({"paid_at": "2026-08-09T06:57:30"}, "ambiguous", None),
+        (
+            {
+                "created_at": "2026-08-09T06:57:00",
+                "updated_at": "2026-08-09T06:58:00",
+                "paid_at": "2026-08-09T06:57:30",
+            },
+            "ambiguous",
+            None,
+        ),
+    ],
+)
+async def test_reconciliation_timestamp_confidence_is_non_binding(
+    timestamps: dict[str, str],
+    confidence: str,
+    expected_time: str | None,
+) -> None:
+    reference = uuid4()
+    transaction = _transaction_object()
+    for field in ("created_at", "updated_at", "paid_at"):
+        transaction.pop(field, None)
+    transaction.update(timestamps)
+    transaction["order"] = {"id": 800001, "merchant_order_id": str(reference)}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/auth/tokens":
+            return httpx.Response(201, json={"token": "short-lived-token"})
+        return httpx.Response(200, json=transaction)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        truth = await PaymobPaymentProvider(
+            _configuration(), client=client
+        ).reconcile_transaction(
+            ProviderReconciliationTarget(
+                payment_reference=reference,
+                provider_payment_id="900001",
+                provider_order_id="800001",
+            )
+        )
+
+    assert truth is not None
+    assert truth.provider_timestamp_confidence == confidence
+    assert (
+        truth.occurred_at.isoformat() if truth.occurred_at is not None else None
+    ) == expected_time
+    assert truth.provider_timestamp in timestamps.values()
+    assert truth.decision == "succeeded_eligible"
+
+
+@pytest.mark.anyio
+async def test_reconciliation_requires_timestamp_and_authoritative_status_fields() -> (
+    None
+):
+    reference = uuid4()
+    transaction = _transaction_object()
+    transaction["order"] = {"id": 800001, "merchant_order_id": str(reference)}
+
+    async def rejected(candidate: dict[str, object]) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/api/auth/tokens":
+                return httpx.Response(201, json={"token": "short-lived-token"})
+            return httpx.Response(200, json=candidate)
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            with pytest.raises(PaymentProviderError, match="identity"):
+                await PaymobPaymentProvider(
+                    _configuration(), client=client
+                ).reconcile_transaction(
+                    ProviderReconciliationTarget(
+                        payment_reference=reference,
+                        provider_payment_id="900001",
+                        provider_order_id="800001",
+                    )
+                )
+
+    missing_timestamp = dict(transaction)
+    missing_timestamp.pop("created_at")
+    await rejected(missing_timestamp)
+    for field in ("success", "pending"):
+        missing_status = dict(transaction)
+        missing_status.pop(field)
+        await rejected(missing_status)
+
+
+@pytest.mark.anyio
 async def test_reconciliation_uses_persisted_order_when_webhook_was_lost() -> None:
     transaction = _transaction_object()
     reference = uuid4()

@@ -1535,6 +1535,56 @@ class BillingWebhookProcessor:
                     and parsed_occurred_at.tzinfo is not None
                     else None
                 )
+                timestamp_confidence_value = payload.get(
+                    "provider_timestamp_confidence"
+                )
+                timestamp_confidence = (
+                    str(timestamp_confidence_value)
+                    if timestamp_confidence_value is not None
+                    else "explicit" if occurred_at is not None else "ambiguous"
+                )
+                temporal_source_value = payload.get("temporal_source")
+                temporal_source = (
+                    str(temporal_source_value)
+                    if temporal_source_value is not None
+                    else (
+                        "provider_offset_timestamp"
+                        if occurred_at is not None
+                        else "webhook_received_at"
+                    )
+                )
+                temporal_observed_value = payload.get("temporal_observed_at")
+                parsed_temporal_observed_at = (
+                    datetime.fromisoformat(str(temporal_observed_value))
+                    if temporal_observed_value
+                    else None
+                )
+                temporal_observed_at = (
+                    _as_utc(parsed_temporal_observed_at)
+                    if parsed_temporal_observed_at is not None
+                    and parsed_temporal_observed_at.tzinfo is not None
+                    else None
+                )
+                if timestamp_confidence not in {"explicit", "ambiguous"}:
+                    raise ValueError("Invalid timestamp confidence")
+                if temporal_source not in {
+                    "webhook_received_at",
+                    "reconciliation_observed_at",
+                    "provider_offset_timestamp",
+                }:
+                    raise ValueError("Invalid temporal source")
+                if timestamp_confidence == "explicit" and occurred_at is None:
+                    raise ValueError("Explicit provider timestamp missing")
+                if timestamp_confidence == "ambiguous" and occurred_at is not None:
+                    raise ValueError("Ambiguous provider timestamp has an offset")
+                if temporal_source == "provider_offset_timestamp":
+                    if occurred_at is None:
+                        raise ValueError("Provider timestamp unavailable")
+                    temporal_observed_at = occurred_at
+                elif temporal_observed_at is None:
+                    if event.event_type == "reconciliation.compensating":
+                        raise ValueError("Trusted local observation time missing")
+                    temporal_observed_at = _as_utc(event.received_at)
             except (KeyError, TypeError, ValueError):
                 self._quarantine_processing(
                     repository, event, "invalid_normalized_payload"
@@ -1619,14 +1669,20 @@ class BillingWebhookProcessor:
                 )
                 payment.provider_occurred_at = occurred_at
                 event.company_id = payment.company_id
-                event_time = occurred_at or _as_utc(event.received_at)
+                event_time = temporal_observed_at or _as_utc(event.received_at)
                 expired_before_payment = bool(
                     payment.checkout_expires_at is not None
                     and _as_utc(payment.checkout_expires_at) < event_time
                 )
+                delayed_provider_confirmation = bool(
+                    event.event_type == "reconciliation.compensating"
+                    and decision == "succeeded_eligible"
+                    and timestamp_confidence == "ambiguous"
+                    and temporal_source == "reconciliation_observed_at"
+                )
                 if decision == "succeeded_eligible" and (
                     payment.checkout_intent_status == "superseded"
-                    or expired_before_payment
+                    or (expired_before_payment and not delayed_provider_confirmation)
                 ):
                     if (
                         expired_before_payment
@@ -1648,6 +1704,8 @@ class BillingWebhookProcessor:
                                 "checkout_intent_status": (
                                     payment.checkout_intent_status
                                 ),
+                                "temporal_source": temporal_source,
+                                "provider_timestamp_confidence": (timestamp_confidence),
                             },
                         )
                     )
@@ -1789,6 +1847,11 @@ class BillingWebhookProcessor:
             "payment_id": str(payment.id),
             "provider_event_id": event.provider_event_id,
         }
+        event_payload = event.safe_payload or {}
+        for key in ("temporal_source", "provider_timestamp_confidence"):
+            value = event_payload.get(key)
+            if isinstance(value, str):
+                metadata[key] = value
         if payment.status == "succeeded":
             if (
                 subscription.latest_payment_id == payment.id

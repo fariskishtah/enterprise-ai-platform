@@ -6,8 +6,11 @@ real credentials, customer data, or browser redirect assertions.
 
 from __future__ import annotations
 
+import asyncio
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import cast
 from uuid import uuid4
 
 import pytest
@@ -15,6 +18,7 @@ from app.billing.providers import (
     PaymentProviderError,
     ProviderReconciliationTarget,
     ProviderTransactionTruth,
+    ProviderWebhook,
 )
 from app.billing.providers.paymob import (
     PaymobConfiguration,
@@ -28,6 +32,7 @@ from app.models.billing import (
     BillingReconciliationResult,
     BillingReconciliationRun,
     BillingWebhookEvent,
+    InvoiceReference,
     Payment,
     Subscription,
 )
@@ -106,7 +111,7 @@ def _transaction(**overrides: object) -> dict[str, object]:
     return obj
 
 
-def _parse(obj: dict[str, object], *, sandbox_mode: bool = True):
+def _parse(obj: dict[str, object], *, sandbox_mode: bool = True) -> ProviderWebhook:
     return PaymobPaymentProvider(
         _configuration(sandbox_mode=sandbox_mode)
     ).parse_webhook(
@@ -276,10 +281,10 @@ def test_reconciliation_outcome_matrix(
     truth = ProviderTransactionTruth(
         provider_payment_id="provider-matrix",
         payment_reference=payment.id,
-        amount_minor=int(values["amount_minor"]),
+        amount_minor=cast(int, values["amount_minor"]),
         currency=str(values["currency"]),
         decision=values["decision"],  # type: ignore[arg-type]
-        integration_id=int(values["integration_id"]),
+        integration_id=cast(int, values["integration_id"]),
         environment=values["environment"],  # type: ignore[arg-type]
         occurred_at=datetime.now(UTC),
     )
@@ -590,6 +595,8 @@ async def test_automatic_reconciliation_recovers_lost_callback_exactly_once(
         )
         payment = await session.get(Payment, checkout.payment_id)
         assert payment is not None
+        payment.checkout_expires_at = datetime.now(UTC) - timedelta(minutes=1)
+        await session.commit()
         truth = ProviderTransactionTruth(
             provider_payment_id="provider-recovered-transaction",
             payment_reference=payment.id,
@@ -598,16 +605,19 @@ async def test_automatic_reconciliation_recovers_lost_callback_exactly_once(
             decision="succeeded_eligible",
             integration_id=123456,
             environment="sandbox",
-            occurred_at=datetime.now(UTC),
+            occurred_at=None,
             merchant_id="700001",
             provider_order_id="provider-order-recovery",
             source_type="card",
+            provider_timestamp="2026-08-09T06:57:30.123456",
+            provider_timestamp_confidence="ambiguous",
         )
 
     queue = RecordingBillingQueue()
+    reconciliation_provider = ReconciliationFixtureProvider([truth])
     reconciler = AutomaticBillingReconciliationService(
         session_factory,
-        ReconciliationFixtureProvider([truth]),
+        reconciliation_provider,
         queue,
         environment="sandbox",
         grace_seconds=300,
@@ -615,10 +625,17 @@ async def test_automatic_reconciliation_recovers_lost_callback_exactly_once(
     reconciliation_now = datetime.now(UTC) + timedelta(minutes=10)
     first = await reconciler.run(limit=100, now=reconciliation_now)
     repeated = await reconciler.run(limit=100, now=reconciliation_now)
+    reconciliation_provider.transactions = [
+        replace(truth, provider_timestamp="2026-08-09T06:58:00")
+    ]
+    changed_ambiguous_timestamp = await reconciler.run(
+        limit=100, now=reconciliation_now + timedelta(minutes=1)
+    )
 
     assert first.scanned == 1
     assert first.queued == 1
     assert repeated.queued == 0
+    assert changed_ambiguous_timestamp.queued == 0
     assert len(queue.event_ids) == 1
     assert (
         sum(
@@ -650,17 +667,47 @@ async def test_automatic_reconciliation_recovers_lost_callback_exactly_once(
             .select_from(BillingAuditEvent)
             .where(BillingAuditEvent.action == "billing.automatic_reconciliation_event")
         )
+        invoice_count = await session.scalar(
+            select(func.count())
+            .select_from(InvoiceReference)
+            .where(InvoiceReference.payment_id == payment.id)
+        )
+        event = await session.get(BillingWebhookEvent, queue.event_ids[0])
+        activation_audit = await session.scalar(
+            select(BillingAuditEvent).where(
+                BillingAuditEvent.action == "subscription.payment_activated"
+            )
+        )
 
     assert payment.status == "succeeded"
+    assert payment.checkout_intent_status == "completed"
     assert subscription is not None and subscription.status == "active"
     assert activation_audits == 1
     assert reconciliation_audits == 1
+    assert invoice_count == 1
+    assert event is not None and event.status == "processed"
+    assert event.safe_payload is not None
+    assert event.safe_payload["provider_timestamp"] == ("2026-08-09T06:57:30.123456")
+    assert event.safe_payload["provider_timestamp_confidence"] == "ambiguous"
+    assert event.safe_payload["temporal_source"] == "reconciliation_observed_at"
+    assert activation_audit is not None
+    assert activation_audit.safe_metadata["provider_timestamp_confidence"] == (
+        "ambiguous"
+    )
+    assert activation_audit.safe_metadata["temporal_source"] == (
+        "reconciliation_observed_at"
+    )
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    "mismatch",
+    ["reference", "owner", "integration", "amount", "currency", "environment", "order"],
+)
 async def test_automatic_reconciliation_holds_binding_mismatch_for_manual_review(
     session_factory: async_sessionmaker[AsyncSession],
     monkeypatch: pytest.MonkeyPatch,
+    mismatch: str,
 ) -> None:
     metric_outcomes: list[tuple[str, int]] = []
     monkeypatch.setattr(
@@ -698,7 +745,80 @@ async def test_automatic_reconciliation_holds_binding_mismatch_for_manual_review
             environment="sandbox",
             occurred_at=datetime.now(UTC),
             merchant_id="700001",
-            provider_order_id="provider-order-different",
+            provider_order_id="provider-order-expected",
+        )
+        truth = {
+            "reference": replace(truth, payment_reference=uuid4()),
+            "owner": replace(truth, merchant_id="700002"),
+            "integration": replace(truth, integration_id=123457),
+            "amount": replace(truth, amount_minor=payment.amount_minor + 1),
+            "currency": replace(truth, currency="USD"),
+            "environment": replace(truth, environment="live"),
+            "order": replace(truth, provider_order_id="provider-order-different"),
+        }[mismatch]
+
+    queue = RecordingBillingQueue()
+    summary = await AutomaticBillingReconciliationService(
+        session_factory,
+        ReconciliationFixtureProvider([truth]),
+        queue,
+        environment="sandbox",
+        grace_seconds=300,
+    ).run(limit=100, now=datetime.now(UTC) + timedelta(minutes=10))
+
+    assert summary.manual_review == (0 if mismatch == "environment" else 1)
+    assert summary.provider_failures == (1 if mismatch == "environment" else 0)
+    assert summary.queued == 0
+    assert queue.event_ids == []
+    assert (
+        ("provider_failure", 1) if mismatch == "environment" else ("manual_review", 1)
+    ) in metric_outcomes
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("decision", "expected_matched", "expected_review"),
+    [("pending", 1, 0), ("under_review", 0, 1)],
+)
+async def test_ambiguous_time_and_nonfinal_status_never_grant_access(
+    session_factory: async_sessionmaker[AsyncSession],
+    decision: str,
+    expected_matched: int,
+    expected_review: int,
+) -> None:
+    actor = await _actor(session_factory)
+    checkout_provider = FixtureProvider()
+    checkout_provider.provider_order_id = "provider-order-nonfinal"
+    policy = BillingPolicy(
+        environment="sandbox",
+        provider_integration_id=123456,
+        provider_merchant_id="700001",
+    )
+    async with session_factory() as session:
+        checkout = await BillingService(
+            session, checkout_provider, policy=policy
+        ).create_checkout(
+            actor=actor,
+            plan_code="starter",
+            billing_details=_billing_details(),
+            idempotency_key=f"phase2-ambiguous-nonfinal-{decision}",
+        )
+        payment = await session.get(Payment, checkout.payment_id)
+        assert payment is not None
+        truth = ProviderTransactionTruth(
+            provider_payment_id=f"provider-{decision}",
+            payment_reference=payment.id,
+            amount_minor=payment.amount_minor,
+            currency=payment.currency,
+            decision=decision,  # type: ignore[arg-type]
+            integration_id=123456,
+            environment="sandbox",
+            occurred_at=None,
+            merchant_id="700001",
+            provider_order_id="provider-order-nonfinal",
+            source_type="card",
+            provider_timestamp="2026-08-09T07:00:00",
+            provider_timestamp_confidence="ambiguous",
         )
 
     queue = RecordingBillingQueue()
@@ -710,10 +830,319 @@ async def test_automatic_reconciliation_holds_binding_mismatch_for_manual_review
         grace_seconds=300,
     ).run(limit=100, now=datetime.now(UTC) + timedelta(minutes=10))
 
-    assert summary.manual_review == 1
+    async with session_factory() as session:
+        payment = await session.get(Payment, checkout.payment_id)
+        assert payment is not None
+        subscription = await session.get(Subscription, payment.subscription_id)
+        activation_count = await session.scalar(
+            select(func.count())
+            .select_from(BillingAuditEvent)
+            .where(BillingAuditEvent.action == "subscription.payment_activated")
+        )
+    assert summary.matched == expected_matched
+    assert summary.manual_review == expected_review
     assert summary.queued == 0
     assert queue.event_ids == []
-    assert ("manual_review", 1) in metric_outcomes
+    assert payment.status == "pending"
+    assert subscription is not None and subscription.status == "incomplete"
+    assert activation_count == 0
+
+
+@pytest.mark.anyio
+async def test_ambiguous_lost_webhook_decline_transitions_once_without_entitlement(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    actor = await _actor(session_factory)
+    checkout_provider = FixtureProvider()
+    checkout_provider.provider_order_id = "provider-order-declined"
+    policy = BillingPolicy(
+        environment="sandbox",
+        provider_integration_id=123456,
+        provider_merchant_id="700001",
+    )
+    async with session_factory() as session:
+        checkout = await BillingService(
+            session, checkout_provider, policy=policy
+        ).create_checkout(
+            actor=actor,
+            plan_code="starter",
+            billing_details=_billing_details(),
+            idempotency_key="phase2-ambiguous-decline",
+        )
+        payment = await session.get(Payment, checkout.payment_id)
+        assert payment is not None
+        truth = ProviderTransactionTruth(
+            provider_payment_id="provider-declined-transaction",
+            payment_reference=payment.id,
+            amount_minor=payment.amount_minor,
+            currency=payment.currency,
+            decision="failed",
+            integration_id=123456,
+            environment="sandbox",
+            occurred_at=None,
+            merchant_id="700001",
+            provider_order_id="provider-order-declined",
+            source_type="card",
+            provider_timestamp="2026-08-09T07:01:00",
+            provider_timestamp_confidence="ambiguous",
+        )
+
+    queue = RecordingBillingQueue()
+    reconciliation_provider = ReconciliationFixtureProvider([truth])
+    reconciler = AutomaticBillingReconciliationService(
+        session_factory,
+        reconciliation_provider,
+        queue,
+        environment="sandbox",
+        grace_seconds=300,
+    )
+    first = await reconciler.run(
+        limit=100, now=datetime.now(UTC) + timedelta(minutes=10)
+    )
+    repeated = await reconciler.run(
+        limit=100, now=datetime.now(UTC) + timedelta(minutes=10)
+    )
+    assert first.queued == 1
+    assert repeated.queued == 0
+    await BillingWebhookProcessor(session_factory, "paymob", policy=policy).execute(
+        queue.event_ids[0]
+    )
+    await BillingWebhookProcessor(session_factory, "paymob", policy=policy).execute(
+        queue.event_ids[0]
+    )
+
+    async with session_factory() as session:
+        payment = await session.get(Payment, checkout.payment_id)
+        assert payment is not None
+        subscription = await session.get(Subscription, payment.subscription_id)
+        invoice_count = await session.scalar(
+            select(func.count())
+            .select_from(InvoiceReference)
+            .where(InvoiceReference.payment_id == payment.id)
+        )
+        activation_count = await session.scalar(
+            select(func.count())
+            .select_from(BillingAuditEvent)
+            .where(BillingAuditEvent.action == "subscription.payment_activated")
+        )
+    assert payment.status == "failed"
+    assert subscription is not None and subscription.status == "incomplete"
+    assert invoice_count == 0
+    assert activation_count == 0
+
+
+@pytest.mark.anyio
+async def test_concurrent_ambiguous_reconciliation_queues_one_event(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    actor = await _actor(session_factory)
+    checkout_provider = FixtureProvider()
+    checkout_provider.provider_order_id = "provider-order-concurrent"
+    policy = BillingPolicy(
+        environment="sandbox",
+        provider_integration_id=123456,
+        provider_merchant_id="700001",
+    )
+    async with session_factory() as session:
+        checkout = await BillingService(
+            session, checkout_provider, policy=policy
+        ).create_checkout(
+            actor=actor,
+            plan_code="starter",
+            billing_details=_billing_details(),
+            idempotency_key="phase2-concurrent-ambiguous",
+        )
+        payment = await session.get(Payment, checkout.payment_id)
+        assert payment is not None
+        truth = ProviderTransactionTruth(
+            provider_payment_id="provider-concurrent-transaction",
+            payment_reference=payment.id,
+            amount_minor=payment.amount_minor,
+            currency=payment.currency,
+            decision="succeeded_eligible",
+            integration_id=123456,
+            environment="sandbox",
+            occurred_at=None,
+            merchant_id="700001",
+            provider_order_id="provider-order-concurrent",
+            source_type="card",
+            provider_timestamp="2026-08-09T07:02:00",
+            provider_timestamp_confidence="ambiguous",
+        )
+
+    queue = RecordingBillingQueue()
+    reconciliation_provider = ReconciliationFixtureProvider([truth])
+    reconciler = AutomaticBillingReconciliationService(
+        session_factory,
+        reconciliation_provider,
+        queue,
+        environment="sandbox",
+        grace_seconds=300,
+    )
+    summaries = await asyncio.gather(
+        reconciler.run(limit=100, now=datetime.now(UTC) + timedelta(minutes=10)),
+        reconciler.run(limit=100, now=datetime.now(UTC) + timedelta(minutes=10)),
+    )
+    assert sum(summary.queued for summary in summaries) == 1
+    assert len(queue.event_ids) == 1
+
+
+@pytest.mark.anyio
+async def test_reconciliation_preserves_crypto_invalid_evidence(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    actor = await _actor(session_factory)
+    checkout_provider = FixtureProvider()
+    checkout_provider.provider_order_id = "provider-order-crypto-evidence"
+    policy = BillingPolicy(
+        environment="sandbox",
+        provider_integration_id=123456,
+        provider_merchant_id="700001",
+    )
+    async with session_factory() as session:
+        checkout = await BillingService(
+            session, checkout_provider, policy=policy
+        ).create_checkout(
+            actor=actor,
+            plan_code="starter",
+            billing_details=_billing_details(),
+            idempotency_key="phase2-crypto-evidence-immutable",
+        )
+        payment = await session.get(Payment, checkout.payment_id)
+        assert payment is not None
+        obj = _transaction(
+            id=900099,
+            order={
+                "id": "provider-order-crypto-evidence",
+                "merchant_order_id": str(payment.id),
+            },
+        )
+        invalid = await BillingService(
+            session, PaymobPaymentProvider(_configuration()), policy=policy
+        ).ingest_webhook({"type": "TRANSACTION", "obj": obj}, signature="invalid")
+        original = await session.get(BillingWebhookEvent, invalid.event_id)
+        assert original is not None
+        original_snapshot = (
+            original.status,
+            original.validation_outcome,
+            original.safe_payload,
+            original.processed_at,
+        )
+        truth = ProviderTransactionTruth(
+            provider_payment_id="900099",
+            payment_reference=payment.id,
+            amount_minor=payment.amount_minor,
+            currency=payment.currency,
+            decision="succeeded_eligible",
+            integration_id=123456,
+            environment="sandbox",
+            occurred_at=None,
+            merchant_id="700001",
+            provider_order_id="provider-order-crypto-evidence",
+            source_type="card",
+            provider_timestamp="2026-08-09T07:03:00",
+            provider_timestamp_confidence="ambiguous",
+        )
+
+    queue = RecordingBillingQueue()
+    summary = await AutomaticBillingReconciliationService(
+        session_factory,
+        ReconciliationFixtureProvider([truth]),
+        queue,
+        environment="sandbox",
+        grace_seconds=300,
+    ).run(limit=100, now=datetime.now(UTC) + timedelta(minutes=10))
+    assert summary.queued == 1
+    await BillingWebhookProcessor(session_factory, "paymob", policy=policy).execute(
+        queue.event_ids[0]
+    )
+
+    async with session_factory() as session:
+        original = await session.get(BillingWebhookEvent, invalid.event_id)
+        assert original is not None
+        assert (
+            original.status,
+            original.validation_outcome,
+            original.safe_payload,
+            original.processed_at,
+        ) == original_snapshot
+
+
+@pytest.mark.anyio
+async def test_webhook_backed_ambiguous_reconciliation_uses_local_receipt_time(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    actor = await _actor(session_factory)
+    checkout_provider = FixtureProvider()
+    checkout_provider.provider_order_id = "provider-order-webhook-backed"
+    policy = BillingPolicy(
+        environment="sandbox",
+        provider_integration_id=123456,
+        provider_merchant_id="700001",
+    )
+    webhook_received_at = datetime.now(UTC) - timedelta(minutes=2)
+    async with session_factory() as session:
+        checkout = await BillingService(
+            session, checkout_provider, policy=policy
+        ).create_checkout(
+            actor=actor,
+            plan_code="starter",
+            billing_details=_billing_details(),
+            idempotency_key="phase2-webhook-backed-ambiguous",
+        )
+        payment = await session.get(Payment, checkout.payment_id)
+        assert payment is not None
+        session.add(
+            BillingWebhookEvent(
+                company_id=payment.company_id,
+                provider="paymob",
+                provider_event_id="accepted-webhook-backed-evidence",
+                raw_provider_event_id="provider-webhook-backed-transaction",
+                event_type="transaction.succeeded",
+                payload_hash="a" * 64,
+                safe_payload={"validation_outcome": "accepted"},
+                validation_outcome="accepted",
+                status="dead_letter",
+                received_at=webhook_received_at,
+            )
+        )
+        await session.commit()
+        truth = ProviderTransactionTruth(
+            provider_payment_id="provider-webhook-backed-transaction",
+            payment_reference=payment.id,
+            amount_minor=payment.amount_minor,
+            currency=payment.currency,
+            decision="succeeded_eligible",
+            integration_id=123456,
+            environment="sandbox",
+            occurred_at=None,
+            merchant_id="700001",
+            provider_order_id="provider-order-webhook-backed",
+            source_type="card",
+            provider_timestamp="2026-08-09T07:04:00",
+            provider_timestamp_confidence="ambiguous",
+        )
+
+    queue = RecordingBillingQueue()
+    summary = await AutomaticBillingReconciliationService(
+        session_factory,
+        ReconciliationFixtureProvider([truth]),
+        queue,
+        environment="sandbox",
+        grace_seconds=300,
+    ).run(limit=100, now=datetime.now(UTC) + timedelta(minutes=10))
+    assert summary.queued == 1
+    async with session_factory() as session:
+        event = await session.get(BillingWebhookEvent, queue.event_ids[0])
+    assert event is not None and event.safe_payload is not None
+    assert event.safe_payload["temporal_source"] == "webhook_received_at"
+    assert event.safe_payload["provider_timestamp_confidence"] == "ambiguous"
+    stored_observation = datetime.fromisoformat(
+        str(event.safe_payload["temporal_observed_at"])
+    )
+    if stored_observation.tzinfo is None:
+        stored_observation = stored_observation.replace(tzinfo=UTC)
+    assert stored_observation == webhook_received_at
 
 
 @pytest.mark.anyio

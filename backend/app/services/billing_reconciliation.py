@@ -7,6 +7,7 @@ import json
 import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from typing import Literal
 from uuid import UUID, uuid4
 
 from sqlalchemy.exc import IntegrityError
@@ -31,6 +32,12 @@ from app.observability.metrics import record_billing_provider_reconciliation
 from app.repositories.billing import BillingRepository
 
 logger = logging.getLogger(__name__)
+
+TemporalSource = Literal[
+    "webhook_received_at",
+    "reconciliation_observed_at",
+    "provider_offset_timestamp",
+]
 
 
 class BillingReconciliationError(RuntimeError):
@@ -158,6 +165,14 @@ class BillingReconciliationService:
                 or len(truth.currency) != 3
                 or truth.environment not in {"sandbox", "live"}
                 or truth.environment != environment
+                or (
+                    truth.provider_timestamp_confidence == "explicit"
+                    and truth.occurred_at is None
+                )
+                or (
+                    truth.provider_timestamp_confidence == "ambiguous"
+                    and (truth.occurred_at is not None or not truth.provider_timestamp)
+                )
             ):
                 raise PaymentProviderError(
                     "The provider returned malformed reconciliation data.",
@@ -201,6 +216,7 @@ class BillingReconciliationService:
                     payment=payment,
                     truth=truth,
                     approval=approval or "",
+                    observed_at=datetime.now(UTC),
                 )
                 compensating.append(event_id)
                 outcome = "corrected_by_compensating_event"
@@ -295,6 +311,11 @@ class BillingReconciliationService:
                         truth.integration_id if truth is not None else None
                     ),
                     "environment": truth.environment if truth is not None else None,
+                    "provider_timestamp_confidence": (
+                        truth.provider_timestamp_confidence
+                        if truth is not None
+                        else None
+                    ),
                 },
                 compensating_event_id=event_id,
             )
@@ -308,10 +329,21 @@ class BillingReconciliationService:
         payment: Payment,
         truth: ProviderTransactionTruth,
         approval: str,
+        observed_at: datetime,
     ) -> UUID:
-        fingerprint = hashlib.sha256(
-            f"{truth.provider_payment_id}:{truth.decision}:{truth.occurred_at.isoformat()}".encode()
-        ).hexdigest()[:32]
+        trusted_webhook_received_at = (
+            await self._repository.get_trusted_provider_event_received_at(
+                run.provider,
+                truth.provider_payment_id,
+                payment.company_id,
+            )
+        )
+        temporal_source, temporal_observed_at = _temporal_evidence(
+            truth,
+            observed_at=observed_at,
+            webhook_received_at=trusted_webhook_received_at,
+        )
+        fingerprint = _reconciliation_fingerprint(truth)
         provider_event_id = f"reconciliation:{fingerprint}"
         existing = await self._repository.get_event_by_provider_id(
             run.provider, provider_event_id
@@ -326,28 +358,16 @@ class BillingReconciliationService:
             raw_provider_event_id=truth.provider_payment_id,
             event_type="reconciliation.compensating",
             payload_hash=fingerprint.ljust(64, "0"),
-            safe_payload={
-                "payment_reference": str(payment.id),
-                "provider_payment_id": truth.provider_payment_id,
-                "amount_minor": truth.amount_minor,
-                "currency": truth.currency,
-                "state": (
-                    "succeeded"
-                    if truth.decision == "succeeded_eligible"
-                    else truth.decision
-                ),
-                "decision": truth.decision,
-                "occurred_at": truth.occurred_at.isoformat(),
-                "integration_id": truth.integration_id,
-                "environment": truth.environment,
-                "merchant_id": truth.merchant_id,
-                "provider_order_id": truth.provider_order_id,
-                "source_type": truth.source_type,
-                "validation_outcome": "accepted",
-            },
+            safe_payload=_compensating_payload(
+                payment,
+                truth,
+                temporal_source=temporal_source,
+                temporal_observed_at=temporal_observed_at,
+            ),
             validation_outcome="accepted",
             status="queued",
-            queued_at=datetime.now(UTC),
+            received_at=observed_at,
+            queued_at=observed_at,
         )
         self._session.add(event)
         self._session.add(
@@ -361,6 +381,10 @@ class BillingReconciliationService:
                     "payment_id": str(payment.id),
                     "event_id": str(event.id),
                     "finance_approval_reference": approval,
+                    "temporal_source": temporal_source,
+                    "provider_timestamp_confidence": (
+                        truth.provider_timestamp_confidence
+                    ),
                 },
             )
         )
@@ -441,7 +465,9 @@ class AutomaticBillingReconciliationService:
                 manual_review += 1
                 continue
 
-            event_id = await self._persist_compensating_event(payment, truth)
+            event_id = await self._persist_compensating_event(
+                payment, truth, observed_at=effective_now
+            )
             if event_id is not None:
                 queued_ids.append(event_id)
                 queued += 1
@@ -503,34 +529,14 @@ class AutomaticBillingReconciliationService:
         return summary
 
     async def _persist_compensating_event(
-        self, payment: Payment, truth: ProviderTransactionTruth
+        self,
+        payment: Payment,
+        truth: ProviderTransactionTruth,
+        *,
+        observed_at: datetime,
     ) -> UUID | None:
-        fingerprint = hashlib.sha256(
-            (
-                f"{truth.provider_payment_id}:{truth.decision}:"
-                f"{truth.occurred_at.isoformat()}"
-            ).encode()
-        ).hexdigest()[:32]
+        fingerprint = _reconciliation_fingerprint(truth)
         provider_event_id = f"reconciliation:{fingerprint}"
-        safe_payload: dict[str, object] = {
-            "payment_reference": str(payment.id),
-            "provider_payment_id": truth.provider_payment_id,
-            "amount_minor": truth.amount_minor,
-            "currency": truth.currency,
-            "state": (
-                "succeeded"
-                if truth.decision == "succeeded_eligible"
-                else truth.decision
-            ),
-            "decision": truth.decision,
-            "occurred_at": truth.occurred_at.isoformat(),
-            "integration_id": truth.integration_id,
-            "environment": truth.environment,
-            "merchant_id": truth.merchant_id,
-            "provider_order_id": truth.provider_order_id,
-            "source_type": truth.source_type,
-            "validation_outcome": "accepted",
-        }
         async with self._session_factory() as session:
             repository = BillingRepository(session)
             existing = await repository.get_event_by_provider_id(
@@ -538,6 +544,24 @@ class AutomaticBillingReconciliationService:
             )
             if existing is not None:
                 return None
+            trusted_webhook_received_at = (
+                await repository.get_trusted_provider_event_received_at(
+                    self._provider.name,
+                    truth.provider_payment_id,
+                    payment.company_id,
+                )
+            )
+            temporal_source, temporal_observed_at = _temporal_evidence(
+                truth,
+                observed_at=observed_at,
+                webhook_received_at=trusted_webhook_received_at,
+            )
+            safe_payload = _compensating_payload(
+                payment,
+                truth,
+                temporal_source=temporal_source,
+                temporal_observed_at=temporal_observed_at,
+            )
             event = BillingWebhookEvent(
                 id=uuid4(),
                 company_id=payment.company_id,
@@ -553,7 +577,8 @@ class AutomaticBillingReconciliationService:
                 safe_payload=safe_payload,
                 validation_outcome="accepted",
                 status="queued",
-                queued_at=datetime.now(UTC),
+                received_at=observed_at,
+                queued_at=observed_at,
             )
             session.add(event)
             session.add(
@@ -567,6 +592,10 @@ class AutomaticBillingReconciliationService:
                         "event_id": str(event.id),
                         "provider": self._provider.name,
                         "trigger": "aged_unresolved_payment",
+                        "temporal_source": temporal_source,
+                        "provider_timestamp_confidence": (
+                            truth.provider_timestamp_confidence
+                        ),
                     },
                 )
             )
@@ -576,3 +605,59 @@ class AutomaticBillingReconciliationService:
                 await session.rollback()
                 return None
             return event.id
+
+
+def _reconciliation_fingerprint(truth: ProviderTransactionTruth) -> str:
+    return hashlib.sha256(
+        f"{truth.provider_payment_id}:{truth.decision}".encode()
+    ).hexdigest()[:32]
+
+
+def _temporal_evidence(
+    truth: ProviderTransactionTruth,
+    *,
+    observed_at: datetime,
+    webhook_received_at: datetime | None,
+) -> tuple[TemporalSource, datetime]:
+    if truth.provider_timestamp_confidence == "explicit":
+        if truth.occurred_at is None:
+            raise PaymentProviderError(
+                "The provider returned malformed reconciliation data.",
+                retryable=False,
+            )
+        return "provider_offset_timestamp", truth.occurred_at
+    if webhook_received_at is not None:
+        return "webhook_received_at", webhook_received_at
+    return "reconciliation_observed_at", observed_at
+
+
+def _compensating_payload(
+    payment: Payment,
+    truth: ProviderTransactionTruth,
+    *,
+    temporal_source: TemporalSource,
+    temporal_observed_at: datetime,
+) -> dict[str, object]:
+    return {
+        "payment_reference": str(payment.id),
+        "provider_payment_id": truth.provider_payment_id,
+        "amount_minor": truth.amount_minor,
+        "currency": truth.currency,
+        "state": (
+            "succeeded" if truth.decision == "succeeded_eligible" else truth.decision
+        ),
+        "decision": truth.decision,
+        "occurred_at": (
+            truth.occurred_at.isoformat() if truth.occurred_at is not None else None
+        ),
+        "integration_id": truth.integration_id,
+        "environment": truth.environment,
+        "merchant_id": truth.merchant_id,
+        "provider_order_id": truth.provider_order_id,
+        "source_type": truth.source_type,
+        "provider_timestamp": truth.provider_timestamp,
+        "provider_timestamp_confidence": truth.provider_timestamp_confidence,
+        "temporal_source": temporal_source,
+        "temporal_observed_at": temporal_observed_at.isoformat(),
+        "validation_outcome": "accepted",
+    }
