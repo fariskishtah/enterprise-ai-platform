@@ -99,7 +99,7 @@ async function login(page: Page, email: string): Promise<void> {
   }
   await page.context().clearCookies();
   await page.goto("/login");
-  await page.getByLabel("Email address").fill(email);
+  await page.getByLabel("Work email").fill(email);
   await page.getByLabel("Password").fill(password);
 
   const responsePromise = page

@@ -39,7 +39,7 @@ async function login(page: Page, email: string | undefined): Promise<void> {
   if (!email || !password) throw new Error("Real-backend credentials are required.");
   await page.context().clearCookies();
   await page.goto("/login");
-  await page.getByLabel("Email address").fill(email);
+  await page.getByLabel("Work email").fill(email);
   await page.getByLabel("Password").fill(password);
   const response = page.waitForResponse(
     (value) =>
