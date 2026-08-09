@@ -1084,7 +1084,15 @@ activate_ingress() {
     'error_log stderr notice;' \
     'pid /tmp/paymob-sandbox-validation.pid;' \
     'events {}' \
-    "http { include $NGINX_INCLUDE_DESTINATION/$NGINX_MANAGED_FILENAME.next; }" \
+    'http {' \
+    '  access_log /dev/null;' \
+    '  client_body_temp_path /tmp/paymob-sandbox-client-temp;' \
+    '  proxy_temp_path /tmp/paymob-sandbox-proxy-temp;' \
+    '  fastcgi_temp_path /tmp/paymob-sandbox-fastcgi-temp;' \
+    '  uwsgi_temp_path /tmp/paymob-sandbox-uwsgi-temp;' \
+    '  scgi_temp_path /tmp/paymob-sandbox-scgi-temp;' \
+    "  include $NGINX_INCLUDE_DESTINATION/$NGINX_MANAGED_FILENAME.next;" \
+    '}' \
     >"$validation_source"
   sudo install -m 0644 "$validation_source" "$validation_config"
   rm -f -- "$validation_source"

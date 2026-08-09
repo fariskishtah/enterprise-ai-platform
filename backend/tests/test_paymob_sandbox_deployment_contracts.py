@@ -511,6 +511,12 @@ case "$command_name" in
     case "$1" in
       -t)
         if [[ " $* " == *" -c "* ]]; then
+          grep -Fq 'access_log /dev/null;' "$FAKE_VALIDATION_CONFIG"
+          for temporary_path in client_body proxy fastcgi uwsgi scgi; do
+            grep -Eq "${temporary_path}_temp_path /tmp/paymob-sandbox-.+-temp;" \
+              "$FAKE_VALIDATION_CONFIG"
+          done
+          ! grep -Fq '/var/cache/nginx' "$FAKE_VALIDATION_CONFIG"
           [[ "${FAIL_STEP:-}" != candidate_validation ]]
           exit
         fi
@@ -614,6 +620,9 @@ done
     environment["FAKE_COMMAND_LOG"] = str(command_log)
     environment["FAKE_EDGE_STATE"] = str(edge_state)
     environment["FAKE_MANAGED_CONFIG"] = str(managed_config)
+    environment["FAKE_VALIDATION_CONFIG"] = str(
+        include_dir / "paymob-sandbox.conf.validation"
+    )
     environment["FAKE_NGINX_TEST_COUNT"] = str(nginx_test_count)
     environment["FAKE_RELOAD_COUNT"] = str(reload_count)
     environment["FAKE_PRODUCTION_DEFAULT"] = str(production_default)
@@ -939,6 +948,30 @@ def test_ingress_activation_checks_isolation_health_dns_nginx_and_sni(
     assert "nginx -s reload" in command_log
     assert "nginx -T" in command_log
     assert "local-sni-validation" in command_log
+
+
+def test_candidate_nginx_validation_uses_only_writable_tmpfs_paths() -> None:
+    script = _text(_SCRIPT)
+    activation = script.split("activate_ingress()", maxsplit=1)[1].split(
+        "refresh_certificate()", maxsplit=1
+    )[0]
+    reverse_proxy = _yaml(_PRODUCTION_COMPOSE)["services"]["reverse-proxy"]
+
+    assert reverse_proxy["read_only"] is True
+    assert any(mount.startswith("/tmp:rw,") for mount in reverse_proxy["tmpfs"])
+    assert "pid /tmp/paymob-sandbox-validation.pid;" in activation
+    assert "access_log /dev/null;" in activation
+    for directive in (
+        "client_body_temp_path /tmp/paymob-sandbox-client-temp;",
+        "proxy_temp_path /tmp/paymob-sandbox-proxy-temp;",
+        "fastcgi_temp_path /tmp/paymob-sandbox-fastcgi-temp;",
+        "uwsgi_temp_path /tmp/paymob-sandbox-uwsgi-temp;",
+        "scgi_temp_path /tmp/paymob-sandbox-scgi-temp;",
+    ):
+        assert directive in activation
+    assert "/var/cache/nginx" not in activation
+    assert "chmod -R" not in script
+    assert "chown -R" not in script
 
 
 def test_ingress_activation_fails_before_install_for_missing_cert_or_isolation(
