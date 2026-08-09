@@ -1,8 +1,13 @@
 """Billing catalogue contract tests."""
 
+from dataclasses import replace
+
+import app.billing.catalog as billing_catalog
 import pytest
-from app.billing.catalog import PLAN_CATALOG, get_plan
+from app.billing.catalog import PLAN_CATALOG, active_plans, get_plan
+from app.schemas.billing import CheckoutCreateRequest
 from httpx import AsyncClient
+from pydantic import ValidationError
 
 
 def test_catalogue_has_backend_authoritative_egp_prices_and_quotas() -> None:
@@ -21,6 +26,38 @@ def test_catalogue_has_backend_authoritative_egp_prices_and_quotas() -> None:
 def test_plan_lookup_normalizes_code_and_rejects_unknown_plan() -> None:
     assert get_plan(" Professional ") is PLAN_CATALOG[1]
     assert get_plan("untrusted-frontend-plan") is None
+
+
+def test_disabled_plan_is_excluded_from_lookup_and_active_catalogue(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    disabled = replace(PLAN_CATALOG[0], enabled=False)
+    monkeypatch.setattr(billing_catalog, "PLAN_CATALOG", (disabled, *PLAN_CATALOG[1:]))
+
+    assert get_plan("starter") is None
+    assert [plan.code for plan in active_plans()] == ["professional", "enterprise"]
+
+
+@pytest.mark.parametrize("amount_minor", [100_000, 500_000, 73_421])
+def test_checkout_request_rejects_every_client_supplied_amount(
+    amount_minor: int,
+) -> None:
+    with pytest.raises(ValidationError):
+        CheckoutCreateRequest.model_validate(
+            {
+                "plan_code": "starter",
+                "amount_minor": amount_minor,
+                "currency": "EGP",
+                "billing_details": {
+                    "first_name": "Factory",
+                    "last_name": "Owner",
+                    "phone_number": "+201001234567",
+                    "city": "Cairo",
+                    "country": "EG",
+                    "street": "Industrial Zone",
+                },
+            }
+        )
 
 
 @pytest.mark.anyio

@@ -114,6 +114,14 @@ async def test_create_checkout_uses_current_intention_contract_and_hosted_ui() -
     assert isinstance(payload, dict)
     assert payload["amount"] == 500_000
     assert payload["currency"] == "EGP"
+    assert payload["items"] == [
+        {
+            "name": "Professional",
+            "amount": 500_000,
+            "description": "professional monthly subscription",
+            "quantity": 1,
+        }
+    ]
     assert payload["payment_methods"] == [123456]
     assert payload["special_reference"] == str(request.reference)
     assert "card" not in json.dumps(payload).lower()

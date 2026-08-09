@@ -477,12 +477,17 @@ class BillingService:
                 )
                 if current_plan is None:
                     raise BillingStateError("The current subscription plan is invalid.")
+                current_definition = get_plan(current_plan.code)
+                if current_definition is None:
+                    raise BillingStateError(
+                        "The current subscription plan is disabled or invalid."
+                    )
                 if expected_change == "upgrade" and (
-                    plan.monthly_price_minor <= current_plan.monthly_price_minor
+                    plan.monthly_price_minor <= current_definition.monthly_price_minor
                 ):
                     raise BillingStateError("The requested plan is not an upgrade.")
                 if expected_change == "downgrade" and (
-                    plan.monthly_price_minor >= current_plan.monthly_price_minor
+                    plan.monthly_price_minor >= current_definition.monthly_price_minor
                 ):
                     raise BillingStateError("The requested plan is not a downgrade.")
                 if subscription.status == "incomplete":
@@ -656,8 +661,20 @@ class BillingService:
         )
 
     async def _ensure_plan(self, plan: PlanDefinition) -> BillingPlan:
-        record = await self._repository.get_plan(plan.code)
+        record = await self._repository.get_plan_record(plan.code)
         if record is not None:
+            if not record.is_active:
+                raise BillingNotFoundError(
+                    "The requested billing plan is currently disabled."
+                )
+            if (
+                record.name != plan.name
+                or record.currency != plan.currency
+                or record.monthly_price_minor != plan.monthly_price_minor
+            ):
+                raise BillingStateError(
+                    "The persisted billing plan does not match the server catalogue."
+                )
             return record
         record = BillingPlan(
             id=uuid5(NAMESPACE_URL, f"billing-plan:{plan.code}"),

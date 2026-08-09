@@ -15,7 +15,7 @@ from fastapi import (
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.billing.catalog import PLAN_CATALOG
+from app.billing.catalog import active_plans
 from app.billing.providers import (
     PaymentProvider,
     PaymentProviderConfigurationError,
@@ -261,7 +261,7 @@ async def list_plans(
                 description=plan.description,
                 entitlements=plan.entitlements,
             )
-            for plan in PLAN_CATALOG
+            for plan in active_plans()
         ],
         commercial_model=settings.billing_commercial_model,
     )

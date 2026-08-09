@@ -18,7 +18,7 @@ from app.billing.providers import (
 from app.config.settings import Settings
 from app.db.base import Base
 from app.dependencies.billing import get_billing_webhook_queue, get_payment_provider
-from app.models.billing import BillingWebhookEvent, Payment
+from app.models.billing import BillingPlan, BillingWebhookEvent, Payment
 from app.models.manufacturing import Company
 from app.models.user import User, UserRole
 from app.repositories.billing import BillingRepository
@@ -27,6 +27,7 @@ from app.services.billing import (
     BillingDetails,
     BillingNotFoundError,
     BillingService,
+    BillingStateError,
     BillingWebhookProcessor,
     CheckoutUnresolvedError,
 )
@@ -145,6 +146,63 @@ async def test_checkout_resolves_price_server_side_and_is_idempotent(
     assert len(provider.checkout_requests) == 1
     assert provider.checkout_requests[0].amount_minor == 500_000
     assert provider.checkout_requests[0].currency == "EGP"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("plan_code", "amount_minor"),
+    [("starter", 100_000), ("professional", 500_000), ("enterprise", 1_000_000)],
+)
+async def test_every_plan_uses_the_server_catalogue_provider_amount(
+    session_factory: async_sessionmaker[AsyncSession],
+    plan_code: str,
+    amount_minor: int,
+) -> None:
+    actor = await _actor(session_factory)
+    provider = FixtureProvider()
+    async with session_factory() as session:
+        checkout = await BillingService(session, provider).create_checkout(
+            actor=actor,
+            plan_code=plan_code,
+            billing_details=_billing_details(),
+            idempotency_key=f"checkout-every-plan-{plan_code}",
+        )
+        payment = await session.get(Payment, checkout.payment_id)
+        assert payment is not None
+        assert payment.amount_minor == amount_minor
+        assert payment.currency == "EGP"
+    assert len(provider.checkout_requests) == 1
+    assert provider.checkout_requests[0].amount_minor == amount_minor
+    assert provider.checkout_requests[0].currency == "EGP"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("defect", ["disabled", "price_drift"])
+async def test_checkout_fails_closed_for_disabled_or_drifted_database_plan(
+    session_factory: async_sessionmaker[AsyncSession], defect: str
+) -> None:
+    actor = await _actor(session_factory)
+    provider = FixtureProvider()
+    async with session_factory() as session:
+        session.add(
+            BillingPlan(
+                code="starter",
+                name="Starter",
+                currency="EGP",
+                monthly_price_minor=(1 if defect == "price_drift" else 100_000),
+                is_active=defect != "disabled",
+            )
+        )
+        await session.commit()
+        expected = BillingNotFoundError if defect == "disabled" else BillingStateError
+        with pytest.raises(expected):
+            await BillingService(session, provider).create_checkout(
+                actor=actor,
+                plan_code="starter",
+                billing_details=_billing_details(),
+                idempotency_key=f"checkout-plan-contract-{defect}",
+            )
+    assert provider.checkout_requests == []
 
 
 @pytest.mark.anyio

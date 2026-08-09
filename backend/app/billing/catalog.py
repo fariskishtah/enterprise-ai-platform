@@ -11,6 +11,7 @@ class PlanDefinition:
     currency: str
     description: str
     entitlements: dict[str, int | bool]
+    enabled: bool = True
 
 
 PLAN_CATALOG: tuple[PlanDefinition, ...] = (
@@ -79,4 +80,11 @@ PLAN_CATALOG: tuple[PlanDefinition, ...] = (
 
 def get_plan(code: str) -> PlanDefinition | None:
     normalized = code.strip().lower()
-    return next((plan for plan in PLAN_CATALOG if plan.code == normalized), None)
+    return next(
+        (plan for plan in PLAN_CATALOG if plan.code == normalized and plan.enabled),
+        None,
+    )
+
+
+def active_plans() -> tuple[PlanDefinition, ...]:
+    return tuple(plan for plan in PLAN_CATALOG if plan.enabled)

@@ -116,6 +116,14 @@ class BillingRepository:
             ),
         )
 
+    async def get_plan_record(self, code: str) -> BillingPlan | None:
+        return cast(
+            BillingPlan | None,
+            await self._session.scalar(
+                select(BillingPlan).where(BillingPlan.code == code)
+            ),
+        )
+
     async def get_plan_by_id(self, plan_id: UUID) -> BillingPlan | None:
         return await self._session.get(BillingPlan, plan_id)
 
