@@ -104,7 +104,8 @@ def test_postgres_alembic_data_rag_round_trip(
             )
 
         assert {"datasets", "rag_knowledge_bases", "rag_chunk_embeddings"} <= tables
-        assert embedding_type == "vector(256)"
+        assert embedding_type is not None
+        assert embedding_type.removeprefix(f"{schema}.") == "vector(256)"
         assert vector_extension_count == 1
 
         command.downgrade(config, "0011_adjust_automl_trial_uniqueness")
