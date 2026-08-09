@@ -38,6 +38,7 @@ from app.models.billing import (
 )
 from app.models.manufacturing import Company
 from app.models.user import User, UserRole
+from app.repositories.billing import BillingRepository
 from app.services.billing import (
     BillingConflictError,
     BillingNotFoundError,
@@ -642,6 +643,69 @@ async def test_reconciliation_compensation_requires_approval_and_is_audited(
 
 
 @pytest.mark.anyio
+async def test_aged_reconciliation_includes_only_locally_terminal_unresolved(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    created_at = datetime.now(UTC) - timedelta(minutes=10)
+    async with session_factory() as session:
+        company = await session.scalar(select(Company).limit(1))
+        assert company is not None
+        local_pending = Payment(
+            company_id=company.id,
+            provider="paymob",
+            purpose="initial",
+            amount_minor=500_000,
+            currency="EGP",
+            status="cancelled",
+            checkout_intent_status="cancelled",
+            environment="sandbox",
+            commercial_model="prepaid_manual_renewal",
+            provider_decision="pending",
+            created_at=created_at,
+        )
+        local_expired = Payment(
+            company_id=company.id,
+            provider="paymob",
+            purpose="initial",
+            amount_minor=500_000,
+            currency="EGP",
+            status="cancelled",
+            checkout_intent_status="expired",
+            environment="sandbox",
+            commercial_model="prepaid_manual_renewal",
+            provider_decision="expired",
+            created_at=created_at,
+        )
+        provider_cancelled = Payment(
+            company_id=company.id,
+            provider="paymob",
+            purpose="initial",
+            amount_minor=500_000,
+            currency="EGP",
+            status="cancelled",
+            checkout_intent_status="cancelled",
+            environment="sandbox",
+            commercial_model="prepaid_manual_renewal",
+            provider_decision="cancelled",
+            created_at=created_at,
+        )
+        session.add_all([local_pending, local_expired, provider_cancelled])
+        await session.commit()
+
+        selected = await BillingRepository(session).list_aged_reconcilable_payments(
+            "paymob",
+            "sandbox",
+            created_before=datetime.now(UTC) - timedelta(minutes=5),
+            limit=100,
+        )
+
+    selected_ids = {payment.id for payment in selected}
+    assert local_pending.id in selected_ids
+    assert local_expired.id in selected_ids
+    assert provider_cancelled.id not in selected_ids
+
+
+@pytest.mark.anyio
 async def test_automatic_reconciliation_recovers_lost_callback_exactly_once(
     session_factory: async_sessionmaker[AsyncSession],
     monkeypatch: pytest.MonkeyPatch,
@@ -676,6 +740,8 @@ async def test_automatic_reconciliation_recovers_lost_callback_exactly_once(
         payment = await session.get(Payment, checkout.payment_id)
         assert payment is not None
         historical_owner_snapshot = payment.provider_merchant_id
+        payment.status = "cancelled"
+        payment.checkout_intent_status = "cancelled"
         payment.checkout_expires_at = datetime.now(UTC) - timedelta(minutes=1)
         await session.commit()
         truth = ProviderTransactionTruth(

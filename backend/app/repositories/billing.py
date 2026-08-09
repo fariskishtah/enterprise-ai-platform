@@ -329,7 +329,15 @@ class BillingRepository:
                     .where(
                         Payment.provider == provider,
                         Payment.environment == environment,
-                        Payment.status.in_(("creating", "pending", "provider_error")),
+                        or_(
+                            Payment.status.in_(
+                                ("creating", "pending", "provider_error")
+                            ),
+                            and_(
+                                Payment.status == "cancelled",
+                                Payment.provider_decision.in_(("pending", "expired")),
+                            ),
+                        ),
                         Payment.created_at <= created_before,
                     )
                     .order_by(Payment.created_at, Payment.id)
