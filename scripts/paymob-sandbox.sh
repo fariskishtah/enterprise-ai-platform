@@ -3,6 +3,10 @@ set -Eeuo pipefail
 
 readonly PRODUCTION_PROJECT="ai-manufacturing-platform"
 readonly SANDBOX_PROJECT="factorymind-paymob-sandbox"
+readonly PRODUCTION_APPLICATION_NETWORK="${PRODUCTION_PROJECT}_application"
+readonly PRODUCTION_DATA_NETWORK="${PRODUCTION_PROJECT}_data"
+readonly SANDBOX_APPLICATION_NETWORK="${SANDBOX_PROJECT}_application"
+readonly SANDBOX_DATA_NETWORK="${SANDBOX_PROJECT}_data"
 readonly PRODUCTION_DOMAIN="factorymind.ddnsgeek.com"
 readonly SANDBOX_DOMAIN="factorymind-sandbox.ddnsgeek.com"
 readonly EDGE_NETWORK="factorymind-paymob-sandbox-edge"
@@ -671,6 +675,179 @@ assert_distinct_environment_value() {
   }
 }
 
+redis_resolved_ip() {
+  local backend_container="$1"
+  "$DOCKER_BIN" exec "$backend_container" python -c '
+import os
+import socket
+from urllib.parse import urlsplit
+
+try:
+    value = os.environ.get("REDIS_URL", "")
+    parsed = urlsplit(value)
+    host = parsed.hostname
+    port = parsed.port
+    database = parsed.path[1:] if parsed.path.startswith("/") else ""
+    if (
+        parsed.scheme not in {"redis", "rediss"}
+        or not host
+        or port is None
+        or port < 1
+        or not database.isdigit()
+    ):
+        raise ValueError
+    addresses = {
+        result[4][0]
+        for result in socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    }
+    if len(addresses) != 1:
+        raise ValueError
+except (OSError, TypeError, ValueError):
+    raise SystemExit(1)
+
+print(next(iter(addresses)))
+' 2>/dev/null
+}
+
+redis_network_id() {
+  "$DOCKER_BIN" network inspect --format '{{.Id}}' "$1" 2>/dev/null
+}
+
+redis_container_ip() {
+  local container_id="$1" network="$2"
+  "$DOCKER_BIN" inspect --format \
+    "{{with index .NetworkSettings.Networks \"$network\"}}{{.IPAddress}}{{end}}" \
+    "$container_id" 2>/dev/null
+}
+
+redis_container_network_ids() {
+  "$DOCKER_BIN" inspect --format \
+    '{{range $name, $network := .NetworkSettings.Networks}}{{println $network.NetworkID}}{{end}}' \
+    "$1" 2>/dev/null | sed '/^[[:space:]]*$/d' | sort -u
+}
+
+redis_container_network_names() {
+  "$DOCKER_BIN" inspect --format \
+    '{{range $name, $_ := .NetworkSettings.Networks}}{{println $name}}{{end}}' \
+    "$1" 2>/dev/null | sed '/^[[:space:]]*$/d' | sort -u
+}
+
+redis_volume() {
+  "$DOCKER_BIN" inspect --format \
+    '{{range .Mounts}}{{if eq .Destination "/data"}}{{println .Source}}{{end}}{{end}}' \
+    "$1" 2>/dev/null | sed '/^[[:space:]]*$/d'
+}
+
+assert_redis_runtime_isolation() {
+  local production_backend="$1" sandbox_backend="$2"
+  local production_redis="$3" sandbox_redis="$4"
+  local production_resolved_ip sandbox_resolved_ip
+  local production_redis_ip sandbox_redis_ip
+  local production_network_id sandbox_network_id shared_network_ids
+  local production_network_ids sandbox_network_ids
+  local production_network_names sandbox_network_names
+  local production_volume sandbox_volume
+
+  [[ -n "$production_redis" && -n "$sandbox_redis" && \
+    "$production_redis" != "$sandbox_redis" ]] || {
+    echo "Production and Sandbox Redis containers are not distinct." >&2
+    exit 1
+  }
+  production_resolved_ip="$(redis_resolved_ip "$production_backend")" || {
+    echo "Production REDIS_URL is missing, malformed, or cannot be resolved safely." >&2
+    exit 1
+  }
+  sandbox_resolved_ip="$(redis_resolved_ip "$sandbox_backend")" || {
+    echo "Sandbox REDIS_URL is missing, malformed, or cannot be resolved safely." >&2
+    exit 1
+  }
+  [[ -n "$production_resolved_ip" && -n "$sandbox_resolved_ip" && \
+    "$production_resolved_ip" != "$sandbox_resolved_ip" ]] || {
+    echo "Production and Sandbox Redis DNS targets are not distinct." >&2
+    exit 1
+  }
+
+  [[ "$PRODUCTION_DATA_NETWORK" != "$SANDBOX_DATA_NETWORK" ]] || {
+    echo "Production and Sandbox Redis data network names are not distinct." >&2
+    exit 1
+  }
+  production_network_id="$(redis_network_id "$PRODUCTION_DATA_NETWORK")" || {
+    echo "The production Redis data network identity is unavailable." >&2
+    exit 1
+  }
+  sandbox_network_id="$(redis_network_id "$SANDBOX_DATA_NETWORK")" || {
+    echo "The Sandbox Redis data network identity is unavailable." >&2
+    exit 1
+  }
+  [[ -n "$production_network_id" && -n "$sandbox_network_id" && \
+    "$production_network_id" != "$sandbox_network_id" ]] || {
+    echo "Production and Sandbox Redis data networks are not distinct." >&2
+    exit 1
+  }
+
+  production_redis_ip="$(redis_container_ip \
+    "$production_redis" "$PRODUCTION_DATA_NETWORK")" || exit 1
+  sandbox_redis_ip="$(redis_container_ip \
+    "$sandbox_redis" "$SANDBOX_DATA_NETWORK")" || exit 1
+  [[ -n "$production_redis_ip" && \
+    "$production_resolved_ip" == "$production_redis_ip" ]] || {
+    echo "Production REDIS_URL does not resolve to the expected Redis container." >&2
+    exit 1
+  }
+  [[ -n "$sandbox_redis_ip" && \
+    "$sandbox_resolved_ip" == "$sandbox_redis_ip" ]] || {
+    echo "Sandbox REDIS_URL does not resolve to the expected Redis container." >&2
+    exit 1
+  }
+
+  production_network_ids="$(redis_container_network_ids "$production_redis")" || exit 1
+  sandbox_network_ids="$(redis_container_network_ids "$sandbox_redis")" || exit 1
+  [[ -n "$production_network_ids" && -n "$sandbox_network_ids" ]] || {
+    echo "Redis container network identity is unavailable." >&2
+    exit 1
+  }
+  grep -Fxq "$production_network_id" <<<"$production_network_ids" || {
+    echo "Production Redis is not attached to the expected data network ID." >&2
+    exit 1
+  }
+  grep -Fxq "$sandbox_network_id" <<<"$sandbox_network_ids" || {
+    echo "Sandbox Redis is not attached to the expected data network ID." >&2
+    exit 1
+  }
+  production_network_names="$(redis_container_network_names "$production_redis")" || exit 1
+  sandbox_network_names="$(redis_container_network_names "$sandbox_redis")" || exit 1
+  [[ -n "$production_network_names" && -n "$sandbox_network_names" ]] || {
+    echo "Redis container network names are unavailable." >&2
+    exit 1
+  }
+  if grep -Fxq "$PRODUCTION_DATA_NETWORK" <<<"$sandbox_network_names" || \
+    grep -Fxq "$PRODUCTION_APPLICATION_NETWORK" <<<"$sandbox_network_names"; then
+    echo "Sandbox Redis is attached to a production data/application network." >&2
+    exit 1
+  fi
+  if grep -Fxq "$SANDBOX_DATA_NETWORK" <<<"$production_network_names" || \
+    grep -Fxq "$SANDBOX_APPLICATION_NETWORK" <<<"$production_network_names"; then
+    echo "Production Redis is attached to a Sandbox data/application network." >&2
+    exit 1
+  fi
+  shared_network_ids="$(comm -12 \
+    <(printf '%s\n' "$production_network_ids") \
+    <(printf '%s\n' "$sandbox_network_ids"))"
+  [[ -z "$shared_network_ids" ]] || {
+    echo "Production and Sandbox Redis containers share a Docker network." >&2
+    exit 1
+  }
+
+  production_volume="$(redis_volume "$production_redis")" || exit 1
+  sandbox_volume="$(redis_volume "$sandbox_redis")" || exit 1
+  [[ -n "$production_volume" && -n "$sandbox_volume" && \
+    "$production_volume" != *$'\n'* && "$sandbox_volume" != *$'\n'* && \
+    "$production_volume" != "$sandbox_volume" ]] || {
+    echo "Production and Sandbox Redis storage is not isolated." >&2
+    exit 1
+  }
+}
+
 assert_host_port_owner() {
   local port="$1" expected_container="$2" owners=() id
   while IFS= read -r id; do
@@ -889,8 +1066,7 @@ status() {
 
 verify_isolation() {
   local sandbox_backend sandbox_postgres sandbox_proxy sandbox_redis
-  local production_postgres_volume production_redis_volume
-  local sandbox_postgres_volume sandbox_redis_volume variable sandbox_queue
+  local production_postgres_volume sandbox_postgres_volume variable sandbox_queue
   preflight
   sandbox_backend="$(sandbox_service_id backend)"
   sandbox_postgres="$(sandbox_service_id postgres)"
@@ -905,24 +1081,19 @@ verify_isolation() {
 
   production_postgres_volume="$(mount_source_for_destination "$PRODUCTION_POSTGRES_ID" /var/lib/postgresql/data)"
   sandbox_postgres_volume="$(mount_source_for_destination "$sandbox_postgres" /var/lib/postgresql/data)"
-  production_redis_volume="$(mount_source_for_destination "$PRODUCTION_REDIS_ID" /data)"
-  sandbox_redis_volume="$(mount_source_for_destination "$sandbox_redis" /data)"
   [[ -n "$production_postgres_volume" && -n "$sandbox_postgres_volume" && \
     "$production_postgres_volume" != "$sandbox_postgres_volume" ]] || {
     echo "Production and Sandbox PostgreSQL storage is not isolated." >&2
     exit 1
   }
-  [[ -n "$production_redis_volume" && -n "$sandbox_redis_volume" && \
-    "$production_redis_volume" != "$sandbox_redis_volume" ]] || {
-    echo "Production and Sandbox Redis storage is not isolated." >&2
-    exit 1
-  }
+  assert_redis_runtime_isolation \
+    "$PRODUCTION_BACKEND_ID" "$sandbox_backend" \
+    "$PRODUCTION_REDIS_ID" "$sandbox_redis"
 
   assert_distinct_environment_value "$PRODUCTION_POSTGRES_ID" "$sandbox_postgres" POSTGRES_DB
   assert_distinct_environment_value "$PRODUCTION_POSTGRES_ID" "$sandbox_postgres" POSTGRES_USER
   assert_distinct_environment_value "$PRODUCTION_POSTGRES_ID" "$sandbox_postgres" POSTGRES_PASSWORD
   assert_distinct_environment_value "$PRODUCTION_BACKEND_ID" "$sandbox_backend" DATABASE_URL
-  assert_distinct_environment_value "$PRODUCTION_BACKEND_ID" "$sandbox_backend" REDIS_URL
   assert_distinct_environment_value "$PRODUCTION_BACKEND_ID" "$sandbox_backend" SECRET_KEY
   for variable in \
     BILLING_WEBHOOK_QUEUE_NAME EMAIL_QUEUE_NAME TRAINING_QUEUE_NAME \

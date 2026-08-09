@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import stat
 import subprocess
@@ -116,6 +117,172 @@ ENV_FILE={str(env_file)!r}
     environment["PATH"] = os.pathsep.join(
         (str(_fake_stat(tmp_path, implementation, mode)), "/usr/bin", "/bin")
     )
+    return subprocess.run(
+        ["bash", str(probe)],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=environment,
+    )
+
+
+def _redis_functions() -> str:
+    script = _text(_SCRIPT)
+    return "redis_resolved_ip()" + script.split(
+        "redis_resolved_ip()", maxsplit=1
+    )[1].split("assert_host_port_owner()", maxsplit=1)[0]
+
+
+def _redis_isolation_state() -> dict[str, Any]:
+    production_data = "ai-manufacturing-platform_data"
+    sandbox_data = "factorymind-paymob-sandbox_data"
+    return {
+        "urls": {
+            "production-backend": "redis://redis:6379/0",
+            "sandbox-backend": "redis://redis:6379/0",
+        },
+        "resolved_ips": {
+            "production-backend": "172.22.0.2",
+            "sandbox-backend": "172.28.0.3",
+        },
+        "networks": {
+            production_data: "production-data-network-id",
+            sandbox_data: "sandbox-data-network-id",
+        },
+        "containers": {
+            "production-redis": {
+                "networks": {
+                    production_data: {
+                        "id": "production-data-network-id",
+                        "ip": "172.22.0.2",
+                    }
+                },
+                "volume": "ai-manufacturing-platform_redis-data",
+            },
+            "sandbox-redis": {
+                "networks": {
+                    sandbox_data: {
+                        "id": "sandbox-data-network-id",
+                        "ip": "172.28.0.3",
+                    }
+                },
+                "volume": "factorymind-paymob-sandbox_redis-data",
+            },
+        },
+    }
+
+
+def _fake_docker_for_redis(tmp_path: Path) -> Path:
+    fake_docker = tmp_path / "docker"
+    fake_docker.write_text(
+        """#!/usr/bin/env python3
+import json
+import os
+import re
+import subprocess
+import sys
+
+state = json.loads(os.environ["FAKE_DOCKER_STATE"])
+args = sys.argv[1:]
+
+if args[0] == "exec":
+    container = args[1]
+    environment = os.environ.copy()
+    environment.pop("REDIS_URL", None)
+    url = state["urls"].get(container)
+    if url is not None:
+        environment["REDIS_URL"] = url
+    resolved_ip = state["resolved_ips"].get(container)
+    if resolved_ip is not None:
+        environment["FAKE_RESOLVED_IP"] = resolved_ip
+    else:
+        environment.pop("FAKE_RESOLVED_IP", None)
+    environment["PYTHONPATH"] = os.environ["FAKE_SOCKET_MODULE_DIR"]
+    command = args[2:]
+    if command[0] == "python":
+        command[0] = sys.executable
+    raise SystemExit(subprocess.run(command, env=environment).returncode)
+
+if args[:2] == ["network", "inspect"]:
+    network = args[-1]
+    network_id = state["networks"].get(network)
+    if network_id is None:
+        raise SystemExit(1)
+    print(network_id)
+    raise SystemExit(0)
+
+if args[0] == "inspect":
+    output_format = args[2]
+    container = state["containers"].get(args[-1])
+    if container is None:
+        raise SystemExit(1)
+    if ".Mounts" in output_format:
+        print(container.get("volume", ""))
+    elif "NetworkID" in output_format:
+        for network in container["networks"].values():
+            print(network["id"])
+    elif "println $name" in output_format:
+        for name in container["networks"]:
+            print(name)
+    elif "with index" in output_format:
+        match = re.search(r'Networks "([^"]+)"', output_format)
+        network = container["networks"].get(match.group(1)) if match else None
+        print(network["ip"] if network else "")
+    else:
+        raise SystemExit(2)
+    raise SystemExit(0)
+
+raise SystemExit(2)
+""",
+        encoding="utf-8",
+    )
+    fake_docker.chmod(0o755)
+    socket_module_dir = tmp_path / "fake-python"
+    socket_module_dir.mkdir()
+    (socket_module_dir / "socket.py").write_text(
+        """import os
+
+SOCK_STREAM = 1
+
+
+def getaddrinfo(host, port, type=None):
+    resolved_ip = os.environ.get("FAKE_RESOLVED_IP")
+    if not resolved_ip:
+        raise OSError("DNS resolution unavailable")
+    return [(None, None, None, None, (resolved_ip, port))]
+""",
+        encoding="utf-8",
+    )
+    return fake_docker
+
+
+def _run_redis_isolation_probe(
+    tmp_path: Path,
+    state: dict[str, Any],
+    *,
+    production_redis: str = "production-redis",
+    sandbox_redis: str = "sandbox-redis",
+) -> subprocess.CompletedProcess[str]:
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    fake_docker = _fake_docker_for_redis(tmp_path)
+    probe = tmp_path / "redis-isolation-probe.sh"
+    probe.write_text(
+        f"""#!/usr/bin/env bash
+set -Eeuo pipefail
+DOCKER_BIN={str(fake_docker)!r}
+PRODUCTION_APPLICATION_NETWORK=ai-manufacturing-platform_application
+PRODUCTION_DATA_NETWORK=ai-manufacturing-platform_data
+SANDBOX_APPLICATION_NETWORK=factorymind-paymob-sandbox_application
+SANDBOX_DATA_NETWORK=factorymind-paymob-sandbox_data
+{_redis_functions()}
+assert_redis_runtime_isolation \\
+  production-backend sandbox-backend {production_redis} {sandbox_redis}
+""",
+        encoding="utf-8",
+    )
+    environment = os.environ.copy()
+    environment["FAKE_DOCKER_STATE"] = json.dumps(state)
+    environment["FAKE_SOCKET_MODULE_DIR"] = str(tmp_path / "fake-python")
     return subprocess.run(
         ["bash", str(probe)],
         check=False,
@@ -297,13 +464,11 @@ def test_runtime_verifier_covers_data_plane_and_namespace_isolation() -> None:
     )[0]
 
     for contract in (
-        "production_redis_volume",
-        "sandbox_redis_volume",
+        "assert_redis_runtime_isolation",
         "POSTGRES_DB",
         "POSTGRES_USER",
         "POSTGRES_PASSWORD",
         "DATABASE_URL",
-        "REDIS_URL",
         "SECRET_KEY",
         "BILLING_WEBHOOK_QUEUE_NAME",
         "EMAIL_QUEUE_NAME",
@@ -320,6 +485,161 @@ def test_runtime_verifier_covers_data_plane_and_namespace_isolation() -> None:
     ):
         assert contract in verifier
     assert 'network_contains_container "$EDGE_NETWORK" "$sandbox_container"' in verifier
+    assert (
+        'assert_distinct_environment_value "$PRODUCTION_BACKEND_ID" '
+        '"$sandbox_backend" REDIS_URL'
+    ) not in verifier
+    assert 'os.environ.get("REDIS_URL", "")' in _redis_functions()
+
+
+def test_identical_redis_urls_are_accepted_for_distinct_runtime_identities(
+    tmp_path: Path,
+) -> None:
+    state = _redis_isolation_state()
+
+    result = _run_redis_isolation_probe(tmp_path, state)
+
+    assert state["urls"]["production-backend"] == state["urls"]["sandbox-backend"]
+    assert result.returncode == 0
+    assert result.stdout == ""
+    assert result.stderr == ""
+
+
+def test_shared_redis_container_or_ip_is_rejected(tmp_path: Path) -> None:
+    shared_container = _run_redis_isolation_probe(
+        tmp_path / "container",
+        _redis_isolation_state(),
+        sandbox_redis="production-redis",
+    )
+    shared_ip_state = _redis_isolation_state()
+    shared_ip_state["resolved_ips"]["sandbox-backend"] = "172.22.0.2"
+    shared_ip_state["containers"]["sandbox-redis"]["networks"][
+        "factorymind-paymob-sandbox_data"
+    ]["ip"] = "172.22.0.2"
+    shared_ip = _run_redis_isolation_probe(tmp_path / "ip", shared_ip_state)
+
+    assert shared_container.returncode == 1
+    assert shared_ip.returncode == 1
+
+
+def test_shared_redis_network_is_rejected(tmp_path: Path) -> None:
+    state = _redis_isolation_state()
+    for container in ("production-redis", "sandbox-redis"):
+        state["containers"][container]["networks"]["shared-data"] = {
+            "id": "shared-data-network-id",
+            "ip": "172.30.0.2",
+        }
+
+    result = _run_redis_isolation_probe(tmp_path, state)
+
+    assert result.returncode == 1
+    assert "share a Docker network" in result.stderr
+
+
+def test_shared_redis_volume_is_rejected(tmp_path: Path) -> None:
+    state = _redis_isolation_state()
+    state["containers"]["sandbox-redis"]["volume"] = (
+        "ai-manufacturing-platform_redis-data"
+    )
+
+    result = _run_redis_isolation_probe(tmp_path, state)
+
+    assert result.returncode == 1
+    assert "Redis storage is not isolated" in result.stderr
+
+
+def test_sandbox_redis_on_production_data_network_is_rejected(
+    tmp_path: Path,
+) -> None:
+    state = _redis_isolation_state()
+    state["containers"]["sandbox-redis"]["networks"][
+        "ai-manufacturing-platform_data"
+    ] = {"id": "production-data-network-id", "ip": "172.22.0.9"}
+
+    result = _run_redis_isolation_probe(tmp_path, state)
+
+    assert result.returncode == 1
+    assert "Sandbox Redis is attached to a production" in result.stderr
+
+
+def test_production_redis_on_sandbox_data_network_is_rejected(
+    tmp_path: Path,
+) -> None:
+    state = _redis_isolation_state()
+    state["containers"]["production-redis"]["networks"][
+        "factorymind-paymob-sandbox_data"
+    ] = {"id": "sandbox-data-network-id", "ip": "172.28.0.9"}
+
+    result = _run_redis_isolation_probe(tmp_path, state)
+
+    assert result.returncode == 1
+    assert "Production Redis is attached to a Sandbox" in result.stderr
+
+
+def test_missing_or_malformed_redis_url_is_rejected(tmp_path: Path) -> None:
+    invalid_urls = (
+        None,
+        "not-a-redis-url",
+        "redis://redis/db",
+        "redis://:6379/0",
+        "redis://redis:6379/not-a-database-number",
+    )
+    for index, invalid_url in enumerate(invalid_urls):
+        state = _redis_isolation_state()
+        state["urls"]["sandbox-backend"] = invalid_url
+
+        result = _run_redis_isolation_probe(tmp_path / str(index), state)
+
+        assert result.returncode == 1
+        assert "Sandbox REDIS_URL is missing, malformed" in result.stderr
+
+
+def test_unverifiable_redis_dns_or_container_identity_is_rejected(
+    tmp_path: Path,
+) -> None:
+    unresolved_state = _redis_isolation_state()
+    unresolved_state["resolved_ips"]["sandbox-backend"] = None
+    wrong_target_state = _redis_isolation_state()
+    wrong_target_state["resolved_ips"]["sandbox-backend"] = "172.28.0.99"
+    wrong_network_state = _redis_isolation_state()
+    wrong_network_state["containers"]["sandbox-redis"]["networks"][
+        "factorymind-paymob-sandbox_data"
+    ]["id"] = "ambiguous-network-id"
+
+    unresolved = _run_redis_isolation_probe(tmp_path / "dns", unresolved_state)
+    wrong_target = _run_redis_isolation_probe(
+        tmp_path / "identity", wrong_target_state
+    )
+    wrong_network = _run_redis_isolation_probe(
+        tmp_path / "network", wrong_network_state
+    )
+
+    assert unresolved.returncode == 1
+    assert wrong_target.returncode == 1
+    assert wrong_network.returncode == 1
+    assert "does not resolve to the expected Redis container" in wrong_target.stderr
+    assert "expected data network ID" in wrong_network.stderr
+
+
+def test_redis_identity_verifier_never_prints_url_credentials(
+    tmp_path: Path,
+) -> None:
+    state = _redis_isolation_state()
+    state["urls"]["production-backend"] = (
+        "redis://production:production-password@redis:6379/0"
+    )
+    state["urls"]["sandbox-backend"] = (
+        "redis://sandbox:sandbox-password@redis:6379/0"
+    )
+    state["resolved_ips"]["sandbox-backend"] = "172.28.0.99"
+
+    result = _run_redis_isolation_probe(tmp_path, state)
+    output = result.stdout + result.stderr
+
+    assert result.returncode == 1
+    assert "production-password" not in output
+    assert "sandbox-password" not in output
+    assert "redis://" not in output
 
 
 def test_mutating_actions_are_separate_and_confirmation_guarded() -> None:
