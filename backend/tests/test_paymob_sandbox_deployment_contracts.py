@@ -55,6 +55,76 @@ def _yaml(path: Path) -> dict[str, Any]:
     )
 
 
+def _permission_functions() -> str:
+    script = _text(_SCRIPT)
+    return "file_mode()" + script.split("file_mode()", maxsplit=1)[1].split(
+        "read_env_value()", maxsplit=1
+    )[0]
+
+
+def _fake_stat(tmp_path: Path, implementation: str, mode: str) -> Path:
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    stat_command = fake_bin / "stat"
+    supports_gnu_format = "true" if implementation == "gnu" else "false"
+    supports_bsd_format = "true" if implementation == "bsd" else "false"
+    stat_command.write_text(
+        f"""#!/usr/bin/env bash
+set -eu
+if [[ "$1" == "-c" ]]; then
+  {supports_gnu_format} || exit 1
+  printf '%s\\n' {mode!r}
+elif [[ "$1" == "-f" ]]; then
+  {supports_bsd_format} || {{
+    printf 'GNU filesystem metadata that must not be returned\\n'
+    exit 0
+  }}
+  printf '%s\\n' {mode!r}
+else
+  exit 2
+fi
+""",
+        encoding="utf-8",
+    )
+    stat_command.chmod(0o755)
+    return fake_bin
+
+
+def _run_permission_probe(
+    tmp_path: Path,
+    *,
+    implementation: str,
+    mode: str,
+    require_environment: bool = False,
+    file_permissions: int = 0o600,
+) -> subprocess.CompletedProcess[str]:
+    env_file = tmp_path / ".env.paymob-sandbox"
+    env_file.write_text("PAYMOB_SECRET_KEY=never-display-this-secret\n", encoding="utf-8")
+    env_file.chmod(file_permissions)
+    probe = tmp_path / "permission-probe.sh"
+    operation = "require_environment" if require_environment else 'file_mode "$ENV_FILE"'
+    probe.write_text(
+        f"""#!/usr/bin/env bash
+set -Eeuo pipefail
+ENV_FILE={str(env_file)!r}
+{_permission_functions()}
+{operation}
+""",
+        encoding="utf-8",
+    )
+    environment = os.environ.copy()
+    environment["PATH"] = os.pathsep.join(
+        (str(_fake_stat(tmp_path, implementation, mode)), "/usr/bin", "/bin")
+    )
+    return subprocess.run(
+        ["bash", str(probe)],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=environment,
+    )
+
+
 def test_sandbox_project_and_production_label_are_exact() -> None:
     suite = "\n".join((_text(_SCRIPT), _text(_RUNBOOK)))
 
@@ -308,6 +378,71 @@ def test_secret_configuration_is_hidden_atomic_and_mode_0600() -> None:
     assert "set -x" not in script
     assert "Live Paymob key prefixes are forbidden" in script
     assert "Sandbox environment created without displaying secret values" in script
+
+
+def test_file_mode_prefers_gnu_stat_and_returns_only_the_mode(tmp_path: Path) -> None:
+    result = _run_permission_probe(tmp_path, implementation="gnu", mode="600")
+
+    assert result.returncode == 0
+    assert result.stdout == "600\n"
+    assert result.stderr == ""
+    assert "filesystem metadata" not in result.stdout
+
+
+def test_file_mode_falls_back_to_bsd_stat_and_returns_only_the_mode(
+    tmp_path: Path,
+) -> None:
+    result = _run_permission_probe(tmp_path, implementation="bsd", mode="600")
+
+    assert result.returncode == 0
+    assert result.stdout == "600\n"
+    assert result.stderr == ""
+
+
+def test_valid_mode_0600_sandbox_environment_is_accepted(tmp_path: Path) -> None:
+    result = _run_permission_probe(
+        tmp_path,
+        implementation="gnu",
+        mode="600",
+        require_environment=True,
+    )
+
+    assert result.returncode == 0
+    assert result.stdout == ""
+    assert result.stderr == ""
+
+
+def test_non_0600_sandbox_environment_is_rejected(tmp_path: Path) -> None:
+    result = _run_permission_probe(
+        tmp_path,
+        implementation="gnu",
+        mode="640",
+        require_environment=True,
+    )
+
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert result.stderr == "Sandbox environment must have mode 0600.\n"
+
+
+def test_permission_check_never_reads_or_displays_secret_content(
+    tmp_path: Path,
+) -> None:
+    result = _run_permission_probe(
+        tmp_path,
+        implementation="gnu",
+        mode="600",
+        require_environment=True,
+        file_permissions=0o000,
+    )
+
+    assert result.returncode == 0
+    assert "never-display-this-secret" not in result.stdout
+    assert "never-display-this-secret" not in result.stderr
+    permission_functions = _permission_functions()
+    assert "read_env_value" not in permission_functions
+    assert 'sed ' not in permission_functions
+    assert 'cat ' not in permission_functions
 
 
 def test_sandbox_shell_script_syntax_and_dry_run() -> None:
