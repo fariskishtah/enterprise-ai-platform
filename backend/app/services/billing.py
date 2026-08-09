@@ -1453,7 +1453,7 @@ class BillingWebhookProcessor:
                 )
                 occurred_value = payload.get("occurred_at")
                 occurred_at = (
-                    datetime.fromisoformat(str(occurred_value))
+                    _as_utc(datetime.fromisoformat(str(occurred_value)))
                     if occurred_value
                     else None
                 )

@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+from datetime import UTC
 from uuid import uuid4
 
 import httpx
@@ -175,6 +176,20 @@ def test_valid_success_webhook_is_verified_and_normalized() -> None:
     assert event.decision == "succeeded_eligible"
     assert event.amount_minor == 500_000
     assert event.currency == "EGP"
+
+
+def test_webhook_timestamp_without_offset_is_normalized_to_utc() -> None:
+    provider = PaymobPaymentProvider(_configuration())
+    obj = _transaction_object(created_at="2026-07-28T09:00:00")
+    signature = calculate_transaction_hmac(obj, "contract-hmac-secret")
+
+    event = provider.parse_webhook(
+        {"type": "TRANSACTION", "obj": obj}, signature=signature
+    )
+
+    assert event.occurred_at is not None
+    assert event.occurred_at.tzinfo is UTC
+    assert event.occurred_at.isoformat() == "2026-07-28T09:00:00+00:00"
 
 
 def test_transaction_hmac_uses_paymob_documented_field_order() -> None:

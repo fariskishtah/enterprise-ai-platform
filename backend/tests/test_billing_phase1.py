@@ -913,6 +913,50 @@ async def test_recoverable_dead_letter_replay_activates_exactly_once(
 
 
 @pytest.mark.anyio
+async def test_timezone_less_provider_timestamp_processes_successfully(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    actor = await _actor(session_factory)
+    provider = FixtureProvider()
+    fixture = "timezone-less-provider-success"
+    async with session_factory() as session:
+        checkout = await BillingService(session, provider).create_checkout(
+            actor=actor,
+            plan_code="professional",
+            billing_details=_billing_details(),
+            idempotency_key="timezone-less-provider-success",
+        )
+        payment = await session.get(Payment, checkout.payment_id)
+        assert payment is not None
+        provider.webhooks[fixture] = _event(payment, fixture=fixture, state="succeeded")
+        ingested = await BillingService(session, provider).ingest_webhook(
+            {"fixture": fixture}, signature="valid"
+        )
+        event = await session.get(BillingWebhookEvent, ingested.event_id)
+        assert event is not None and event.safe_payload is not None
+        event.safe_payload = {
+            **event.safe_payload,
+            "occurred_at": datetime.now(UTC).replace(tzinfo=None).isoformat(),
+        }
+        await session.commit()
+
+    await BillingWebhookProcessor(session_factory, "paymob").execute(ingested.event_id)
+
+    async with session_factory() as session:
+        event = await session.get(BillingWebhookEvent, ingested.event_id)
+        payment = await session.get(Payment, checkout.payment_id)
+        subscription = await session.scalar(
+            select(Subscription).where(Subscription.company_id == actor.company_id)
+        )
+        assert event is not None and payment is not None and subscription is not None
+        assert event.status == "processed"
+        assert payment.status == "succeeded"
+        assert payment.checkout_intent_status == "completed"
+        assert subscription.status == "active"
+        assert subscription.latest_payment_id == payment.id
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize(
     ("tampered_field", "tampered_value", "expected_reason"),
     [
