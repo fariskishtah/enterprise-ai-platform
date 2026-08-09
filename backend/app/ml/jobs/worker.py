@@ -650,9 +650,7 @@ def _execute_plugin(
     )
 
 
-def _outcome[
-    ModelT, ReportT: MetricsReport
-](
+def _outcome[ModelT, ReportT: MetricsReport](
     result: TrackedTrainingResult[ModelT, ReportT],
     *,
     reference_profile: ModelReferenceProfileDraft | None,

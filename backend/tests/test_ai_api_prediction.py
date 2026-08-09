@@ -49,9 +49,7 @@ class FailingPredictionRegistry(BaseModelRegistry):
 class FailingModelLoader(BaseRegisteredModelLoader):
     """Loader double for external artifact download failures."""
 
-    def load[
-        ModelT
-    ](
+    def load[ModelT](
         self,
         model_version: RegisteredModelVersion,
         expected_type: type[ModelT],

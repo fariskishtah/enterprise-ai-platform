@@ -28,9 +28,7 @@ class PredictionService:
         "prediction.execution",
         attributes={"algorithm": "random_forest", "trigger": "api"},
     )
-    def predict[
-        ModelT, FeaturesT, PredictionsT
-    ](
+    def predict[ModelT, FeaturesT, PredictionsT](
         self,
         plan: RegisteredPredictionPlan[ModelT, FeaturesT, PredictionsT],
         request: RegisteredPredictionRequest[FeaturesT],

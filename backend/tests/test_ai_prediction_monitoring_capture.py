@@ -86,9 +86,7 @@ class FakeLoader(BaseRegisteredModelLoader):
     model: object
     load_count: int = 0
 
-    def load[
-        ModelT
-    ](
+    def load[ModelT](
         self,
         model_version: RegisteredModelVersion,
         expected_type: type[ModelT],

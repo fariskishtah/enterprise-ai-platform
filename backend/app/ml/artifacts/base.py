@@ -9,13 +9,17 @@ class BaseArtifactManager(ABC):
     """Save and load models without exposing serialization internals."""
 
     @abstractmethod
-    def save[
-        ModelT
-    ](self, model: ModelT, destination: ArtifactDestination,) -> ArtifactInfo:
+    def save[ModelT](
+        self,
+        model: ModelT,
+        destination: ArtifactDestination,
+    ) -> ArtifactInfo:
         """Persist a model at a typed deterministic destination."""
 
     @abstractmethod
-    def load[
-        ModelT
-    ](self, artifact: ArtifactInfo, expected_type: type[ModelT],) -> ModelT:
+    def load[ModelT](
+        self,
+        artifact: ArtifactInfo,
+        expected_type: type[ModelT],
+    ) -> ModelT:
         """Load and runtime-check a model before returning its static type."""

@@ -90,9 +90,7 @@ class FakeModelLoader(BaseRegisteredModelLoader):
     model: object
     load_calls: list[RegisteredModelVersion] = field(default_factory=list)
 
-    def load[
-        ModelT
-    ](
+    def load[ModelT](
         self,
         model_version: RegisteredModelVersion,
         expected_type: type[ModelT],

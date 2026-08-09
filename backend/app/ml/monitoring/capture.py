@@ -128,7 +128,7 @@ class MonitoredPredictionService:
 
     async def predict[
         ModelT,
-        PredictionsT: (RegressionPredictionArray | ClassificationPredictionArray),
+        PredictionsT: RegressionPredictionArray | ClassificationPredictionArray,
     ](
         self,
         plan: RegisteredPredictionPlan[ModelT, FeatureArray, PredictionsT],
@@ -186,7 +186,7 @@ class MonitoredPredictionService:
         return result
 
     async def _record_success[
-        PredictionsT: (RegressionPredictionArray | ClassificationPredictionArray),
+        PredictionsT: RegressionPredictionArray | ClassificationPredictionArray,
     ](
         self,
         *,
@@ -231,9 +231,7 @@ class MonitoredPredictionService:
         except Exception:
             await self._handle_persistence_failure()
 
-    async def _record_failure[
-        ModelT, PredictionsT
-    ](
+    async def _record_failure[ModelT, PredictionsT](
         self,
         *,
         plan: RegisteredPredictionPlan[ModelT, FeatureArray, PredictionsT],

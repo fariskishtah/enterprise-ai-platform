@@ -128,9 +128,7 @@ class ExistingVersionLoader(BaseRegisteredModelLoader):
         self.unavailable = unavailable
         self.load_count = 0
 
-    def load[
-        ModelT
-    ](
+    def load[ModelT](
         self,
         model_version: RegisteredModelVersion,
         expected_type: type[ModelT],

@@ -14,9 +14,10 @@ class TrainerFactory:
     def __init__(self, registry: TrainerRegistry) -> None:
         self._registry = registry
 
-    def create[
-        TrainerT
-    ](self, registration: TrainerRegistration[TrainerT],) -> TrainerT:
+    def create[TrainerT](
+        self,
+        registration: TrainerRegistration[TrainerT],
+    ) -> TrainerT:
         """Create a fresh trainer while preserving its concrete static type."""
         active_registration = self._registry.resolve(registration)
         created = active_registration.provider()

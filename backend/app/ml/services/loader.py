@@ -17,9 +17,7 @@ class BaseRegisteredModelLoader(ABC):
     """Load a registered model while preserving its checked concrete type."""
 
     @abstractmethod
-    def load[
-        ModelT
-    ](
+    def load[ModelT](
         self,
         model_version: RegisteredModelVersion,
         expected_type: type[ModelT],
@@ -35,9 +33,7 @@ class MLflowRegisteredModelLoader(BaseRegisteredModelLoader):
             raise ValueError("tracking_uri must be non-empty.")
         self._tracking_uri = tracking_uri
 
-    def load[
-        ModelT
-    ](
+    def load[ModelT](
         self,
         model_version: RegisteredModelVersion,
         expected_type: type[ModelT],

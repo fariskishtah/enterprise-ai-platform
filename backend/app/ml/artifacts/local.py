@@ -33,9 +33,11 @@ class LocalArtifactManager(BaseArtifactManager):
         """Return the resolved instance-specific artifact root."""
         return self._root_directory
 
-    def save[
-        ModelT
-    ](self, model: ModelT, destination: ArtifactDestination,) -> ArtifactInfo:
+    def save[ModelT](
+        self,
+        model: ModelT,
+        destination: ArtifactDestination,
+    ) -> ArtifactInfo:
         """Serialize a model without overwriting an existing run artifact."""
         artifact_path = self._destination_path(destination)
         if artifact_path.exists():
@@ -55,9 +57,11 @@ class LocalArtifactManager(BaseArtifactManager):
             format=ArtifactFormat.JOBLIB,
         )
 
-    def load[
-        ModelT
-    ](self, artifact: ArtifactInfo, expected_type: type[ModelT],) -> ModelT:
+    def load[ModelT](
+        self,
+        artifact: ArtifactInfo,
+        expected_type: type[ModelT],
+    ) -> ModelT:
         """Load an in-root Joblib artifact and validate its runtime type."""
         artifact_path = self._in_root_path(artifact.path)
         if not artifact_path.is_file():

@@ -57,9 +57,7 @@ class FakeLoader(BaseRegisteredModelLoader):
 
     model: RandomForestRegressor
 
-    def load[
-        ModelT
-    ](
+    def load[ModelT](
         self,
         model_version: RegisteredModelVersion,
         expected_type: type[ModelT],

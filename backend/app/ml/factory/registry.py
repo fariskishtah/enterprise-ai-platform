@@ -26,9 +26,10 @@ class TrainerRegistry:
     def __init__(self) -> None:
         self._registrations: dict[TrainerKey, object] = {}
 
-    def register[
-        TrainerT
-    ](self, registration: TrainerRegistration[TrainerT],) -> None:
+    def register[TrainerT](
+        self,
+        registration: TrainerRegistration[TrainerT],
+    ) -> None:
         """Register one typed token and reject duplicate trainer keys."""
         key = registration.key
         if key in self._registrations:
@@ -36,14 +37,10 @@ class TrainerRegistry:
             raise TrainerAlreadyRegisteredError(msg)
         self._registrations[key] = registration
 
-    def resolve[
-        TrainerT
-    ](
+    def resolve[TrainerT](
         self,
         registration: TrainerRegistration[TrainerT],
-    ) -> TrainerRegistration[
-        TrainerT
-    ]:
+    ) -> TrainerRegistration[TrainerT]:
         """Verify and return the active typed registration token."""
         key = registration.key
         try:
