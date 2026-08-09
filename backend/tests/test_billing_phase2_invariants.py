@@ -287,8 +287,75 @@ def test_reconciliation_outcome_matrix(
         integration_id=cast(int, values["integration_id"]),
         environment=values["environment"],  # type: ignore[arg-type]
         occurred_at=datetime.now(UTC),
+        merchant_id="700001",
     )
-    assert BillingReconciliationService._outcome(payment, truth) == expected
+    assert (
+        BillingReconciliationService._outcome(
+            payment, truth, expected_callback_owner="700001"
+        )
+        == expected
+    )
+
+
+@pytest.mark.parametrize(
+    (
+        "historical_snapshot",
+        "current_expected_owner",
+        "provider_owner",
+        "expected_outcome",
+    ),
+    [
+        ("600001", "700001", "700001", "state_mismatch"),
+        ("600001", "700001", "700002", "manual_review_required"),
+        ("700001", "700001", "700001", "state_mismatch"),
+        (None, "700001", "700001", "state_mismatch"),
+        (None, None, "700001", "manual_review_required"),
+        ("600001", None, "700001", "manual_review_required"),
+    ],
+)
+def test_reconciliation_uses_current_owner_and_preserves_historical_snapshot(
+    historical_snapshot: str | None,
+    current_expected_owner: str | None,
+    provider_owner: str,
+    expected_outcome: str,
+) -> None:
+    payment = Payment(
+        company_id=uuid4(),
+        provider="paymob",
+        provider_payment_id="provider-owner-contract",
+        provider_order_id="provider-order-owner-contract",
+        provider_merchant_id=historical_snapshot,
+        purpose="renewal",
+        amount_minor=500_000,
+        currency="EGP",
+        status="pending",
+        checkout_intent_status="open",
+        environment="sandbox",
+        commercial_model="prepaid_manual_renewal",
+        provider_decision="pending",
+        provider_integration_id=123456,
+    )
+    truth = ProviderTransactionTruth(
+        provider_payment_id="provider-owner-contract",
+        payment_reference=payment.id,
+        amount_minor=payment.amount_minor,
+        currency=payment.currency,
+        decision="succeeded_eligible",
+        integration_id=123456,
+        environment="sandbox",
+        occurred_at=datetime.now(UTC),
+        merchant_id=provider_owner,
+        provider_order_id="provider-order-owner-contract",
+    )
+
+    outcome = BillingReconciliationService._outcome(
+        payment,
+        truth,
+        expected_callback_owner=current_expected_owner,
+    )
+
+    assert outcome == expected_outcome
+    assert payment.provider_merchant_id == historical_snapshot
 
 
 @pytest.mark.anyio
@@ -338,6 +405,7 @@ async def test_reconciliation_reports_exact_local_transaction_missing_at_provide
             actor=actor,
             provider=ReconciliationFixtureProvider([unknown_truth]),
             environment="sandbox",
+            expected_callback_owner="700001",
             idempotency_key="phase2-reconciliation-missing-0001",
             dry_run=True,
             finance_approval_reference=None,
@@ -385,6 +453,7 @@ async def test_reconciliation_provider_timeout_and_malformed_truth_fail_safely(
                 actor=actor,
                 provider=FailingReconciliationProvider(),
                 environment="sandbox",
+                expected_callback_owner="700001",
                 idempotency_key="phase2-reconciliation-timeout-0001",
                 dry_run=True,
                 finance_approval_reference=None,
@@ -394,6 +463,7 @@ async def test_reconciliation_provider_timeout_and_malformed_truth_fail_safely(
                 actor=actor,
                 provider=ReconciliationFixtureProvider([]),
                 environment="sandbox",
+                expected_callback_owner="700001",
                 idempotency_key="phase2-reconciliation-timeout-0001",
                 dry_run=True,
                 finance_approval_reference=None,
@@ -413,6 +483,7 @@ async def test_reconciliation_provider_timeout_and_malformed_truth_fail_safely(
                 actor=actor,
                 provider=ReconciliationFixtureProvider([malformed]),
                 environment="sandbox",
+                expected_callback_owner="700001",
                 idempotency_key="phase2-reconciliation-malformed-0001",
                 dry_run=True,
                 finance_approval_reference=None,
@@ -475,6 +546,7 @@ async def test_reconciliation_is_dry_run_idempotent_and_append_only(
             actor=actor,
             provider=ReconciliationFixtureProvider([truth]),
             environment="sandbox",
+            expected_callback_owner="700001",
             idempotency_key="phase2-reconciliation-dry-0001",
             dry_run=True,
             finance_approval_reference=None,
@@ -483,6 +555,7 @@ async def test_reconciliation_is_dry_run_idempotent_and_append_only(
             actor=actor,
             provider=ReconciliationFixtureProvider([truth]),
             environment="sandbox",
+            expected_callback_owner="700001",
             idempotency_key="phase2-reconciliation-dry-0001",
             dry_run=True,
             finance_approval_reference=None,
@@ -542,11 +615,13 @@ async def test_reconciliation_compensation_requires_approval_and_is_audited(
             integration_id=123456,
             environment="sandbox",
             occurred_at=datetime.now(UTC),
+            merchant_id="700001",
         )
         summary = await BillingReconciliationService(session).run(
             actor=actor,
             provider=ReconciliationFixtureProvider([truth]),
             environment="sandbox",
+            expected_callback_owner="700001",
             idempotency_key="phase2-reconciliation-apply-0001",
             dry_run=False,
             finance_approval_reference="FIN-2048",
@@ -579,14 +654,19 @@ async def test_automatic_reconciliation_recovers_lost_callback_exactly_once(
     actor = await _actor(session_factory)
     checkout_provider = FixtureProvider()
     checkout_provider.provider_order_id = "provider-order-recovery"
-    policy = BillingPolicy(
+    checkout_policy = BillingPolicy(
+        environment="sandbox",
+        provider_integration_id=123456,
+        provider_merchant_id="600001",
+    )
+    current_policy = BillingPolicy(
         environment="sandbox",
         provider_integration_id=123456,
         provider_merchant_id="700001",
     )
     async with session_factory() as session:
         checkout = await BillingService(
-            session, checkout_provider, policy=policy
+            session, checkout_provider, policy=checkout_policy
         ).create_checkout(
             actor=actor,
             plan_code="starter",
@@ -595,6 +675,7 @@ async def test_automatic_reconciliation_recovers_lost_callback_exactly_once(
         )
         payment = await session.get(Payment, checkout.payment_id)
         assert payment is not None
+        historical_owner_snapshot = payment.provider_merchant_id
         payment.checkout_expires_at = datetime.now(UTC) - timedelta(minutes=1)
         await session.commit()
         truth = ProviderTransactionTruth(
@@ -621,6 +702,7 @@ async def test_automatic_reconciliation_recovers_lost_callback_exactly_once(
         queue,
         environment="sandbox",
         grace_seconds=300,
+        expected_callback_owner="700001",
     )
     reconciliation_now = datetime.now(UTC) + timedelta(minutes=10)
     first = await reconciler.run(limit=100, now=reconciliation_now)
@@ -646,12 +728,12 @@ async def test_automatic_reconciliation_recovers_lost_callback_exactly_once(
         == 1
     )
 
-    await BillingWebhookProcessor(session_factory, "paymob", policy=policy).execute(
-        queue.event_ids[0]
-    )
-    await BillingWebhookProcessor(session_factory, "paymob", policy=policy).execute(
-        queue.event_ids[0]
-    )
+    await BillingWebhookProcessor(
+        session_factory, "paymob", policy=current_policy
+    ).execute(queue.event_ids[0])
+    await BillingWebhookProcessor(
+        session_factory, "paymob", policy=current_policy
+    ).execute(queue.event_ids[0])
 
     async with session_factory() as session:
         payment = await session.get(Payment, checkout.payment_id)
@@ -678,8 +760,14 @@ async def test_automatic_reconciliation_recovers_lost_callback_exactly_once(
                 BillingAuditEvent.action == "subscription.payment_activated"
             )
         )
+        reconciliation_audit = await session.scalar(
+            select(BillingAuditEvent).where(
+                BillingAuditEvent.action == "billing.automatic_reconciliation_event"
+            )
+        )
 
     assert payment.status == "succeeded"
+    assert payment.provider_merchant_id == historical_owner_snapshot == "600001"
     assert payment.checkout_intent_status == "completed"
     assert subscription is not None and subscription.status == "active"
     assert activation_audits == 1
@@ -690,6 +778,16 @@ async def test_automatic_reconciliation_recovers_lost_callback_exactly_once(
     assert event.safe_payload["provider_timestamp"] == ("2026-08-09T06:57:30.123456")
     assert event.safe_payload["provider_timestamp_confidence"] == "ambiguous"
     assert event.safe_payload["temporal_source"] == "reconciliation_observed_at"
+    assert event.safe_payload["historical_owner_snapshot_mismatch"] is True
+    assert event.safe_payload["current_owner_binding_verified"] is True
+    assert event.safe_payload["owner_binding_source"] == "current_configuration"
+    assert event.safe_payload["historical_snapshot_preserved"] is True
+    assert reconciliation_audit is not None
+    assert (
+        reconciliation_audit.safe_metadata["historical_owner_snapshot_mismatch"] is True
+    )
+    assert reconciliation_audit.safe_metadata["current_owner_binding_verified"] is True
+    assert reconciliation_audit.safe_metadata["historical_snapshot_preserved"] is True
     assert activation_audit is not None
     assert activation_audit.safe_metadata["provider_timestamp_confidence"] == (
         "ambiguous"
@@ -697,6 +795,12 @@ async def test_automatic_reconciliation_recovers_lost_callback_exactly_once(
     assert activation_audit.safe_metadata["temporal_source"] == (
         "reconciliation_observed_at"
     )
+    assert activation_audit.safe_metadata["historical_owner_snapshot_mismatch"] is True
+    assert activation_audit.safe_metadata["current_owner_binding_verified"] is True
+    assert activation_audit.safe_metadata["owner_binding_source"] == (
+        "current_configuration"
+    )
+    assert activation_audit.safe_metadata["historical_snapshot_preserved"] is True
 
 
 @pytest.mark.anyio
@@ -764,6 +868,7 @@ async def test_automatic_reconciliation_holds_binding_mismatch_for_manual_review
         queue,
         environment="sandbox",
         grace_seconds=300,
+        expected_callback_owner="700001",
     ).run(limit=100, now=datetime.now(UTC) + timedelta(minutes=10))
 
     assert summary.manual_review == (0 if mismatch == "environment" else 1)
@@ -828,6 +933,7 @@ async def test_ambiguous_time_and_nonfinal_status_never_grant_access(
         queue,
         environment="sandbox",
         grace_seconds=300,
+        expected_callback_owner="700001",
     ).run(limit=100, now=datetime.now(UTC) + timedelta(minutes=10))
 
     async with session_factory() as session:
@@ -895,6 +1001,7 @@ async def test_ambiguous_lost_webhook_decline_transitions_once_without_entitleme
         queue,
         environment="sandbox",
         grace_seconds=300,
+        expected_callback_owner="700001",
     )
     first = await reconciler.run(
         limit=100, now=datetime.now(UTC) + timedelta(minutes=10)
@@ -978,6 +1085,7 @@ async def test_concurrent_ambiguous_reconciliation_queues_one_event(
         queue,
         environment="sandbox",
         grace_seconds=300,
+        expected_callback_owner="700001",
     )
     summaries = await asyncio.gather(
         reconciler.run(limit=100, now=datetime.now(UTC) + timedelta(minutes=10)),
@@ -1051,6 +1159,7 @@ async def test_reconciliation_preserves_crypto_invalid_evidence(
         queue,
         environment="sandbox",
         grace_seconds=300,
+        expected_callback_owner="700001",
     ).run(limit=100, now=datetime.now(UTC) + timedelta(minutes=10))
     assert summary.queued == 1
     await BillingWebhookProcessor(session_factory, "paymob", policy=policy).execute(
@@ -1130,6 +1239,7 @@ async def test_webhook_backed_ambiguous_reconciliation_uses_local_receipt_time(
         queue,
         environment="sandbox",
         grace_seconds=300,
+        expected_callback_owner="700001",
     ).run(limit=100, now=datetime.now(UTC) + timedelta(minutes=10))
     assert summary.queued == 1
     async with session_factory() as session:

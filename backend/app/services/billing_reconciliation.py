@@ -64,6 +64,26 @@ class AutomaticReconciliationSummary:
     oldest_pending_age_seconds: float
 
 
+@dataclass(frozen=True, slots=True)
+class OwnerBindingEvidence:
+    """Safe audit evidence for current account identity and historical drift."""
+
+    historical_owner_snapshot_mismatch: bool
+    current_owner_binding_verified: bool
+    owner_binding_source: Literal["current_configuration"] = "current_configuration"
+    historical_snapshot_preserved: bool = True
+
+    def as_metadata(self) -> dict[str, object]:
+        return {
+            "historical_owner_snapshot_mismatch": (
+                self.historical_owner_snapshot_mismatch
+            ),
+            "current_owner_binding_verified": self.current_owner_binding_verified,
+            "owner_binding_source": self.owner_binding_source,
+            "historical_snapshot_preserved": self.historical_snapshot_preserved,
+        }
+
+
 class BillingReconciliationService:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
@@ -75,6 +95,7 @@ class BillingReconciliationService:
         actor: User,
         provider: PaymentReconciliationProvider,
         environment: str,
+        expected_callback_owner: str | None,
         idempotency_key: str,
         dry_run: bool,
         finance_approval_reference: str | None,
@@ -143,6 +164,7 @@ class BillingReconciliationService:
                 comparisons=comparisons,
                 dry_run=dry_run,
                 approval=finance_approval_reference,
+                expected_callback_owner=expected_callback_owner,
             )
         except Exception:
             run.status = "failed"
@@ -188,13 +210,20 @@ class BillingReconciliationService:
         comparisons: list[tuple[Payment, ProviderTransactionTruth | None]],
         dry_run: bool,
         approval: str | None,
+        expected_callback_owner: str | None,
     ) -> ReconciliationSummary:
         outcomes: dict[str, int] = {}
         compensating: list[UUID] = []
 
         for payment, truth in comparisons:
             outcome = (
-                "provider_missing" if truth is None else self._outcome(payment, truth)
+                "provider_missing"
+                if truth is None
+                else self._outcome(
+                    payment,
+                    truth,
+                    expected_callback_owner=expected_callback_owner,
+                )
             )
             if (
                 outcome == "provider_missing"
@@ -217,10 +246,22 @@ class BillingReconciliationService:
                     truth=truth,
                     approval=approval or "",
                     observed_at=datetime.now(UTC),
+                    owner_binding=_owner_binding_evidence(
+                        payment,
+                        truth,
+                        expected_callback_owner=expected_callback_owner,
+                    ),
                 )
                 compensating.append(event_id)
                 outcome = "corrected_by_compensating_event"
-            self._add_result(run, payment, truth, outcome, event_id)
+            self._add_result(
+                run,
+                payment,
+                truth,
+                outcome,
+                event_id,
+                expected_callback_owner=expected_callback_owner,
+            )
             outcomes[outcome] = outcomes.get(outcome, 0) + 1
 
         run.status = "completed"
@@ -254,7 +295,12 @@ class BillingReconciliationService:
         )
 
     @staticmethod
-    def _outcome(payment: Payment, truth: ProviderTransactionTruth) -> str:
+    def _outcome(
+        payment: Payment,
+        truth: ProviderTransactionTruth,
+        *,
+        expected_callback_owner: str | None,
+    ) -> str:
         if (
             truth.payment_reference != payment.id
             or (
@@ -265,11 +311,13 @@ class BillingReconciliationService:
                 payment.provider_order_id is not None
                 and truth.provider_order_id != payment.provider_order_id
             )
-            or (
-                payment.provider_merchant_id is not None
-                and truth.merchant_id != payment.provider_merchant_id
-            )
         ):
+            return "manual_review_required"
+        if not _owner_binding_evidence(
+            payment,
+            truth,
+            expected_callback_owner=expected_callback_owner,
+        ).current_owner_binding_verified:
             return "manual_review_required"
         if payment.amount_minor != truth.amount_minor:
             return "amount_mismatch"
@@ -290,7 +338,18 @@ class BillingReconciliationService:
         truth: ProviderTransactionTruth | None,
         outcome: str,
         event_id: UUID | None,
+        *,
+        expected_callback_owner: str | None,
     ) -> None:
+        owner_binding = (
+            _owner_binding_evidence(
+                payment,
+                truth,
+                expected_callback_owner=expected_callback_owner,
+            )
+            if payment is not None and truth is not None
+            else None
+        )
         self._repository.add_reconciliation_result(
             BillingReconciliationResult(
                 run_id=run.id,
@@ -316,6 +375,9 @@ class BillingReconciliationService:
                         if truth is not None
                         else None
                     ),
+                    **(
+                        owner_binding.as_metadata() if owner_binding is not None else {}
+                    ),
                 },
                 compensating_event_id=event_id,
             )
@@ -330,6 +392,7 @@ class BillingReconciliationService:
         truth: ProviderTransactionTruth,
         approval: str,
         observed_at: datetime,
+        owner_binding: OwnerBindingEvidence,
     ) -> UUID:
         trusted_webhook_received_at = (
             await self._repository.get_trusted_provider_event_received_at(
@@ -363,6 +426,7 @@ class BillingReconciliationService:
                 truth,
                 temporal_source=temporal_source,
                 temporal_observed_at=temporal_observed_at,
+                owner_binding=owner_binding,
             ),
             validation_outcome="accepted",
             status="queued",
@@ -385,6 +449,7 @@ class BillingReconciliationService:
                     "provider_timestamp_confidence": (
                         truth.provider_timestamp_confidence
                     ),
+                    **owner_binding.as_metadata(),
                 },
             )
         )
@@ -410,12 +475,14 @@ class AutomaticBillingReconciliationService:
         *,
         environment: str,
         grace_seconds: int,
+        expected_callback_owner: str | None,
     ) -> None:
         self._session_factory = session_factory
         self._provider = provider
         self._queue = queue
         self._environment = environment
         self._grace_seconds = grace_seconds
+        self._expected_callback_owner = expected_callback_owner
 
     async def run(
         self, *, limit: int, now: datetime | None = None
@@ -454,7 +521,11 @@ class AutomaticBillingReconciliationService:
                 )
                 continue
 
-            outcome = BillingReconciliationService._outcome(payment, truth)
+            outcome = BillingReconciliationService._outcome(
+                payment,
+                truth,
+                expected_callback_owner=self._expected_callback_owner,
+            )
             if outcome == "matched":
                 matched += 1
                 continue
@@ -466,7 +537,14 @@ class AutomaticBillingReconciliationService:
                 continue
 
             event_id = await self._persist_compensating_event(
-                payment, truth, observed_at=effective_now
+                payment,
+                truth,
+                observed_at=effective_now,
+                owner_binding=_owner_binding_evidence(
+                    payment,
+                    truth,
+                    expected_callback_owner=self._expected_callback_owner,
+                ),
             )
             if event_id is not None:
                 queued_ids.append(event_id)
@@ -534,6 +612,7 @@ class AutomaticBillingReconciliationService:
         truth: ProviderTransactionTruth,
         *,
         observed_at: datetime,
+        owner_binding: OwnerBindingEvidence,
     ) -> UUID | None:
         fingerprint = _reconciliation_fingerprint(truth)
         provider_event_id = f"reconciliation:{fingerprint}"
@@ -561,6 +640,7 @@ class AutomaticBillingReconciliationService:
                 truth,
                 temporal_source=temporal_source,
                 temporal_observed_at=temporal_observed_at,
+                owner_binding=owner_binding,
             )
             event = BillingWebhookEvent(
                 id=uuid4(),
@@ -596,6 +676,7 @@ class AutomaticBillingReconciliationService:
                         "provider_timestamp_confidence": (
                             truth.provider_timestamp_confidence
                         ),
+                        **owner_binding.as_metadata(),
                     },
                 )
             )
@@ -611,6 +692,25 @@ def _reconciliation_fingerprint(truth: ProviderTransactionTruth) -> str:
     return hashlib.sha256(
         f"{truth.provider_payment_id}:{truth.decision}".encode()
     ).hexdigest()[:32]
+
+
+def _owner_binding_evidence(
+    payment: Payment,
+    truth: ProviderTransactionTruth,
+    *,
+    expected_callback_owner: str | None,
+) -> OwnerBindingEvidence:
+    current_owner = (expected_callback_owner or "").strip()
+    return OwnerBindingEvidence(
+        historical_owner_snapshot_mismatch=bool(
+            payment.provider_merchant_id is not None
+            and current_owner
+            and payment.provider_merchant_id != current_owner
+        ),
+        current_owner_binding_verified=bool(
+            current_owner and truth.merchant_id == current_owner
+        ),
+    )
 
 
 def _temporal_evidence(
@@ -637,6 +737,7 @@ def _compensating_payload(
     *,
     temporal_source: TemporalSource,
     temporal_observed_at: datetime,
+    owner_binding: OwnerBindingEvidence,
 ) -> dict[str, object]:
     return {
         "payment_reference": str(payment.id),
@@ -659,5 +760,6 @@ def _compensating_payload(
         "provider_timestamp_confidence": truth.provider_timestamp_confidence,
         "temporal_source": temporal_source,
         "temporal_observed_at": temporal_observed_at.isoformat(),
+        **owner_binding.as_metadata(),
         "validation_outcome": "accepted",
     }

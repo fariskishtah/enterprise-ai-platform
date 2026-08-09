@@ -277,6 +277,11 @@ def reconcile_billing_provider() -> None:
             DramatiqBillingWebhookQueue(),
             environment=("sandbox" if _settings.payment_sandbox_mode else "live"),
             grace_seconds=_settings.billing_provider_reconciliation_grace_seconds,
+            expected_callback_owner=(
+                str(_settings.paymob_expected_callback_owner)
+                if _settings.paymob_expected_callback_owner is not None
+                else None
+            ),
         ).run(limit=_settings.billing_provider_reconciliation_batch_size)
     )
 

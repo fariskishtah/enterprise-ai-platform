@@ -900,6 +900,11 @@ async def run_provider_reconciliation(
             actor=actor,
             provider=cast(PaymentReconciliationProvider, provider),
             environment="sandbox" if settings.payment_sandbox_mode else "live",
+            expected_callback_owner=(
+                str(settings.paymob_expected_callback_owner)
+                if settings.paymob_expected_callback_owner is not None
+                else None
+            ),
             idempotency_key=idempotency_key,
             dry_run=payload.dry_run,
             finance_approval_reference=payload.finance_approval_reference,

@@ -1484,6 +1484,9 @@ class BillingWebhookProcessor:
                 )
                 await session.commit()
                 return
+            reconciliation_compensation = (
+                event.event_type == "reconciliation.compensating"
+            )
             try:
                 reference = UUID(str(payload["payment_reference"]))
                 provider_payment_id = str(payload["provider_payment_id"])
@@ -1565,6 +1568,16 @@ class BillingWebhookProcessor:
                     and parsed_temporal_observed_at.tzinfo is not None
                     else None
                 )
+                historical_owner_snapshot_mismatch = payload.get(
+                    "historical_owner_snapshot_mismatch"
+                )
+                current_owner_binding_verified = payload.get(
+                    "current_owner_binding_verified"
+                )
+                owner_binding_source = payload.get("owner_binding_source")
+                historical_snapshot_preserved = payload.get(
+                    "historical_snapshot_preserved"
+                )
                 if timestamp_confidence not in {"explicit", "ambiguous"}:
                     raise ValueError("Invalid timestamp confidence")
                 if temporal_source not in {
@@ -1585,6 +1598,13 @@ class BillingWebhookProcessor:
                     if event.event_type == "reconciliation.compensating":
                         raise ValueError("Trusted local observation time missing")
                     temporal_observed_at = _as_utc(event.received_at)
+                if reconciliation_compensation and (
+                    not isinstance(historical_owner_snapshot_mismatch, bool)
+                    or current_owner_binding_verified is not True
+                    or owner_binding_source != "current_configuration"
+                    or historical_snapshot_preserved is not True
+                ):
+                    raise ValueError("Current owner binding evidence missing")
             except (KeyError, TypeError, ValueError):
                 self._quarantine_processing(
                     repository, event, "invalid_normalized_payload"
@@ -1624,6 +1644,19 @@ class BillingWebhookProcessor:
                 or payment.environment != self._policy.environment
             ):
                 rejection_reason = "configured_environment_mismatch"
+            elif reconciliation_compensation:
+                configured_owner = self._policy.provider_merchant_id
+                expected_historical_mismatch = bool(
+                    configured_owner is not None
+                    and payment.provider_merchant_id is not None
+                    and payment.provider_merchant_id != configured_owner
+                )
+                if configured_owner is None:
+                    rejection_reason = "configured_merchant_missing"
+                elif configured_owner != merchant_id:
+                    rejection_reason = "configured_merchant_mismatch"
+                elif historical_owner_snapshot_mismatch != expected_historical_mismatch:
+                    rejection_reason = "owner_binding_evidence_mismatch"
             elif (
                 payment.provider_merchant_id is not None
                 and payment.provider_merchant_id != merchant_id
@@ -1848,9 +1881,21 @@ class BillingWebhookProcessor:
             "provider_event_id": event.provider_event_id,
         }
         event_payload = event.safe_payload or {}
-        for key in ("temporal_source", "provider_timestamp_confidence"):
+        for key in (
+            "temporal_source",
+            "provider_timestamp_confidence",
+            "owner_binding_source",
+        ):
             value = event_payload.get(key)
             if isinstance(value, str):
+                metadata[key] = value
+        for key in (
+            "historical_owner_snapshot_mismatch",
+            "current_owner_binding_verified",
+            "historical_snapshot_preserved",
+        ):
+            value = event_payload.get(key)
+            if isinstance(value, bool):
                 metadata[key] = value
         if payment.status == "succeeded":
             if (
