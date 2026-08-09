@@ -900,6 +900,9 @@ def test_callback_owner_bootstrap_updates_only_canonical_sandbox_key() -> None:
     assert ".env.production" not in function
     assert 'chmod 600 "$owner_next_file"' in function
     assert 'mv -f -- "$owner_next_file" "$ENV_FILE"' in function
+    assert '"$CALLBACK_OWNER_CONTAINER_FILE" >"$evidence_copy"' in function
+    assert '"$DOCKER_BIN" cp' not in function
+    assert "CALLBACK_OWNER_BACKEND_ID" in script
     assert "print(owner" not in helper
     assert "factorymind_paymob_sandbox" in helper
 

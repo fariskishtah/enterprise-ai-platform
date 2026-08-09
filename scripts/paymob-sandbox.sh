@@ -35,6 +35,9 @@ PRODUCTION_POSTGRES_ID=""
 PRODUCTION_POSTGRES_SERVICE=""
 PRODUCTION_REDIS_ID=""
 PRODUCTION_REDIS_SERVICE=""
+CALLBACK_OWNER_BACKEND_ID=""
+CALLBACK_OWNER_EVIDENCE_COPY=""
+CALLBACK_OWNER_NEXT_FILE=""
 
 usage() {
   cat >&2 <<'EOF'
@@ -537,6 +540,19 @@ seed_sandbox() {
   unset PAYMOB_SANDBOX_EXTERNAL_OWNER_EMAIL PAYMOB_SANDBOX_EXTERNAL_OWNER_PASSWORD
 }
 
+cleanup_callback_owner_bootstrap() {
+  if [[ -n "$CALLBACK_OWNER_BACKEND_ID" ]]; then
+    "$DOCKER_BIN" exec "$CALLBACK_OWNER_BACKEND_ID" rm -f -- \
+      "$CALLBACK_OWNER_CONTAINER_FILE" >/dev/null 2>&1 || true
+  fi
+  if [[ -n "$CALLBACK_OWNER_EVIDENCE_COPY" ]]; then
+    rm -f -- "$CALLBACK_OWNER_EVIDENCE_COPY"
+  fi
+  if [[ -n "$CALLBACK_OWNER_NEXT_FILE" ]]; then
+    rm -f -- "$CALLBACK_OWNER_NEXT_FILE"
+  fi
+}
+
 bootstrap_callback_owner() {
   local backend_id evidence_copy owner_next_file owner line owner_count
   require_confirmation BOOTSTRAP-SANDBOX-CALLBACK-OWNER
@@ -555,17 +571,15 @@ bootstrap_callback_owner() {
 
   evidence_copy="$(mktemp)"
   owner_next_file="$(mktemp "$REPO_ROOT/.env.paymob-sandbox.owner-next.XXXXXX")"
-  cleanup_callback_owner_bootstrap() {
-    "$DOCKER_BIN" exec "$backend_id" rm -f -- \
-      "$CALLBACK_OWNER_CONTAINER_FILE" >/dev/null 2>&1 || true
-    rm -f -- "$evidence_copy" "$owner_next_file"
-  }
+  CALLBACK_OWNER_BACKEND_ID="$backend_id"
+  CALLBACK_OWNER_EVIDENCE_COPY="$evidence_copy"
+  CALLBACK_OWNER_NEXT_FILE="$owner_next_file"
   trap cleanup_callback_owner_bootstrap EXIT
   "$DOCKER_BIN" exec "$backend_id" rm -f -- \
     "$CALLBACK_OWNER_CONTAINER_FILE"
   "$DOCKER_BIN" exec -i "$backend_id" python - <"$CALLBACK_OWNER_BOOTSTRAP"
-  "$DOCKER_BIN" cp \
-    "$backend_id:$CALLBACK_OWNER_CONTAINER_FILE" "$evidence_copy" >/dev/null
+  "$DOCKER_BIN" exec "$backend_id" cat -- \
+    "$CALLBACK_OWNER_CONTAINER_FILE" >"$evidence_copy"
   "$DOCKER_BIN" exec "$backend_id" rm -f -- \
     "$CALLBACK_OWNER_CONTAINER_FILE"
 
@@ -600,10 +614,12 @@ bootstrap_callback_owner() {
     exit 1
   }
   mv -f -- "$owner_next_file" "$ENV_FILE"
-  owner_next_file=""
+  CALLBACK_OWNER_NEXT_FILE=""
   unset owner
   cleanup_callback_owner_bootstrap
   trap - EXIT
+  CALLBACK_OWNER_BACKEND_ID=""
+  CALLBACK_OWNER_EVIDENCE_COPY=""
   echo "Sandbox expected callback owner updated without displaying its value."
 }
 
