@@ -77,7 +77,7 @@ async function login(page: Page, email: string | undefined): Promise<void> {
   await page.context().clearCookies();
   await page.goto("/login");
   await page.getByLabel("Work email").fill(email);
-  await page.getByLabel("Password").fill(password);
+  await page.getByLabel("Password", { exact: true }).fill(password);
   const response = page.waitForResponse(
     (item) => item.url().includes("/auth/login") && item.request().method() === "POST",
   );
