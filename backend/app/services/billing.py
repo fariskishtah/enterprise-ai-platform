@@ -622,6 +622,7 @@ class BillingService:
         if locked_payment is None:
             raise BillingNotFoundError("The checkout payment no longer exists.")
         locked_payment.provider_checkout_id = checkout.provider_checkout_id
+        locked_payment.provider_order_id = checkout.provider_order_id
         locked_payment.checkout_url = checkout.checkout_url
         locked_payment.status = "pending"
         locked_payment.failure_code = None
@@ -767,6 +768,7 @@ class BillingService:
             checkout=HostedCheckout(
                 provider_checkout_id=payment.provider_checkout_id,
                 checkout_url=payment.checkout_url,
+                provider_order_id=payment.provider_order_id,
             ),
             reused=reused,
             purpose=payment.purpose,

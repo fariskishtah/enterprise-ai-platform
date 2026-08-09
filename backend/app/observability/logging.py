@@ -41,6 +41,10 @@ _SECRET_PATTERN: Final = re.compile(
     r"(?:\"[^\"]*\"|'[^']*'|[^\s,;}]+)"
 )
 _URL_CREDENTIAL_PATTERN: Final = re.compile(r"(?i)(https?://)[^/@\s:]+:[^/@\s]+@")
+_QUERY_TOKEN_PATTERN: Final = re.compile(r"(?i)([?&](?:token|auth[_-]?token)=)[^&#\s]+")
+_PROVIDER_INQUIRY_ID_PATTERN: Final = re.compile(
+    r"(?i)(/api/(?:acceptance/transactions|ecommerce/orders)/)[^/?#\s]+"
+)
 _SENSITIVE_PAYLOAD_PATTERN: Final = re.compile(
     r"(?i)(features?|predictions?|request[_ -]?body|model[_ -]?artifact)"
     r"\s*[:=]\s*(\[[^\]]*\]|\{[^}]*\}|[^\s,;]+)"
@@ -139,6 +143,8 @@ def sanitize_log_text(value: object) -> str:
     except Exception:
         return "log_value_unavailable"
     rendered = _URL_CREDENTIAL_PATTERN.sub(r"\1[REDACTED]@", rendered)
+    rendered = _QUERY_TOKEN_PATTERN.sub(r"\1[REDACTED]", rendered)
+    rendered = _PROVIDER_INQUIRY_ID_PATTERN.sub(r"\1[REDACTED_ID]", rendered)
     rendered = _SENSITIVE_HEADER_PATTERN.sub(
         lambda match: f"{match.group(1)}: [REDACTED]", rendered
     )

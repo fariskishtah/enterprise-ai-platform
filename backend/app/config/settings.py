@@ -206,6 +206,16 @@ class Settings(BaseSettings):
     billing_lifecycle_reconciliation_interval_seconds: PositiveInt = Field(
         default=60, ge=10, le=3600
     )
+    billing_provider_reconciliation_batch_size: PositiveInt = Field(
+        default=100, le=1000
+    )
+    billing_provider_reconciliation_scheduling_enabled: bool = False
+    billing_provider_reconciliation_interval_seconds: PositiveInt = Field(
+        default=300, ge=60, le=86_400
+    )
+    billing_provider_reconciliation_grace_seconds: PositiveInt = Field(
+        default=300, ge=60, le=86_400
+    )
     billing_entitlements_enforced: bool = False
     structured_logging_enabled: bool = True
     log_format: LogFormat = "json"

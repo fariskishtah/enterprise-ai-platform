@@ -5,14 +5,17 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+from dataclasses import replace
 from uuid import uuid4
 
 import httpx
 import pytest
 from app.billing.providers import (
     CheckoutRequest,
+    PaymentProviderConfigurationError,
     PaymentProviderError,
     PaymentProviderSignatureError,
+    ProviderReconciliationTarget,
 )
 from app.billing.providers.paymob import (
     PaymobConfiguration,
@@ -25,6 +28,7 @@ from pydantic import ValidationError
 
 def _configuration() -> PaymobConfiguration:
     return PaymobConfiguration(
+        api_key="api-key-contract",
         secret_key="sk_test_contract",
         public_key="pk_test_contract",
         hmac_secret="contract-hmac-secret",
@@ -100,7 +104,11 @@ async def test_create_checkout_uses_current_intention_contract_and_hosted_ui() -
         captured["payload"] = json.loads(request.content)
         return httpx.Response(
             201,
-            json={"id": "pi_test_123", "client_secret": "client_secret_test"},
+            json={
+                "id": "pi_test_123",
+                "intention_order_id": "order_test_123",
+                "client_secret": "client_secret_test",
+            },
         )
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
@@ -126,11 +134,218 @@ async def test_create_checkout_uses_current_intention_contract_and_hosted_ui() -
     assert payload["special_reference"] == str(request.reference)
     assert "card" not in json.dumps(payload).lower()
     assert checkout.provider_checkout_id == "pi_test_123"
+    assert checkout.provider_order_id == "order_test_123"
     assert checkout.checkout_url.startswith(
         "https://accept.paymob.com/unifiedcheckout/?"
     )
     assert "publicKey=pk_test_contract" in checkout.checkout_url
     assert "clientSecret=client_secret_test" in checkout.checkout_url
+
+
+@pytest.mark.anyio
+async def test_reconciliation_uses_legacy_auth_token_and_exact_transaction() -> None:
+    transaction = _transaction_object()
+    reference = uuid4()
+    transaction["order"] = {
+        "id": 800001,
+        "merchant_order_id": str(reference),
+    }
+    captured: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        if request.url.path == "/api/auth/tokens":
+            assert json.loads(request.content) == {"api_key": "api-key-contract"}
+            return httpx.Response(201, json={"token": "short-lived-token"})
+        assert request.url.path == "/api/acceptance/transactions/900001"
+        assert request.url.params.get("token") == "short-lived-token"
+        assert request.headers.get("Authorization") is None
+        return httpx.Response(200, json=transaction)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        truth = await PaymobPaymentProvider(
+            _configuration(), client=client
+        ).reconcile_transaction(
+            ProviderReconciliationTarget(
+                payment_reference=reference,
+                provider_payment_id="900001",
+                provider_order_id="800001",
+            )
+        )
+
+    assert truth is not None
+    assert truth.payment_reference == reference
+    assert truth.amount_minor == 500_000
+    assert truth.currency == "EGP"
+    assert truth.integration_id == 123456
+    assert truth.environment == "sandbox"
+    assert truth.merchant_id == "700001"
+    assert truth.provider_order_id == "800001"
+    assert len(captured) == 2
+
+
+@pytest.mark.anyio
+async def test_reconciliation_uses_persisted_order_when_webhook_was_lost() -> None:
+    transaction = _transaction_object()
+    reference = uuid4()
+    transaction["order"] = 800001
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/auth/tokens":
+            return httpx.Response(201, json={"token": "short-lived-token"})
+        assert request.url.path == "/api/ecommerce/orders/800001"
+        assert request.url.params.get("token") == "short-lived-token"
+        return httpx.Response(
+            200,
+            json={
+                "id": 800001,
+                "merchant_order_id": str(reference),
+                "transactions": [transaction],
+            },
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        truth = await PaymobPaymentProvider(
+            _configuration(), client=client
+        ).reconcile_transaction(
+            ProviderReconciliationTarget(
+                payment_reference=reference,
+                provider_order_id="800001",
+            )
+        )
+
+    assert truth is not None
+    assert truth.payment_reference == reference
+    assert truth.provider_payment_id == "900001"
+    assert truth.provider_order_id == "800001"
+
+
+@pytest.mark.anyio
+async def test_reconciliation_finds_provider_timeout_by_exact_merchant_reference() -> (
+    None
+):
+    reference = uuid4()
+    matching = _transaction_object()
+    matching["order"] = {
+        "id": 800001,
+        "merchant_order_id": str(reference),
+    }
+    unrelated = _transaction_object(id=900002)
+    unrelated["order"] = {
+        "id": 800002,
+        "merchant_order_id": str(uuid4()),
+    }
+    pages: list[int] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/auth/tokens":
+            return httpx.Response(201, json={"token": "short-lived-token"})
+        assert request.url.path == "/api/acceptance/transactions"
+        assert request.url.params.get("token") == "short-lived-token"
+        page = int(request.url.params["page"])
+        pages.append(page)
+        return httpx.Response(
+            200,
+            json={"results": [unrelated, matching] if page == 1 else []},
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        truth = await PaymobPaymentProvider(
+            _configuration(), client=client
+        ).reconcile_transaction(
+            ProviderReconciliationTarget(payment_reference=reference)
+        )
+
+    assert truth is not None
+    assert truth.payment_reference == reference
+    assert truth.provider_payment_id == "900001"
+    assert pages == [1, 2]
+
+
+@pytest.mark.anyio
+async def test_reconciliation_rejects_ambiguous_merchant_reference_matches() -> None:
+    reference = uuid4()
+    first = _transaction_object()
+    first["order"] = {"id": 800001, "merchant_order_id": str(reference)}
+    second = _transaction_object(id=900002)
+    second["order"] = {"id": 800002, "merchant_order_id": str(reference)}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/auth/tokens":
+            return httpx.Response(201, json={"token": "short-lived-token"})
+        return httpx.Response(200, json={"results": [first, second]})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        with pytest.raises(PaymentProviderError, match="ambiguous"):
+            await PaymobPaymentProvider(
+                _configuration(), client=client
+            ).reconcile_transaction(
+                ProviderReconciliationTarget(payment_reference=reference)
+            )
+
+
+@pytest.mark.anyio
+async def test_reconciliation_requires_api_key_before_network() -> None:
+    configuration = _configuration()
+    provider = PaymobPaymentProvider(replace(configuration, api_key=None))
+    with pytest.raises(PaymentProviderConfigurationError, match="API key"):
+        await provider.reconcile_transaction(
+            ProviderReconciliationTarget(
+                payment_reference=uuid4(), provider_payment_id="900001"
+            )
+        )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "mismatch",
+    ["reference", "owner", "integration", "environment", "order"],
+)
+async def test_reconciliation_identity_mismatch_fails_closed_without_secrets(
+    mismatch: str,
+) -> None:
+    target_reference = uuid4()
+    transaction = _transaction_object()
+    transaction["order"] = {
+        "id": 800001,
+        "merchant_order_id": str(target_reference),
+    }
+    if mismatch == "reference":
+        transaction["order"] = {
+            "id": 800001,
+            "merchant_order_id": str(uuid4()),
+        }
+    elif mismatch == "owner":
+        transaction["owner"] = 700002
+    elif mismatch == "integration":
+        transaction["integration_id"] = 123457
+    elif mismatch == "environment":
+        transaction["is_live"] = True
+    elif mismatch == "order":
+        transaction["order"] = {
+            "id": 800002,
+            "merchant_order_id": str(target_reference),
+        }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/auth/tokens":
+            return httpx.Response(201, json={"token": "short-lived-token"})
+        return httpx.Response(200, json=transaction)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        with pytest.raises(PaymentProviderError, match="identity") as raised:
+            await PaymobPaymentProvider(
+                _configuration(), client=client
+            ).reconcile_transaction(
+                ProviderReconciliationTarget(
+                    payment_reference=target_reference,
+                    provider_payment_id="900001",
+                    provider_order_id="800001",
+                )
+            )
+    safe_error = str(raised.value)
+    assert "api-key-contract" not in safe_error
+    assert "short-lived-token" not in safe_error
 
 
 @pytest.mark.anyio

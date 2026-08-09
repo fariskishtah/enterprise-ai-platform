@@ -48,6 +48,7 @@ class FixtureProvider:
         self.checkout_requests: list[CheckoutRequest] = []
         self.webhooks: dict[str, ProviderWebhook] = {}
         self.checkout_error: PaymentProviderError | None = None
+        self.provider_order_id: str | None = None
 
     async def create_checkout(self, request: CheckoutRequest) -> HostedCheckout:
         self.checkout_requests.append(request)
@@ -56,6 +57,7 @@ class FixtureProvider:
         return HostedCheckout(
             provider_checkout_id=f"pi_{request.reference}",
             checkout_url=f"https://accept.paymob.com/unifiedcheckout/{request.reference}",
+            provider_order_id=self.provider_order_id,
         )
 
     def parse_webhook(
@@ -125,6 +127,7 @@ async def test_checkout_resolves_price_server_side_and_is_idempotent(
 ) -> None:
     actor = await _actor(session_factory)
     provider = FixtureProvider()
+    provider.provider_order_id = "provider-order-contract"
     async with session_factory() as session:
         service = BillingService(session, provider)
         first = await service.create_checkout(
@@ -139,6 +142,9 @@ async def test_checkout_resolves_price_server_side_and_is_idempotent(
             billing_details=_billing_details(),
             idempotency_key="checkout-contract-0001",
         )
+        payment = await session.get(Payment, first.payment_id)
+        assert payment is not None
+        assert payment.provider_order_id == "provider-order-contract"
 
     assert first.payment_id == second.payment_id
     assert first.plan.monthly_price_minor == 500_000

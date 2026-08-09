@@ -52,6 +52,7 @@ Read-only actions:
 
 Local/sandbox actions:
   configure          Interactively create .env.paymob-sandbox (secrets hidden).
+  configure-inquiry  TOKEN: CONFIGURE-SANDBOX-RECONCILIATION
   bootstrap-owner    TOKEN: BOOTSTRAP-SANDBOX-CALLBACK-OWNER
   start              TOKEN: START-SANDBOX
   seed               TOKEN: SEED-SANDBOX-USERS
@@ -359,7 +360,8 @@ write_env() {
 
 configure() {
   local next_file database_password secret_key grafana_password
-  local paymob_secret paymob_public paymob_hmac paymob_integration paymob_merchant
+  local paymob_api paymob_secret paymob_public paymob_hmac paymob_integration
+  local paymob_merchant
   local letsencrypt_email
   require_repository
   command -v openssl >/dev/null 2>&1 || {
@@ -374,6 +376,8 @@ configure() {
   secret_key="$(openssl rand -hex 48)"
   grafana_password="$(openssl rand -hex 32)"
 
+  read_hidden "Paymob sandbox API Key (transaction inquiry): "
+  paymob_api="$HIDDEN_VALUE"
   read_hidden "Paymob sandbox Secret Key: "
   paymob_secret="$HIDDEN_VALUE"
   read_hidden "Paymob sandbox Public Key: "
@@ -430,6 +434,7 @@ configure() {
   write_env "$next_file" PAYMENT_PROVIDER paymob
   write_env "$next_file" PAYMENT_SANDBOX_MODE true
   write_env "$next_file" PAYMENT_CURRENCY EGP
+  write_env "$next_file" PAYMOB_API_KEY "$paymob_api"
   write_env "$next_file" PAYMOB_SECRET_KEY "$paymob_secret"
   write_env "$next_file" PAYMOB_PUBLIC_KEY "$paymob_public"
   write_env "$next_file" PAYMOB_HMAC_SECRET "$paymob_hmac"
@@ -458,6 +463,10 @@ configure() {
   write_env "$next_file" BILLING_INCOMPLETE_EXPIRY_HOURS 24
   write_env "$next_file" BILLING_SUSPENSION_EXPIRY_DAYS 30
   write_env "$next_file" BILLING_LIFECYCLE_RECONCILIATION_BATCH_SIZE 100
+  write_env "$next_file" BILLING_PROVIDER_RECONCILIATION_BATCH_SIZE 100
+  write_env "$next_file" BILLING_PROVIDER_RECONCILIATION_SCHEDULING_ENABLED true
+  write_env "$next_file" BILLING_PROVIDER_RECONCILIATION_INTERVAL_SECONDS 300
+  write_env "$next_file" BILLING_PROVIDER_RECONCILIATION_GRACE_SECONDS 300
   write_env "$next_file" BILLING_LIFECYCLE_RECONCILIATION_SCHEDULING_ENABLED true
   write_env "$next_file" BILLING_LIFECYCLE_RECONCILIATION_INTERVAL_SECONDS 60
   write_env "$next_file" EMAIL_QUEUE_NAME factorymind-sandbox-transactional-email
@@ -471,9 +480,39 @@ configure() {
   chmod 600 "$next_file"
   mv -f -- "$next_file" "$ENV_FILE"
   trap - EXIT
-  unset database_password secret_key grafana_password paymob_secret paymob_public
+  unset database_password secret_key grafana_password paymob_api paymob_secret
+  unset paymob_public
   unset paymob_hmac paymob_integration paymob_merchant letsencrypt_email
   echo "Sandbox environment created without displaying secret values."
+}
+
+configure_reconciliation() {
+  local next_file paymob_api line
+  require_confirmation CONFIGURE-SANDBOX-RECONCILIATION
+  require_environment
+  read_hidden "Paymob sandbox API Key (transaction inquiry): "
+  paymob_api="$HIDDEN_VALUE"
+  unset HIDDEN_VALUE
+
+  umask 077
+  next_file="$ENV_FILE.next"
+  : >"$next_file"
+  trap 'rm -f -- "$next_file"' EXIT
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    case "$line" in
+      PAYMOB_API_KEY=*|BILLING_PROVIDER_RECONCILIATION_SCHEDULING_ENABLED=*)
+        continue
+        ;;
+    esac
+    printf '%s\n' "$line" >>"$next_file"
+  done <"$ENV_FILE"
+  write_env "$next_file" PAYMOB_API_KEY "$paymob_api"
+  write_env "$next_file" BILLING_PROVIDER_RECONCILIATION_SCHEDULING_ENABLED true
+  chmod 600 "$next_file"
+  mv -f -- "$next_file" "$ENV_FILE"
+  trap - EXIT
+  unset paymob_api
+  echo "Sandbox reconciliation credential configured without displaying it."
 }
 
 ensure_edge_network() {
@@ -1502,6 +1541,7 @@ case "$action" in
   labels) preflight ;;
   preflight) preflight ;;
   configure) configure ;;
+  configure-inquiry) configure_reconciliation ;;
   bootstrap-owner) bootstrap_callback_owner ;;
   start) start_sandbox ;;
   seed) seed_sandbox ;;

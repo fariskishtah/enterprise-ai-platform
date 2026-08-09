@@ -793,6 +793,13 @@ def test_provider_contract_is_required_and_sandbox_only() -> None:
         "${PAYMOB_EXPECTED_CALLBACK_OWNER:-}"
     )
     assert environment["PAYMOB_MERCHANT_ID"] == "${PAYMOB_MERCHANT_ID:-}"
+    assert environment["PAYMOB_API_KEY"] == "${PAYMOB_API_KEY:-}"
+    assert environment["BILLING_PROVIDER_RECONCILIATION_BATCH_SIZE"] == (
+        "${BILLING_PROVIDER_RECONCILIATION_BATCH_SIZE:-100}"
+    )
+    assert environment["BILLING_PROVIDER_RECONCILIATION_SCHEDULING_ENABLED"] == (
+        "${BILLING_PROVIDER_RECONCILIATION_SCHEDULING_ENABLED:-false}"
+    )
     assert environment["ENVIRONMENT"] == "staging"
     assert environment["APP_ENV"] == "staging"
 
@@ -1491,10 +1498,28 @@ def test_secret_configuration_is_hidden_atomic_and_mode_0600() -> None:
         "ensure_edge_network()", maxsplit=1
     )[0]
     assert 'write_env "$next_file" PAYMOB_EXPECTED_CALLBACK_OWNER' in configure
+    assert 'write_env "$next_file" PAYMOB_API_KEY "$paymob_api"' in configure
     assert 'write_env "$next_file" PAYMOB_MERCHANT_ID' not in configure
     assert "set -x" not in script
     assert "Live Paymob key prefixes are forbidden" in script
     assert "Sandbox environment created without displaying secret values" in script
+
+
+def test_reconciliation_api_key_update_is_interactive_sandbox_only_and_hidden() -> None:
+    script = _text(_SCRIPT)
+    function = script.split("configure_reconciliation()", maxsplit=1)[1].split(
+        "\n}", maxsplit=1
+    )[0]
+
+    assert "CONFIGURE-SANDBOX-RECONCILIATION" in function
+    assert "require_environment" in function
+    assert 'read_hidden "Paymob sandbox API Key' in function
+    assert 'write_env "$next_file" PAYMOB_API_KEY "$paymob_api"' in function
+    assert (
+        'write_env "$next_file" BILLING_PROVIDER_RECONCILIATION_SCHEDULING_ENABLED true'
+    ) in function
+    assert 'echo "$paymob_api"' not in function
+    assert ".env.production" not in function
 
 
 def test_file_mode_prefers_gnu_stat_and_returns_only_the_mode(tmp_path: Path) -> None:

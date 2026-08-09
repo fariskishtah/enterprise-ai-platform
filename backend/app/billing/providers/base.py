@@ -84,6 +84,7 @@ class HostedCheckout:
     provider_checkout_id: str
     checkout_url: str
     provider_customer_id: str | None = None
+    provider_order_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -124,13 +125,25 @@ class ProviderTransactionTruth:
     occurred_at: datetime
     merchant_id: str | None = None
     provider_order_id: str | None = None
+    source_type: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ProviderReconciliationTarget:
+    """Exact persisted coordinates allowed for a read-only provider inquiry."""
+
+    payment_reference: UUID
+    provider_payment_id: str | None = None
+    provider_order_id: str | None = None
 
 
 class PaymentReconciliationProvider(Protocol):
     name: str
 
-    async def list_reconciliation_transactions(self) -> list[ProviderTransactionTruth]:
-        """Return authenticated provider truth for one bounded configured window."""
+    async def reconcile_transaction(
+        self, target: ProviderReconciliationTarget
+    ) -> ProviderTransactionTruth | None:
+        """Return authenticated provider truth for one exact local payment."""
 
 
 class PaymentProvider(Protocol):

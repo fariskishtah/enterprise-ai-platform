@@ -862,7 +862,11 @@ async def billing_platform_diagnostics(
         environment="sandbox" if settings.payment_sandbox_mode else "live",
         commercial_model=settings.billing_commercial_model,
         recurring_collection_enabled=False,
-        provider_reconciliation_query_accepted=False,
+        provider_reconciliation_query_accepted=(
+            settings.payment_provider == "paymob"
+            and settings.paymob_api_key is not None
+            and settings.billing_provider_reconciliation_scheduling_enabled
+        ),
     )
 
 
@@ -899,6 +903,7 @@ async def run_provider_reconciliation(
             idempotency_key=idempotency_key,
             dry_run=payload.dry_run,
             finance_approval_reference=payload.finance_approval_reference,
+            limit=settings.billing_provider_reconciliation_batch_size,
         )
     except BillingReconciliationError as exc:
         raise HTTPException(

@@ -3,18 +3,22 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.billing.providers import (
     PaymentProviderError,
     PaymentReconciliationProvider,
+    ProviderReconciliationTarget,
     ProviderTransactionTruth,
 )
+from app.billing.queue import BillingWebhookQueue
 from app.models.billing import (
     BillingAuditEvent,
     BillingReconciliationResult,
@@ -41,6 +45,17 @@ class ReconciliationSummary:
     compensating_event_ids: tuple[UUID, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class AutomaticReconciliationSummary:
+    scanned: int
+    matched: int
+    queued: int
+    provider_missing: int
+    manual_review: int
+    provider_failures: int
+    oldest_pending_age_seconds: float
+
+
 class BillingReconciliationService:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
@@ -55,6 +70,7 @@ class BillingReconciliationService:
         idempotency_key: str,
         dry_run: bool,
         finance_approval_reference: str | None,
+        limit: int = 100,
     ) -> ReconciliationSummary:
         existing = await self._repository.get_reconciliation_run(
             provider.name, environment, idempotency_key
@@ -98,12 +114,25 @@ class BillingReconciliationService:
         self._repository.add_reconciliation_run(run)
         await self._session.commit()
         try:
-            truths = await provider.list_reconciliation_transactions()
+            local = await self._repository.list_platform_provider_payments(
+                provider.name, environment, limit=limit
+            )
+            comparisons: list[tuple[Payment, ProviderTransactionTruth | None]] = []
+            for payment in local:
+                truth = await provider.reconcile_transaction(
+                    ProviderReconciliationTarget(
+                        payment_reference=payment.id,
+                        provider_payment_id=payment.provider_payment_id,
+                        provider_order_id=payment.provider_order_id,
+                    )
+                )
+                comparisons.append((payment, truth))
+            truths = [truth for _payment, truth in comparisons if truth is not None]
             self._validate_truths(truths, environment=environment)
             summary = await self._compare(
                 run=run,
                 actor=actor,
-                truths=truths,
+                comparisons=comparisons,
                 dry_run=dry_run,
                 approval=finance_approval_reference,
             )
@@ -140,23 +169,14 @@ class BillingReconciliationService:
         *,
         run: BillingReconciliationRun,
         actor: User,
-        truths: list[ProviderTransactionTruth],
+        comparisons: list[tuple[Payment, ProviderTransactionTruth | None]],
         dry_run: bool,
         approval: str | None,
     ) -> ReconciliationSummary:
-        local = await self._repository.list_platform_provider_payments(run.provider)
-        local_by_provider_id = {
-            payment.provider_payment_id: payment
-            for payment in local
-            if payment.provider_payment_id is not None
-        }
-        truths_by_id = {item.provider_payment_id: item for item in truths}
         outcomes: dict[str, int] = {}
         compensating: list[UUID] = []
 
-        for payment in local:
-            assert payment.provider_payment_id is not None
-            truth = truths_by_id.get(payment.provider_payment_id)
+        for payment, truth in comparisons:
             outcome = (
                 "provider_missing" if truth is None else self._outcome(payment, truth)
             )
@@ -185,21 +205,6 @@ class BillingReconciliationService:
                 outcome = "corrected_by_compensating_event"
             self._add_result(run, payment, truth, outcome, event_id)
             outcomes[outcome] = outcomes.get(outcome, 0) + 1
-
-        for truth in truths:
-            if truth.provider_payment_id in local_by_provider_id:
-                continue
-            self._add_result(run, None, truth, "local_missing", None)
-            outcomes["local_missing"] = outcomes.get("local_missing", 0) + 1
-            if truth.decision == "succeeded_eligible":
-                logger.critical(
-                    "billing_reconciliation_unknown_provider_success",
-                    extra={
-                        "run_id": str(run.id),
-                        "provider_payment_id": truth.provider_payment_id,
-                        "provider": run.provider,
-                    },
-                )
 
         run.status = "completed"
         run.completed_at = datetime.now(UTC)
@@ -233,6 +238,22 @@ class BillingReconciliationService:
 
     @staticmethod
     def _outcome(payment: Payment, truth: ProviderTransactionTruth) -> str:
+        if (
+            truth.payment_reference != payment.id
+            or (
+                payment.provider_payment_id is not None
+                and truth.provider_payment_id != payment.provider_payment_id
+            )
+            or (
+                payment.provider_order_id is not None
+                and truth.provider_order_id != payment.provider_order_id
+            )
+            or (
+                payment.provider_merchant_id is not None
+                and truth.merchant_id != payment.provider_merchant_id
+            )
+        ):
+            return "manual_review_required"
         if payment.amount_minor != truth.amount_minor:
             return "amount_mismatch"
         if payment.currency != truth.currency:
@@ -261,7 +282,9 @@ class BillingReconciliationService:
                 provider_payment_id=(
                     truth.provider_payment_id
                     if truth is not None
-                    else payment.provider_payment_id if payment is not None else None
+                    else payment.provider_payment_id
+                    if payment is not None
+                    else None
                 ),
                 outcome=outcome,
                 local_state=payment.provider_decision if payment is not None else None,
@@ -320,6 +343,7 @@ class BillingReconciliationService:
                 "environment": truth.environment,
                 "merchant_id": truth.merchant_id,
                 "provider_order_id": truth.provider_order_id,
+                "source_type": truth.source_type,
                 "validation_outcome": "accepted",
             },
             validation_outcome="accepted",
@@ -342,3 +366,206 @@ class BillingReconciliationService:
             )
         )
         return event.id
+
+
+class AutomaticBillingReconciliationService:
+    """Bounded recovery for aged payments using exact authenticated inquiry."""
+
+    _CORRECTABLE_DECISIONS = {
+        "succeeded_eligible",
+        "failed",
+        "cancelled",
+        "refunded",
+        "reversed",
+    }
+
+    def __init__(
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        provider: PaymentReconciliationProvider,
+        queue: BillingWebhookQueue,
+        *,
+        environment: str,
+        grace_seconds: int,
+    ) -> None:
+        self._session_factory = session_factory
+        self._provider = provider
+        self._queue = queue
+        self._environment = environment
+        self._grace_seconds = grace_seconds
+
+    async def run(
+        self, *, limit: int, now: datetime | None = None
+    ) -> AutomaticReconciliationSummary:
+        effective_now = now or datetime.now(UTC)
+        async with self._session_factory() as session:
+            repository = BillingRepository(session)
+            payments = await repository.list_aged_reconcilable_payments(
+                self._provider.name,
+                self._environment,
+                created_before=effective_now - timedelta(seconds=self._grace_seconds),
+                limit=limit,
+            )
+
+        matched = queued = provider_missing = manual_review = provider_failures = 0
+        queued_ids: list[UUID] = []
+        for payment in payments:
+            target = ProviderReconciliationTarget(
+                payment_reference=payment.id,
+                provider_payment_id=payment.provider_payment_id,
+                provider_order_id=payment.provider_order_id,
+            )
+            try:
+                truth = await self._provider.reconcile_transaction(target)
+                if truth is None:
+                    provider_missing += 1
+                    continue
+                BillingReconciliationService._validate_truths(
+                    [truth], environment=self._environment
+                )
+            except PaymentProviderError:
+                provider_failures += 1
+                logger.warning(
+                    "billing_automatic_reconciliation_provider_failure",
+                    extra={"provider": self._provider.name},
+                )
+                continue
+
+            outcome = BillingReconciliationService._outcome(payment, truth)
+            if outcome == "matched":
+                matched += 1
+                continue
+            if (
+                outcome != "state_mismatch"
+                or truth.decision not in self._CORRECTABLE_DECISIONS
+            ):
+                manual_review += 1
+                continue
+
+            event_id = await self._persist_compensating_event(payment, truth)
+            if event_id is not None:
+                queued_ids.append(event_id)
+                queued += 1
+
+        for event_id in queued_ids:
+            try:
+                self._queue.enqueue(event_id)
+            except Exception:
+                provider_failures += 1
+                logger.error(
+                    "billing_automatic_reconciliation_queue_failure",
+                    extra={"provider": self._provider.name},
+                )
+
+        oldest_pending_age = (
+            max(
+                (
+                    effective_now
+                    - (
+                        payment.created_at
+                        if payment.created_at.tzinfo is not None
+                        else payment.created_at.replace(tzinfo=UTC)
+                    )
+                ).total_seconds()
+                for payment in payments
+            )
+            if payments
+            else 0.0
+        )
+        summary = AutomaticReconciliationSummary(
+            scanned=len(payments),
+            matched=matched,
+            queued=queued,
+            provider_missing=provider_missing,
+            manual_review=manual_review,
+            provider_failures=provider_failures,
+            oldest_pending_age_seconds=max(oldest_pending_age, 0.0),
+        )
+        logger.info(
+            "billing_automatic_reconciliation_completed",
+            extra={
+                "scanned": summary.scanned,
+                "matched": summary.matched,
+                "queued": summary.queued,
+                "provider_missing": summary.provider_missing,
+                "manual_review": summary.manual_review,
+                "provider_failures": summary.provider_failures,
+                "oldest_pending_age_seconds": summary.oldest_pending_age_seconds,
+            },
+        )
+        return summary
+
+    async def _persist_compensating_event(
+        self, payment: Payment, truth: ProviderTransactionTruth
+    ) -> UUID | None:
+        fingerprint = hashlib.sha256(
+            (
+                f"{truth.provider_payment_id}:{truth.decision}:"
+                f"{truth.occurred_at.isoformat()}"
+            ).encode()
+        ).hexdigest()[:32]
+        provider_event_id = f"reconciliation:{fingerprint}"
+        safe_payload: dict[str, object] = {
+            "payment_reference": str(payment.id),
+            "provider_payment_id": truth.provider_payment_id,
+            "amount_minor": truth.amount_minor,
+            "currency": truth.currency,
+            "state": (
+                "succeeded"
+                if truth.decision == "succeeded_eligible"
+                else truth.decision
+            ),
+            "decision": truth.decision,
+            "occurred_at": truth.occurred_at.isoformat(),
+            "integration_id": truth.integration_id,
+            "environment": truth.environment,
+            "merchant_id": truth.merchant_id,
+            "provider_order_id": truth.provider_order_id,
+            "source_type": truth.source_type,
+            "validation_outcome": "accepted",
+        }
+        async with self._session_factory() as session:
+            repository = BillingRepository(session)
+            existing = await repository.get_event_by_provider_id(
+                self._provider.name, provider_event_id
+            )
+            if existing is not None:
+                return None
+            event = BillingWebhookEvent(
+                id=uuid4(),
+                company_id=payment.company_id,
+                provider=self._provider.name,
+                provider_event_id=provider_event_id,
+                raw_provider_event_id=truth.provider_payment_id,
+                event_type="reconciliation.compensating",
+                payload_hash=hashlib.sha256(
+                    json.dumps(
+                        safe_payload, sort_keys=True, separators=(",", ":")
+                    ).encode()
+                ).hexdigest(),
+                safe_payload=safe_payload,
+                validation_outcome="accepted",
+                status="queued",
+                queued_at=datetime.now(UTC),
+            )
+            session.add(event)
+            session.add(
+                BillingAuditEvent(
+                    company_id=payment.company_id,
+                    actor_user_id=None,
+                    action="billing.automatic_reconciliation_event",
+                    result="succeeded",
+                    safe_metadata={
+                        "payment_id": str(payment.id),
+                        "event_id": str(event.id),
+                        "provider": self._provider.name,
+                        "trigger": "aged_unresolved_payment",
+                    },
+                )
+            )
+            try:
+                await session.commit()
+            except IntegrityError:
+                await session.rollback()
+                return None
+            return event.id

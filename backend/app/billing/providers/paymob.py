@@ -12,8 +12,8 @@ import json
 import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from typing import Any, cast
+from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 from uuid import UUID
 
 import httpx
@@ -26,6 +26,7 @@ from app.billing.providers.base import (
     PaymentProviderError,
     PaymentProviderSignatureError,
     PaymentState,
+    ProviderReconciliationTarget,
     ProviderTransactionTruth,
     ProviderValidationOutcome,
     ProviderWebhook,
@@ -53,6 +54,7 @@ _HMAC_FIELDS = (
     "source_data_type",
     "success",
 )
+_RECONCILIATION_MAX_PAGES = 5
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,6 +70,7 @@ class PaymobConfiguration:
     currency: str
     sandbox_mode: bool
     timeout_seconds: float
+    api_key: str | None = None
     expected_callback_owner: int | None = None
     allowed_checkout_hosts: tuple[str, ...] = ("accept.paymob.com",)
     supported_source_types: tuple[str, ...] = ("card",)
@@ -209,9 +212,11 @@ class PaymobPaymentProvider:
                 "Paymob returned an invalid checkout response.", retryable=True
             ) from exc
         checkout_id = body.get("id")
+        provider_order_id = body.get("intention_order_id")
         client_secret = body.get("client_secret")
         if (
             checkout_id is None
+            or provider_order_id is None
             or not isinstance(client_secret, str)
             or not client_secret
         ):
@@ -240,6 +245,7 @@ class PaymobPaymentProvider:
         return HostedCheckout(
             provider_checkout_id=str(checkout_id),
             checkout_url=checkout_url,
+            provider_order_id=str(provider_order_id),
         )
 
     @staticmethod
@@ -415,11 +421,271 @@ class PaymobPaymentProvider:
             return "pending", "pending", "transaction.pending"
         return "failed", "failed", "transaction.failed"
 
-    async def list_reconciliation_transactions(
+    async def reconcile_transaction(
+        self, target: ProviderReconciliationTarget
+    ) -> ProviderTransactionTruth | None:
+        """Query one exact transaction/order through Paymob's inquiry API."""
+        if not self._configuration.api_key:
+            raise PaymentProviderConfigurationError(
+                "Paymob reconciliation requires the account API key."
+            )
+        try:
+            if self._client is None:
+                async with httpx.AsyncClient(
+                    timeout=self._configuration.timeout_seconds
+                ) as client:
+                    return await self._reconcile_with_client(client, target)
+            return await self._reconcile_with_client(self._client, target)
+        except (httpx.TimeoutException, httpx.NetworkError) as exc:
+            raise PaymentProviderError(
+                "Paymob reconciliation did not respond.", retryable=True
+            ) from exc
+
+    async def _reconcile_with_client(
         self,
-    ) -> list[ProviderTransactionTruth]:
-        """Fail closed until Paymob's query contract passes sandbox acceptance."""
-        raise PaymentProviderConfigurationError(
-            "Paymob provider reconciliation requires an accepted sandbox query "
-            "contract."
+        client: httpx.AsyncClient,
+        target: ProviderReconciliationTarget,
+    ) -> ProviderTransactionTruth | None:
+        token_response = await client.post(
+            f"{self._configuration.base_url.rstrip('/')}/api/auth/tokens",
+            json={"api_key": self._configuration.api_key},
+        )
+        if token_response.status_code >= 500 or token_response.status_code in {
+            408,
+            429,
+        }:
+            raise PaymentProviderError(
+                "Paymob reconciliation authentication is temporarily unavailable.",
+                retryable=True,
+            )
+        if not token_response.is_success:
+            raise PaymentProviderConfigurationError(
+                "Paymob reconciliation authentication was rejected."
+            )
+        try:
+            token_body = token_response.json()
+        except ValueError as exc:
+            raise PaymentProviderError(
+                "Paymob returned invalid reconciliation authentication data.",
+                retryable=True,
+            ) from exc
+        token = token_body.get("token") if isinstance(token_body, dict) else None
+        if not isinstance(token, str) or not token:
+            raise PaymentProviderError(
+                "Paymob returned incomplete reconciliation authentication data.",
+                retryable=True,
+            )
+
+        if target.provider_payment_id:
+            response = await client.get(
+                f"{self._configuration.base_url.rstrip('/')}/api/acceptance/transactions/"
+                f"{quote(target.provider_payment_id, safe='')}",
+                params={"token": token},
+            )
+            if response.status_code == 404:
+                return None
+            body = self._inquiry_body(response)
+            return self._transaction_truth(body, target=target)
+
+        if target.provider_order_id:
+            response = await client.get(
+                f"{self._configuration.base_url.rstrip('/')}/api/ecommerce/orders/"
+                f"{quote(target.provider_order_id, safe='')}",
+                params={"token": token},
+            )
+            if response.status_code == 404:
+                return None
+            order = self._inquiry_body(response)
+            transactions = order.get("transactions")
+            if not isinstance(transactions, list):
+                raise PaymentProviderError(
+                    "Paymob returned malformed reconciliation order data.",
+                    retryable=False,
+                )
+            matches: list[ProviderTransactionTruth] = []
+            for candidate in transactions:
+                if not isinstance(candidate, dict):
+                    raise PaymentProviderError(
+                        "Paymob returned malformed reconciliation transaction data.",
+                        retryable=False,
+                    )
+                normalized_candidate = dict(candidate)
+                candidate_order = normalized_candidate.get("order")
+                if not isinstance(candidate_order, dict):
+                    normalized_candidate["order"] = {
+                        "id": order.get("id", target.provider_order_id),
+                        "merchant_order_id": order.get("merchant_order_id"),
+                    }
+                truth = self._transaction_truth(normalized_candidate, target=target)
+                if truth.payment_reference == target.payment_reference:
+                    matches.append(truth)
+            return self._one_reconciliation_match(matches)
+
+        return await self._find_transaction_by_reference(client, token, target)
+
+    async def _find_transaction_by_reference(
+        self,
+        client: httpx.AsyncClient,
+        token: str,
+        target: ProviderReconciliationTarget,
+    ) -> ProviderTransactionTruth | None:
+        matches: list[ProviderTransactionTruth] = []
+        for page in range(1, _RECONCILIATION_MAX_PAGES + 1):
+            response = await client.get(
+                f"{self._configuration.base_url.rstrip('/')}/api/acceptance/transactions",
+                params={"page": page, "token": token},
+            )
+            body = self._inquiry_collection(response)
+            if not body:
+                break
+            for candidate in body:
+                if not isinstance(candidate, dict):
+                    raise PaymentProviderError(
+                        "Paymob returned malformed reconciliation transaction data.",
+                        retryable=False,
+                    )
+                reference = self._transaction_reference(candidate)
+                if reference != target.payment_reference:
+                    continue
+                matches.append(self._transaction_truth(candidate, target=target))
+            if len(matches) > 1:
+                break
+        return self._one_reconciliation_match(matches)
+
+    @staticmethod
+    def _one_reconciliation_match(
+        matches: list[ProviderTransactionTruth],
+    ) -> ProviderTransactionTruth | None:
+        if not matches:
+            return None
+        if len(matches) != 1:
+            raise PaymentProviderError(
+                "Paymob reconciliation returned ambiguous transaction identity.",
+                retryable=False,
+            )
+        return matches[0]
+
+    @classmethod
+    def _inquiry_collection(cls, response: httpx.Response) -> list[object]:
+        body = cls._inquiry_json(response)
+        if isinstance(body, list):
+            return body
+        if isinstance(body, dict) and isinstance(body.get("results"), list):
+            return cast(list[object], body["results"])
+        raise PaymentProviderError(
+            "Paymob returned malformed reconciliation collection data.",
+            retryable=False,
+        )
+
+    @staticmethod
+    def _inquiry_body(response: httpx.Response) -> dict[str, Any]:
+        body = PaymobPaymentProvider._inquiry_json(response)
+        if not isinstance(body, dict):
+            raise PaymentProviderError(
+                "Paymob returned malformed reconciliation data.", retryable=False
+            )
+        return body
+
+    @staticmethod
+    def _inquiry_json(response: httpx.Response) -> object:
+        if response.status_code >= 500 or response.status_code in {408, 429}:
+            raise PaymentProviderError(
+                "Paymob reconciliation is temporarily unavailable.", retryable=True
+            )
+        if not response.is_success:
+            raise PaymentProviderError(
+                "Paymob rejected the reconciliation inquiry.", retryable=False
+            )
+        try:
+            body = response.json()
+        except ValueError as exc:
+            raise PaymentProviderError(
+                "Paymob returned invalid reconciliation data.", retryable=True
+            ) from exc
+        return body
+
+    @staticmethod
+    def _transaction_reference(obj: dict[str, Any]) -> UUID | None:
+        order = obj.get("order")
+        value = (
+            order.get("merchant_order_id") if isinstance(order, dict) else None
+        ) or obj.get("special_reference")
+        try:
+            return UUID(str(value))
+        except (TypeError, ValueError):
+            return None
+
+    def _transaction_truth(
+        self,
+        obj: dict[str, Any],
+        *,
+        target: ProviderReconciliationTarget,
+    ) -> ProviderTransactionTruth:
+        raw_id = obj.get("id")
+        amount_value = obj.get("amount", obj.get("amount_cents"))
+        currency = obj.get("currency")
+        integration_id = self._integer(obj.get("integration_id"))
+        owner = self._integer(obj.get("owner"))
+        source_type = self._source_type(obj)
+        is_live = obj.get("is_live")
+        occurred_at = _parse_timestamp(obj.get("updated_at") or obj.get("created_at"))
+        order = obj.get("order")
+        order_id = order.get("id") if isinstance(order, dict) else order
+        merchant_reference = (
+            order.get("merchant_order_id") if isinstance(order, dict) else None
+        ) or obj.get("special_reference")
+        if not isinstance(amount_value, (str, int)) or isinstance(amount_value, bool):
+            raise PaymentProviderError(
+                "Paymob returned invalid reconciliation transaction data.",
+                retryable=False,
+            )
+        try:
+            payment_reference = UUID(str(merchant_reference))
+            amount_minor = int(amount_value)
+        except (TypeError, ValueError) as exc:
+            raise PaymentProviderError(
+                "Paymob returned invalid reconciliation transaction data.",
+                retryable=False,
+            ) from exc
+        if (
+            raw_id is None
+            or not isinstance(currency, str)
+            or integration_id is None
+            or integration_id != self._configuration.integration_id
+            or not isinstance(is_live, bool)
+            or is_live == self._configuration.sandbox_mode
+            or (
+                self._configuration.expected_callback_owner is not None
+                and owner != self._configuration.expected_callback_owner
+            )
+            or source_type not in self._configuration.supported_source_types
+            or occurred_at is None
+            or order_id is None
+            or payment_reference != target.payment_reference
+            or (
+                target.provider_payment_id is not None
+                and str(raw_id) != target.provider_payment_id
+            )
+            or (
+                target.provider_order_id is not None
+                and str(order_id) != target.provider_order_id
+            )
+        ):
+            raise PaymentProviderError(
+                "Paymob reconciliation transaction identity did not match.",
+                retryable=False,
+            )
+        decision, _state, _event_type = self._decision(obj)
+        return ProviderTransactionTruth(
+            provider_payment_id=str(raw_id),
+            payment_reference=payment_reference,
+            amount_minor=amount_minor,
+            currency=currency.upper(),
+            decision=decision,
+            integration_id=integration_id,
+            environment="live" if is_live else "sandbox",
+            occurred_at=occurred_at,
+            merchant_id=str(owner) if owner is not None else None,
+            provider_order_id=str(order_id),
+            source_type=source_type,
         )

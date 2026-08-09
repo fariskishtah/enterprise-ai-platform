@@ -11,3 +11,9 @@ class BillingWebhookRecoverySchedulerMiddleware(
     AutoMLReconciliationSchedulerMiddleware
 ):
     """Schedule stale durable webhook recovery and dead-letter detection."""
+
+
+class BillingProviderReconciliationSchedulerMiddleware(
+    AutoMLReconciliationSchedulerMiddleware
+):
+    """Schedule exact provider inquiry for aged unresolved payments."""

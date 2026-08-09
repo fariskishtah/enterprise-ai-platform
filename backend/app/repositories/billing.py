@@ -296,16 +296,44 @@ class BillingRepository:
         )
         return rows, total
 
-    async def list_platform_provider_payments(self, provider: str) -> list[Payment]:
+    async def list_platform_provider_payments(
+        self, provider: str, environment: str, *, limit: int
+    ) -> list[Payment]:
         return list(
             (
                 await self._session.scalars(
                     select(Payment)
                     .where(
                         Payment.provider == provider,
-                        Payment.provider_payment_id.is_not(None),
+                        Payment.environment == environment,
+                    )
+                    .order_by(Payment.created_at.desc(), Payment.id.desc())
+                    .limit(limit)
+                    .execution_options(skip_tenant_scope=True)
+                )
+            ).all()
+        )
+
+    async def list_aged_reconcilable_payments(
+        self,
+        provider: str,
+        environment: str,
+        *,
+        created_before: datetime,
+        limit: int,
+    ) -> list[Payment]:
+        return list(
+            (
+                await self._session.scalars(
+                    select(Payment)
+                    .where(
+                        Payment.provider == provider,
+                        Payment.environment == environment,
+                        Payment.status.in_(("creating", "pending", "provider_error")),
+                        Payment.created_at <= created_before,
                     )
                     .order_by(Payment.created_at, Payment.id)
+                    .limit(limit)
                     .execution_options(skip_tenant_scope=True)
                 )
             ).all()

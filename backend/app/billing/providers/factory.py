@@ -27,6 +27,11 @@ def configured_payment_provider(settings: Settings) -> PaymentProvider:
         raise PaymentProviderConfigurationError("Paymob configuration is incomplete.")
     return PaymobPaymentProvider(
         PaymobConfiguration(
+            api_key=(
+                settings.paymob_api_key.get_secret_value()
+                if settings.paymob_api_key is not None
+                else None
+            ),
             secret_key=settings.paymob_secret_key.get_secret_value(),
             public_key=settings.paymob_public_key.get_secret_value(),
             hmac_secret=settings.paymob_hmac_secret.get_secret_value(),

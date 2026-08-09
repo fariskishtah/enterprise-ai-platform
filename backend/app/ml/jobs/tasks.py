@@ -13,9 +13,15 @@ from dramatiq.brokers.redis import RedisBroker
 from dramatiq.middleware import Retries
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.billing.providers import (
+    PaymentProviderConfigurationError,
+    PaymentReconciliationProvider,
+    configured_payment_provider,
+)
 from app.billing.queue import DramatiqBillingWebhookQueue
 from app.billing.scheduling import (
     BillingLifecycleSchedulerMiddleware,
+    BillingProviderReconciliationSchedulerMiddleware,
     BillingWebhookRecoverySchedulerMiddleware,
 )
 from app.config.settings import get_settings
@@ -71,6 +77,7 @@ from app.services.billing import (
     BillingWebhookRecoveryService,
     SubscriptionLifecycleReconciler,
 )
+from app.services.billing_reconciliation import AutomaticBillingReconciliationService
 from app.services.email import configured_email_provider
 from app.services.email_delivery import (
     EmailDeliveryWorker,
@@ -244,6 +251,33 @@ def recover_billing_webhooks() -> None:
                 _settings.billing_webhook_processing_stale_seconds
             ),
         ).run(limit=_settings.billing_webhook_recovery_batch_size)
+    )
+
+
+@dramatiq.actor(broker=broker, queue_name=_settings.billing_webhook_queue_name)
+@traced_operation(
+    "billing.provider_reconciliation", attributes={"trigger": "scheduled"}
+)
+def reconcile_billing_provider() -> None:
+    """Recover aged unresolved payments from exact provider inquiry."""
+    try:
+        provider = configured_payment_provider(_settings)
+    except PaymentProviderConfigurationError:
+        emit_safe(
+            logger,
+            logging.ERROR,
+            "billing_provider_reconciliation_configuration_unavailable",
+            extra={"error_kind": "provider_configuration"},
+        )
+        return
+    asyncio.run(
+        AutomaticBillingReconciliationService(
+            _worker_session_factory(_settings.database_url),
+            cast(PaymentReconciliationProvider, provider),
+            DramatiqBillingWebhookQueue(),
+            environment=("sandbox" if _settings.payment_sandbox_mode else "live"),
+            grace_seconds=_settings.billing_provider_reconciliation_grace_seconds,
+        ).run(limit=_settings.billing_provider_reconciliation_batch_size)
     )
 
 
@@ -516,6 +550,16 @@ broker.add_middleware(
         enqueue=recover_billing_webhooks.send,
         scheduler_key="scheduler:billing:webhook-recovery:v1",
         scheduler_name="billing-webhook-recovery",
+    )
+)
+broker.add_middleware(
+    BillingProviderReconciliationSchedulerMiddleware(
+        enabled=_settings.billing_provider_reconciliation_scheduling_enabled,
+        interval_seconds=(_settings.billing_provider_reconciliation_interval_seconds),
+        redis_url=_settings.redis_url,
+        enqueue=reconcile_billing_provider.send,
+        scheduler_key="scheduler:billing:provider-reconciliation:v1",
+        scheduler_name="billing-provider",
     )
 )
 broker.add_middleware(

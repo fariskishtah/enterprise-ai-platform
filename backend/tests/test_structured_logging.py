@@ -141,6 +141,8 @@ def test_log_sanitizer_redacts_authentication_and_session_material() -> None:
         "refresh-secret",
         "api-secret",
         "session-secret",
+        "query-token-secret",
+        "provider-transaction-secret",
     )
     message = "\n".join(
         (
@@ -152,12 +154,18 @@ def test_log_sanitizer_redacts_authentication_and_session_material() -> None:
             f'refresh-token="{sensitive_values[5]}"',
             f"X-API-Key: {sensitive_values[6]}",
             f'session_id="{sensitive_values[7]}"',
+            f"https://accept.paymob.com/inquiry?token={sensitive_values[8]}",
+            (
+                "https://accept.paymob.com/api/acceptance/transactions/"
+                f"{sensitive_values[9]}"
+            ),
         )
     )
 
     rendered = sanitize_log_text(message)
 
-    assert rendered.count("[REDACTED]") == len(sensitive_values)
+    assert rendered.count("[REDACTED]") == len(sensitive_values) - 1
+    assert "[REDACTED_ID]" in rendered
     for sensitive in sensitive_values:
         assert sensitive not in rendered
 
