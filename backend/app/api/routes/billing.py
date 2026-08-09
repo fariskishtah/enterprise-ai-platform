@@ -112,8 +112,8 @@ def _service(
             ),
             provider_integration_id=settings.paymob_integration_id,
             provider_merchant_id=(
-                str(settings.paymob_merchant_id)
-                if settings.paymob_merchant_id is not None
+                str(settings.paymob_expected_callback_owner)
+                if settings.paymob_expected_callback_owner is not None
                 else None
             ),
             provider_source_types=tuple(

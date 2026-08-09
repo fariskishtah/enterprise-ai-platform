@@ -74,7 +74,9 @@ Sandbox deployment uses:
 - `PAYMENT_PROVIDER=paymob`
 - `PAYMOB_SECRET_KEY`, `PAYMOB_PUBLIC_KEY`, and `PAYMOB_HMAC_SECRET`
 - `PAYMOB_INTEGRATION_ID`
-- `PAYMOB_MERCHANT_ID` (the callback `owner` identifier for the sandbox merchant)
+- `PAYMOB_EXPECTED_CALLBACK_OWNER` (the expected HMAC-authenticated Transaction
+  Processed Callback `obj.owner` value; it is not assumed to be the Dashboard
+  MID)
 - `PAYMOB_BASE_URL=https://accept.paymob.com` for Egypt
 - public `PAYMOB_WEBHOOK_URL`, `PAYMENT_SUCCESS_URL`, and
   `PAYMENT_FAILURE_URL`
@@ -97,7 +99,7 @@ PAYMOB_SECRET_KEY=<sandbox-secret-key>
 PAYMOB_PUBLIC_KEY=<sandbox-public-key>
 PAYMOB_HMAC_SECRET=<sandbox-hmac-secret>
 PAYMOB_INTEGRATION_ID=<sandbox-payment-method-integration-id>
-PAYMOB_MERCHANT_ID=<sandbox-callback-owner-id>
+PAYMOB_EXPECTED_CALLBACK_OWNER=<sandbox-callback-owner-id>
 PAYMOB_BASE_URL=https://accept.paymob.com
 PAYMOB_WEBHOOK_URL=https://<isolated-api-host>/billing/webhooks/paymob
 PAYMENT_SUCCESS_URL=https://<isolated-app-host>/settings/billing/return
@@ -108,6 +110,24 @@ BILLING_COMMERCIAL_MODEL=prepaid_manual_renewal
 BILLING_CHECKOUT_EXPIRY_MINUTES=30
 BILLING_RETURN_REFERENCE_EXPIRY_MINUTES=60
 ```
+
+`PAYMOB_MERCHANT_ID` remains an input-only deprecated fallback for existing
+deployments. `PAYMOB_EXPECTED_CALLBACK_OWNER` is canonical and takes precedence
+when both are present. Operators must not infer the canonical value from a field
+named Dashboard MID without an accepted provider identifier contract.
+
+At checkout creation, the resolved expected callback owner is stored in the
+payment's existing `provider_merchant_id` column as immutable audit evidence.
+Webhook ingestion also validates the callback against current account-level
+configuration, and processing revalidates both the current policy and the
+checkout-time snapshot. This deliberately prevents configuration drift from
+silently changing an older payment's provenance contract.
+
+Quarantine outcomes are intentionally distinct without another schema change.
+`quarantined_invalid_hmac` is crypto-invalid evidence. Integration, environment,
+owner, amount, and currency mismatches are HMAC-authenticated business-rule or
+configuration quarantines. Both classes remain terminal and fail closed, and a
+wrong-owner event is never eligible for replay or subscription activation.
 
 `PAYMOB_API_KEY` and `PAYMOB_IFRAME_ID` are not used by the Phase 2 Intention
 checkout. No provider-transaction query endpoint is claimed ready; the Paymob

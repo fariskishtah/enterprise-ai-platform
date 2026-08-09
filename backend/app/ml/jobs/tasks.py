@@ -197,8 +197,8 @@ def process_billing_webhook(event_id: str) -> None:
                 environment=("sandbox" if _settings.payment_sandbox_mode else "live"),
                 provider_integration_id=_settings.paymob_integration_id,
                 provider_merchant_id=(
-                    str(_settings.paymob_merchant_id)
-                    if _settings.paymob_merchant_id is not None
+                    str(_settings.paymob_expected_callback_owner)
+                    if _settings.paymob_expected_callback_owner is not None
                     else None
                 ),
                 provider_source_types=tuple(

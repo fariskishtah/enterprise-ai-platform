@@ -29,7 +29,7 @@ def _configuration() -> PaymobConfiguration:
         public_key="pk_test_contract",
         hmac_secret="contract-hmac-secret",
         integration_id=123456,
-        merchant_id=700001,
+        expected_callback_owner=700001,
         base_url="https://accept.paymob.com",
         webhook_url="https://api.example.com/billing/webhooks/paymob",
         success_url="https://app.example.com/settings/billing/return",
@@ -263,7 +263,7 @@ def test_paymob_configuration_requires_complete_environment_and_key_mode(
             "paymob_public_key": "pk_test_contract",
             "paymob_hmac_secret": "hmac-contract",
             "paymob_integration_id": 123456,
-            "paymob_merchant_id": 700001,
+            "paymob_expected_callback_owner": 700001,
             "paymob_webhook_url": "https://api.example.com/billing/webhooks/paymob",
             "payment_success_url": "https://app.example.com/settings/billing/return",
             "payment_failure_url": "https://app.example.com/settings/billing/return",
@@ -304,7 +304,7 @@ def test_production_rejects_any_enabled_payment_provider(settings: Settings) -> 
             "paymob_public_key": "pk_test_contract",
             "paymob_hmac_secret": "hmac-contract",
             "paymob_integration_id": 123456,
-            "paymob_merchant_id": 700001,
+            "paymob_expected_callback_owner": 700001,
             "paymob_webhook_url": "https://api.example.com/billing/webhooks/paymob",
             "payment_success_url": "https://app.example.com/settings/billing/return",
             "payment_failure_url": "https://app.example.com/settings/billing/return",
@@ -313,3 +313,27 @@ def test_production_rejects_any_enabled_payment_provider(settings: Settings) -> 
     )
     with pytest.raises(ValidationError, match="must remain disabled in production"):
         Settings.model_validate(values)
+
+
+def test_expected_callback_owner_uses_canonical_name_with_legacy_fallback(
+    settings: Settings,
+) -> None:
+    values = settings.model_dump()
+    values.pop("paymob_expected_callback_owner", None)
+
+    legacy = Settings.model_validate({**values, "PAYMOB_MERCHANT_ID": 700001})
+    assert legacy.paymob_expected_callback_owner == 700001
+
+    canonical = Settings.model_validate(
+        {**values, "PAYMOB_EXPECTED_CALLBACK_OWNER": 700002}
+    )
+    assert canonical.paymob_expected_callback_owner == 700002
+
+    both = Settings.model_validate(
+        {
+            **values,
+            "PAYMOB_EXPECTED_CALLBACK_OWNER": 700002,
+            "PAYMOB_MERCHANT_ID": 700001,
+        }
+    )
+    assert both.paymob_expected_callback_owner == 700002

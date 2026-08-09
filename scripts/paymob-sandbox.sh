@@ -21,6 +21,8 @@ readonly NGINX_MANAGED_FILENAME="paymob-sandbox.conf"
 readonly NGINX_CERT_DESTINATION="/etc/nginx/paymob-sandbox-certs"
 readonly INGRESS_MARKER="$STATE_DIR/ingress-active"
 readonly TEMPLATE="$REPO_ROOT/infrastructure/nginx/paymob-sandbox-edge.conf.template"
+readonly CALLBACK_OWNER_BOOTSTRAP="$REPO_ROOT/scripts/bootstrap_paymob_sandbox_callback_owner.py"
+readonly CALLBACK_OWNER_CONTAINER_FILE="/tmp/factorymind-paymob-expected-callback-owner"
 readonly DOCKER_BIN="${DOCKER_BIN:-docker}"
 
 DRY_RUN=false
@@ -47,6 +49,7 @@ Read-only actions:
 
 Local/sandbox actions:
   configure          Interactively create .env.paymob-sandbox (secrets hidden).
+  bootstrap-owner    TOKEN: BOOTSTRAP-SANDBOX-CALLBACK-OWNER
   start              TOKEN: START-SANDBOX
   seed               TOKEN: SEED-SANDBOX-USERS
   issue-certificate  TOKEN: ISSUE-SANDBOX-CERTIFICATE
@@ -101,7 +104,8 @@ require_confirmation() {
 }
 
 require_repository() {
-  [[ -f "$REPO_ROOT/docker-compose.paymob-sandbox.yml" && -f "$TEMPLATE" ]] || {
+  [[ -f "$REPO_ROOT/docker-compose.paymob-sandbox.yml" && -f "$TEMPLATE" \
+    && -f "$CALLBACK_OWNER_BOOTSTRAP" ]] || {
     echo "Sandbox deployment files are incomplete." >&2
     exit 1
   }
@@ -375,7 +379,7 @@ configure() {
   paymob_hmac="$HIDDEN_VALUE"
   read_hidden "Paymob sandbox Integration ID: "
   paymob_integration="$HIDDEN_VALUE"
-  read_hidden "Paymob sandbox Merchant Owner ID: "
+  read_hidden "Paymob sandbox expected Transaction Callback obj.owner: "
   paymob_merchant="$HIDDEN_VALUE"
   read_hidden "Let's Encrypt account email: "
   letsencrypt_email="$HIDDEN_VALUE"
@@ -427,7 +431,7 @@ configure() {
   write_env "$next_file" PAYMOB_PUBLIC_KEY "$paymob_public"
   write_env "$next_file" PAYMOB_HMAC_SECRET "$paymob_hmac"
   write_env "$next_file" PAYMOB_INTEGRATION_ID "$paymob_integration"
-  write_env "$next_file" PAYMOB_MERCHANT_ID "$paymob_merchant"
+  write_env "$next_file" PAYMOB_EXPECTED_CALLBACK_OWNER "$paymob_merchant"
   write_env "$next_file" PAYMOB_BASE_URL https://accept.paymob.com
   write_env "$next_file" PAYMOB_WEBHOOK_URL "https://$SANDBOX_DOMAIN/api/billing/webhooks/paymob"
   write_env "$next_file" PAYMENT_SUCCESS_URL "https://$SANDBOX_DOMAIN/settings/billing/return"
@@ -531,6 +535,76 @@ seed_sandbox() {
   unset owner_email owner_password external_email external_password
   unset PAYMOB_SANDBOX_OWNER_EMAIL PAYMOB_SANDBOX_OWNER_PASSWORD
   unset PAYMOB_SANDBOX_EXTERNAL_OWNER_EMAIL PAYMOB_SANDBOX_EXTERNAL_OWNER_PASSWORD
+}
+
+bootstrap_callback_owner() {
+  local backend_id evidence_copy owner_next_file owner line owner_count
+  require_confirmation BOOTSTRAP-SANDBOX-CALLBACK-OWNER
+  require_environment
+  require_repository
+  if [[ "$DRY_RUN" == true ]]; then
+    quote_command bootstrap-sandbox-owner-from-authenticated-evidence
+    return 0
+  fi
+  preflight
+  backend_id="$(sandbox_service_id backend)"
+  [[ "$(inspect_label "$backend_id" com.factorymind.environment)" == paymob-sandbox ]] || {
+    echo "The backend is not owned by the Paymob sandbox." >&2
+    exit 1
+  }
+
+  evidence_copy="$(mktemp)"
+  owner_next_file="$(mktemp "$REPO_ROOT/.env.paymob-sandbox.owner-next.XXXXXX")"
+  cleanup_callback_owner_bootstrap() {
+    "$DOCKER_BIN" exec "$backend_id" rm -f -- \
+      "$CALLBACK_OWNER_CONTAINER_FILE" >/dev/null 2>&1 || true
+    rm -f -- "$evidence_copy" "$owner_next_file"
+  }
+  trap cleanup_callback_owner_bootstrap EXIT
+  "$DOCKER_BIN" exec "$backend_id" rm -f -- \
+    "$CALLBACK_OWNER_CONTAINER_FILE"
+  "$DOCKER_BIN" exec -i "$backend_id" python - <"$CALLBACK_OWNER_BOOTSTRAP"
+  "$DOCKER_BIN" cp \
+    "$backend_id:$CALLBACK_OWNER_CONTAINER_FILE" "$evidence_copy" >/dev/null
+  "$DOCKER_BIN" exec "$backend_id" rm -f -- \
+    "$CALLBACK_OWNER_CONTAINER_FILE"
+
+  owner="$(<"$evidence_copy")"
+  [[ "$owner" =~ ^[1-9][0-9]*$ ]] || {
+    echo "Validated callback-owner evidence was malformed." >&2
+    exit 1
+  }
+  owner_count=0
+  umask 077
+  : >"$owner_next_file"
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    if [[ "$line" == PAYMOB_EXPECTED_CALLBACK_OWNER=* ]]; then
+      owner_count=$((owner_count + 1))
+      [[ "$owner_count" -eq 1 ]] || {
+        echo "The canonical callback-owner setting is duplicated." >&2
+        exit 1
+      }
+      printf "PAYMOB_EXPECTED_CALLBACK_OWNER='%s'\n" "$owner" \
+        >>"$owner_next_file"
+    else
+      printf '%s\n' "$line" >>"$owner_next_file"
+    fi
+  done <"$ENV_FILE"
+  if [[ "$owner_count" -eq 0 ]]; then
+    printf "PAYMOB_EXPECTED_CALLBACK_OWNER='%s'\n" "$owner" \
+      >>"$owner_next_file"
+  fi
+  chmod 600 "$owner_next_file"
+  [[ "$(file_mode "$owner_next_file")" == 600 ]] || {
+    echo "The staged Sandbox environment is not mode 0600." >&2
+    exit 1
+  }
+  mv -f -- "$owner_next_file" "$ENV_FILE"
+  owner_next_file=""
+  unset owner
+  cleanup_callback_owner_bootstrap
+  trap - EXIT
+  echo "Sandbox expected callback owner updated without displaying its value."
 }
 
 mount_source_for_destination() {
@@ -1412,6 +1486,7 @@ case "$action" in
   labels) preflight ;;
   preflight) preflight ;;
   configure) configure ;;
+  bootstrap-owner) bootstrap_callback_owner ;;
   start) start_sandbox ;;
   seed) seed_sandbox ;;
   issue-certificate) issue_certificate ;;

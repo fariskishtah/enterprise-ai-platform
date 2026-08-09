@@ -68,7 +68,7 @@ class PaymobConfiguration:
     currency: str
     sandbox_mode: bool
     timeout_seconds: float
-    merchant_id: int | None = None
+    expected_callback_owner: int | None = None
     allowed_checkout_hosts: tuple[str, ...] = ("accept.paymob.com",)
     supported_source_types: tuple[str, ...] = ("card",)
 
@@ -329,7 +329,9 @@ class PaymobPaymentProvider:
             environment=(
                 "live"
                 if obj.get("is_live") is True
-                else "sandbox" if obj.get("is_live") is False else None
+                else "sandbox"
+                if obj.get("is_live") is False
+                else None
             ),
             merchant_id=(str(obj["owner"]) if obj.get("owner") is not None else None),
             provider_order_id=(
@@ -352,8 +354,9 @@ class PaymobPaymentProvider:
         if not isinstance(is_live, bool) or is_live == self._configuration.sandbox_mode:
             return "quarantined_wrong_environment"
         if (
-            self._configuration.merchant_id is not None
-            and self._integer(obj.get("owner")) != self._configuration.merchant_id
+            self._configuration.expected_callback_owner is not None
+            and self._integer(obj.get("owner"))
+            != self._configuration.expected_callback_owner
         ):
             return "quarantined_wrong_merchant"
         source_type = self._source_type(obj)

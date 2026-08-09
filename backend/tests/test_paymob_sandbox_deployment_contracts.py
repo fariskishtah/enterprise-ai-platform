@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import stat
 import subprocess
+import sys
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, cast
 
+import pytest
 import yaml
 from yaml.nodes import MappingNode, ScalarNode, SequenceNode
 
@@ -20,6 +24,7 @@ _SCRIPT = _ROOT / "scripts/paymob-sandbox.sh"
 _PREPARE_HTTPS = _ROOT / "scripts/prepare-production-https.sh"
 _REVERSE_PROXY_DOCKERFILE = _ROOT / "docker/reverse-proxy/Dockerfile"
 _SEED = _ROOT / "scripts/seed_paymob_sandbox_users.py"
+_OWNER_BOOTSTRAP = _ROOT / "scripts/bootstrap_paymob_sandbox_callback_owner.py"
 _NGINX = _ROOT / "infrastructure/nginx/paymob-sandbox-edge.conf.template"
 _PRODUCTION_NGINX = _ROOT / "infrastructure/nginx/https.conf.template"
 _RUNBOOK = _ROOT / "docs/production/paymob-sandbox-deployment.md"
@@ -48,6 +53,46 @@ _ComposeLoader.add_constructor("!override", _compose_tag)
 
 def _text(path: Path) -> str:
     return path.read_text(encoding="utf-8")
+
+
+def _owner_bootstrap_module() -> Any:
+    spec = importlib.util.spec_from_file_location(
+        "factorymind_paymob_owner_bootstrap", _OWNER_BOOTSTRAP
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def _valid_owner_evidence(module: Any, key: str, owner: str = "700001") -> Any:
+    return module.CallbackOwnerEvidence(
+        evidence_key=key,
+        event_status="quarantined",
+        event_type="transaction.captured",
+        validation_outcome="quarantined_wrong_merchant",
+        safe_validation_outcome="quarantined_wrong_merchant",
+        last_error_category="quarantined_wrong_merchant",
+        attempts=0,
+        queued=False,
+        terminal=True,
+        owner=owner,
+        integration_id=123456,
+        environment="sandbox",
+        decision="succeeded_eligible",
+        state="succeeded",
+        source_type="card",
+        amount_minor=100_000,
+        currency="EGP",
+        payment_present=True,
+        payment_company_matches=True,
+        payment_provider="paymob",
+        payment_integration_id=123456,
+        payment_environment="sandbox",
+        payment_amount_minor=100_000,
+        payment_currency="EGP",
+    )
 
 
 def _yaml(path: Path) -> dict[str, Any]:
@@ -587,7 +632,7 @@ SANDBOX_DOMAIN=factorymind-sandbox.ddnsgeek.com
 EDGE_NETWORK=factorymind-paymob-sandbox-edge
 EDGE_ALIAS=factorymind-paymob-sandbox-upstream
 STATE_DIR={str(state_dir)!r}
-GENERATED_NGINX={str(state_dir / 'nginx/sandbox-vhost.conf')!r}
+GENERATED_NGINX={str(state_dir / "nginx/sandbox-vhost.conf")!r}
 NGINX_INCLUDE_SOURCE={str(include_dir)!r}
 NGINX_INCLUDE_DESTINATION=/etc/nginx/sandbox-conf.d
 NGINX_MANAGED_FILENAME=paymob-sandbox.conf
@@ -617,17 +662,17 @@ network_contains_container() {{
 }}
 preflight() {{ :; }}
 quote_command() {{ :; }}
-{_shell_function('render_nginx', 'require_managed_ingress_layout')}
-{_shell_function('verify_active_sandbox_nginx', 'verify_sandbox_nginx_absent')}
-{_shell_function('verify_sandbox_nginx_absent', 'verify_local_sandbox_tls')}
+{_shell_function("render_nginx", "require_managed_ingress_layout")}
+{_shell_function("verify_active_sandbox_nginx", "verify_sandbox_nginx_absent")}
+{_shell_function("verify_sandbox_nginx_absent", "verify_local_sandbox_tls")}
 verify_local_sandbox_tls() {{
   printf 'local-sni-validation\n' >>"$FAKE_COMMAND_LOG"
   [[ "${{FAIL_STEP:-}}" != sni ]]
 }}
-{_shell_function('activate_ingress', 'refresh_certificate')}
-{_shell_function('deactivate_ingress', 'status')}
+{_shell_function("activate_ingress", "refresh_certificate")}
+{_shell_function("deactivate_ingress", "status")}
 for ((attempt = 0; attempt < {repetitions}; attempt++)); do
-  {('activate_ingress' if action == 'activate' else 'deactivate_ingress')}
+  {("activate_ingress" if action == "activate" else "deactivate_ingress")}
 done
 """,
         encoding="utf-8",
@@ -738,13 +783,16 @@ def test_provider_contract_is_required_and_sandbox_only() -> None:
         "PAYMOB_PUBLIC_KEY",
         "PAYMOB_HMAC_SECRET",
         "PAYMOB_INTEGRATION_ID",
-        "PAYMOB_MERCHANT_ID",
         "PAYMOB_WEBHOOK_URL",
         "PAYMENT_SUCCESS_URL",
         "PAYMENT_FAILURE_URL",
         "BILLING_COMMERCIAL_MODEL",
     ):
         assert ":?" in environment[variable]
+    assert environment["PAYMOB_EXPECTED_CALLBACK_OWNER"] == (
+        "${PAYMOB_EXPECTED_CALLBACK_OWNER:-}"
+    )
+    assert environment["PAYMOB_MERCHANT_ID"] == "${PAYMOB_MERCHANT_ID:-}"
     assert environment["ENVIRONMENT"] == "staging"
     assert environment["APP_ENV"] == "staging"
 
@@ -761,6 +809,7 @@ def test_production_payment_provider_is_hard_disabled_without_credentials() -> N
             "PAYMOB_PUBLIC_KEY",
             "PAYMOB_HMAC_SECRET",
             "PAYMOB_INTEGRATION_ID",
+            "PAYMOB_EXPECTED_CALLBACK_OWNER",
             "PAYMOB_MERCHANT_ID",
         ):
             assert environment[secret_name] == ""
@@ -771,6 +820,88 @@ def test_production_payment_provider_is_hard_disabled_without_credentials() -> N
     assert "PAYMENT_SANDBOX_MODE=true" in production_template
     assert "PAYMENT_PROVIDER=paymob" not in production_template
     assert "Production remains PAYMENT_PROVIDER=disabled" in example
+
+
+def test_callback_owner_bootstrap_requires_consistent_authenticated_evidence() -> None:
+    module = _owner_bootstrap_module()
+    evidence = [
+        _valid_owner_evidence(module, "first"),
+        _valid_owner_evidence(module, "second"),
+    ]
+
+    assert (
+        module.validated_callback_owner(evidence, expected_integration_id=123456)
+        == "700001"
+    )
+
+    with pytest.raises(module.CallbackOwnerEvidenceError, match="owners disagree"):
+        module.validated_callback_owner(
+            [evidence[0], _valid_owner_evidence(module, "other", "700002")],
+            expected_integration_id=123456,
+        )
+    with pytest.raises(module.CallbackOwnerEvidenceError, match="At least two"):
+        module.validated_callback_owner(evidence[:1], expected_integration_id=123456)
+
+
+def test_callback_owner_bootstrap_rejects_unauthenticated_or_mismatched_evidence() -> (
+    None
+):
+    module = _owner_bootstrap_module()
+    valid = _valid_owner_evidence(module, "valid")
+    invalid = _valid_owner_evidence(module, "invalid")
+    invalid = replace(
+        invalid,
+        validation_outcome="quarantined_invalid_hmac",
+        safe_validation_outcome="quarantined_invalid_hmac",
+    )
+    with pytest.raises(
+        module.CallbackOwnerEvidenceError, match="authenticated wrong-owner"
+    ):
+        module.validated_callback_owner(
+            [valid, invalid], expected_integration_id=123456
+        )
+
+    wrong_quote = _valid_owner_evidence(module, "wrong-quote")
+    wrong_quote = replace(wrong_quote, payment_amount_minor=1)
+    with pytest.raises(
+        module.CallbackOwnerEvidenceError, match="payment binding is inconsistent"
+    ):
+        module.validated_callback_owner(
+            [valid, wrong_quote], expected_integration_id=123456
+        )
+
+
+def test_callback_owner_bootstrap_refuses_production_runtime() -> None:
+    module = _owner_bootstrap_module()
+    with pytest.raises(module.CallbackOwnerEvidenceError, match="Production"):
+        module.validate_sandbox_runtime(
+            environment="production",
+            app_environment="production",
+            payment_provider="disabled",
+            sandbox_mode=False,
+            database_name="production",
+        )
+
+
+def test_callback_owner_bootstrap_updates_only_canonical_sandbox_key() -> None:
+    script = _text(_SCRIPT)
+    helper = _text(_OWNER_BOOTSTRAP)
+    function = script.split("bootstrap_callback_owner()", maxsplit=1)[1].split(
+        "mount_source_for_destination()", maxsplit=1
+    )[0]
+
+    assert "require_confirmation BOOTSTRAP-SANDBOX-CALLBACK-OWNER" in function
+    assert "sandbox_service_id backend" in function
+    assert "com.factorymind.environment" in function
+    assert "PAYMOB_EXPECTED_CALLBACK_OWNER=" in function
+    assert "PAYMOB_MERCHANT_ID=" not in function
+    assert "configure" not in function
+    assert "replay" not in function.lower()
+    assert ".env.production" not in function
+    assert 'chmod 600 "$owner_next_file"' in function
+    assert 'mv -f -- "$owner_next_file" "$ENV_FILE"' in function
+    assert "print(owner" not in helper
+    assert "factorymind_paymob_sandbox" in helper
 
 
 def test_shared_edge_uses_an_isolated_include_and_certificate_mount() -> None:
@@ -1198,9 +1329,9 @@ def test_shared_redis_network_is_rejected(tmp_path: Path) -> None:
 
 def test_shared_redis_volume_is_rejected(tmp_path: Path) -> None:
     state = _redis_isolation_state()
-    state["containers"]["sandbox-redis"][
-        "volume"
-    ] = "ai-manufacturing-platform_redis-data"
+    state["containers"]["sandbox-redis"]["volume"] = (
+        "ai-manufacturing-platform_redis-data"
+    )
 
     result = _run_redis_isolation_probe(tmp_path, state)
 
@@ -1283,9 +1414,9 @@ def test_redis_identity_verifier_never_prints_url_credentials(
     tmp_path: Path,
 ) -> None:
     state = _redis_isolation_state()
-    state["urls"][
-        "production-backend"
-    ] = "redis://production:production-password@redis:6379/0"
+    state["urls"]["production-backend"] = (
+        "redis://production:production-password@redis:6379/0"
+    )
     state["urls"]["sandbox-backend"] = "redis://sandbox:sandbox-password@redis:6379/0"
     state["resolved_ips"]["sandbox-backend"] = "172.28.0.99"
 
@@ -1302,6 +1433,7 @@ def test_mutating_actions_are_separate_and_confirmation_guarded() -> None:
     script = _text(_SCRIPT)
 
     for token in (
+        "BOOTSTRAP-SANDBOX-CALLBACK-OWNER",
         "START-SANDBOX",
         "SEED-SANDBOX-USERS",
         "ISSUE-SANDBOX-CERTIFICATE",
@@ -1313,6 +1445,7 @@ def test_mutating_actions_are_separate_and_confirmation_guarded() -> None:
     ):
         assert f"require_confirmation {token}" in script
     assert "activate-ingress) activate_ingress" in script
+    assert "bootstrap-owner) bootstrap_callback_owner" in script
     assert "issue-certificate) issue_certificate" in script
     assert "purge-volumes) purge_volumes" in script
     assert "com.factorymind.environment=paymob-sandbox" in script
@@ -1351,6 +1484,11 @@ def test_secret_configuration_is_hidden_atomic_and_mode_0600() -> None:
     assert 'next_file="$ENV_FILE.next"' in script
     assert 'chmod 600 "$next_file"' in script
     assert 'mv -f -- "$next_file" "$ENV_FILE"' in script
+    configure = script.split("configure()", maxsplit=1)[1].split(
+        "ensure_edge_network()", maxsplit=1
+    )[0]
+    assert 'write_env "$next_file" PAYMOB_EXPECTED_CALLBACK_OWNER' in configure
+    assert 'write_env "$next_file" PAYMOB_MERCHANT_ID' not in configure
     assert "set -x" not in script
     assert "Live Paymob key prefixes are forbidden" in script
     assert "Sandbox environment created without displaying secret values" in script

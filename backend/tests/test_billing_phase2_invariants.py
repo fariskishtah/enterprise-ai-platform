@@ -59,7 +59,7 @@ def _configuration(*, sandbox_mode: bool = True) -> PaymobConfiguration:
         public_key="pk_test_phase2",
         hmac_secret="phase2-hmac-secret",
         integration_id=123456,
-        merchant_id=700001,
+        expected_callback_owner=700001,
         base_url="https://accept.paymob.com",
         webhook_url="https://api.example.test/billing/webhooks/paymob",
         success_url="https://app.example.test/settings/billing/return",
@@ -116,6 +116,9 @@ def test_callback_is_bound_to_integration_environment_and_merchant() -> None:
 
     wrong_merchant = _parse(_transaction(owner=999999))
     assert wrong_merchant.validation_outcome == "quarantined_wrong_merchant"
+
+    missing_owner = _parse(_transaction(owner=None))
+    assert missing_owner.validation_outcome == "quarantined_wrong_merchant"
 
 
 def test_success_requires_capture_eligible_semantics() -> None:

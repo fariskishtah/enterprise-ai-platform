@@ -48,6 +48,9 @@ PAYMOB_SECRET_KEY=
 PAYMOB_PUBLIC_KEY=
 PAYMOB_HMAC_SECRET=
 PAYMOB_INTEGRATION_ID=
+PAYMOB_EXPECTED_CALLBACK_OWNER=
+# Deprecated fallback only; the canonical value is callback obj.owner, not an
+# assumed Dashboard MID.
 PAYMOB_MERCHANT_ID=
 PAYMOB_IFRAME_ID=
 PAYMOB_BASE_URL=https://accept.paymob.com

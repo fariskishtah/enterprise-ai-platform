@@ -155,7 +155,15 @@ class Settings(BaseSettings):
     paymob_public_key: SecretStr | None = None
     paymob_hmac_secret: SecretStr | None = None
     paymob_integration_id: PositiveInt | None = None
-    paymob_merchant_id: PositiveInt | None = None
+    paymob_expected_callback_owner: PositiveInt | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "PAYMOB_EXPECTED_CALLBACK_OWNER",
+            "paymob_expected_callback_owner",
+            "PAYMOB_MERCHANT_ID",
+            "paymob_merchant_id",
+        ),
+    )
     paymob_iframe_id: PositiveInt | None = None
     paymob_base_url: str = "https://accept.paymob.com"
     paymob_webhook_url: str | None = None
@@ -621,7 +629,7 @@ class Settings(BaseSettings):
                 "paymob_public_key": self.paymob_public_key,
                 "paymob_hmac_secret": self.paymob_hmac_secret,
                 "paymob_integration_id": self.paymob_integration_id,
-                "paymob_merchant_id": self.paymob_merchant_id,
+                "paymob_expected_callback_owner": (self.paymob_expected_callback_owner),
                 "paymob_webhook_url": self.paymob_webhook_url,
                 "payment_success_url": self.payment_success_url,
                 "payment_failure_url": self.payment_failure_url,

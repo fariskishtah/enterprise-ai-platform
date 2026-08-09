@@ -92,6 +92,26 @@ arguments or output. An existing environment file is not replaced without:
 `PAYMOB_API_KEY` and `PAYMOB_IFRAME_ID` are not used by the current Intention
 adapter.
 
+`PAYMOB_EXPECTED_CALLBACK_OWNER` is the expected HMAC-authenticated Transaction
+Processed Callback `obj.owner` value. It is not assumed to be the Dashboard MID.
+`PAYMOB_MERCHANT_ID` is a deprecated fallback; the canonical key takes precedence
+when both exist.
+
+For an existing Sandbox that already has at least two distinct, terminal
+`quarantined_wrong_merchant` captured-success callbacks, the owner can be staged
+from persisted card-free evidence without displaying it:
+
+```bash
+./scripts/paymob-sandbox.sh bootstrap-owner \
+  --confirm BOOTSTRAP-SANDBOX-CALLBACK-OWNER
+```
+
+The command verifies the Sandbox database identity, runtime mode, callback and
+payment integration/environment/amount/currency bindings, identical numeric
+owners, and at least two distinct events. It updates only
+`PAYMOB_EXPECTED_CALLBACK_OWNER` in `.env.paymob-sandbox`, preserves mode `0600`,
+does not run `configure`, and never changes or replays webhook or payment rows.
+
 ## Start, migrate, and seed
 
 Starting the stack does not activate public ingress:
@@ -127,8 +147,8 @@ Use test mode and the intended Egypt card integration only.
 
 The Intention API sends the processed callback in `notification_url` and a
 per-payment browser return with opaque `state` in `redirection_url`. Do not add a
-fixed HMAC query value. Integration ID, merchant owner ID, environment, source,
-amount, and currency must match the local payment contract.
+fixed HMAC query value. Integration ID, expected callback `obj.owner`,
+environment, source, amount, and currency must match the local payment contract.
 
 ## Certificate and ingress approval gates
 
