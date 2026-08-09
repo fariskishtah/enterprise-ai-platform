@@ -300,6 +300,14 @@ def _certificate_stage_function() -> str:
     )[1].split("issue_certificate()", maxsplit=1)[0]
 
 
+def _shell_function(function_name: str, next_function_name: str) -> str:
+    script = _text(_SCRIPT)
+    marker = f"{function_name}()"
+    return marker + script.split(marker, maxsplit=1)[1].split(
+        f"{next_function_name}()", maxsplit=1
+    )[0]
+
+
 def _run_certificate_stage_probe(
     tmp_path: Path,
     *,
@@ -397,6 +405,235 @@ done
         "fullchain": target_dir / "fullchain.pem",
         "private_key": target_dir / "privkey.pem",
         "target_dir": target_dir,
+    }
+
+
+def _run_ingress_probe(
+    tmp_path: Path,
+    *,
+    action: str = "activate",
+    repetitions: int = 1,
+    fail_step: str = "",
+    missing_certificate: bool = False,
+    previous_config: str = "",
+) -> tuple[subprocess.CompletedProcess[str], dict[str, Path]]:
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    command_log = tmp_path / "commands.log"
+    edge_state = tmp_path / "production-edge-connected"
+    nginx_test_count = tmp_path / "nginx-test-count"
+    reload_count = tmp_path / "reload-count"
+    state_dir = tmp_path / ".deployment/paymob-sandbox"
+    include_dir = tmp_path / ".deployment/https/sandbox-conf.d"
+    certificate_dir = state_dir / "https/certs"
+    production_certificate_dir = tmp_path / ".deployment/https/certs"
+    include_dir.mkdir(parents=True)
+    certificate_dir.mkdir(parents=True)
+    production_certificate_dir.mkdir(parents=True)
+    (certificate_dir / "fullchain.pem").write_text(
+        "sandbox-fullchain-never-print\n", encoding="utf-8"
+    )
+    (certificate_dir / "privkey.pem").write_text(
+        "sandbox-private-key-never-print\n", encoding="utf-8"
+    )
+    if missing_certificate:
+        (certificate_dir / "privkey.pem").unlink()
+    production_default = tmp_path / "production-default.conf"
+    production_default.write_text("production-default-unchanged\n", encoding="utf-8")
+    production_fullchain = production_certificate_dir / "fullchain.pem"
+    production_private_key = production_certificate_dir / "privkey.pem"
+    production_fullchain.write_text(
+        "production-fullchain-unchanged\n", encoding="utf-8"
+    )
+    production_private_key.write_text(
+        "production-private-key-never-print\n", encoding="utf-8"
+    )
+    managed_config = include_dir / "paymob-sandbox.conf"
+    ingress_marker = state_dir / "ingress-active"
+    if previous_config:
+        managed_config.write_text(previous_config, encoding="utf-8")
+    if action == "deactivate":
+        managed_config.write_text(
+            _text(_NGINX).replace(
+                "__SANDBOX_DOMAIN__", "factorymind-sandbox.ddnsgeek.com"
+            ),
+            encoding="utf-8",
+        )
+        ingress_marker.parent.mkdir(parents=True, exist_ok=True)
+        ingress_marker.touch()
+        edge_state.touch()
+        (include_dir / "unrelated.conf").write_text(
+            "# unrelated managed include\n", encoding="utf-8"
+        )
+
+    fake_sudo = fake_bin / "sudo"
+    fake_sudo.write_text(
+        """#!/usr/bin/env bash
+set -eu
+printf 'sudo' >>"$FAKE_COMMAND_LOG"
+printf ' %q' "$@" >>"$FAKE_COMMAND_LOG"
+printf '\n' >>"$FAKE_COMMAND_LOG"
+"$@"
+""",
+        encoding="utf-8",
+    )
+    fake_sudo.chmod(0o755)
+    fake_docker = fake_bin / "docker"
+    fake_docker.write_text(
+        """#!/usr/bin/env bash
+set -eu
+printf 'docker' >>"$FAKE_COMMAND_LOG"
+printf ' %q' "$@" >>"$FAKE_COMMAND_LOG"
+printf '\n' >>"$FAKE_COMMAND_LOG"
+command_name="$1"
+shift
+case "$command_name" in
+  network)
+    operation="$1"
+    shift
+    case "$operation" in
+      connect) touch "$FAKE_EDGE_STATE" ;;
+      disconnect) rm -f -- "$FAKE_EDGE_STATE" ;;
+      *) exit 2 ;;
+    esac
+    ;;
+  exec)
+    container="$1"
+    shift
+    [[ "$container" == production-proxy ]] || exit 2
+    if [[ "$1" == /bin/sh ]]; then
+      [[ "${FAIL_STEP:-}" != upstream ]]
+      exit
+    fi
+    [[ "$1" == nginx ]] || exit 2
+    shift
+    case "$1" in
+      -t)
+        if [[ " $* " == *" -c "* ]]; then
+          [[ "${FAIL_STEP:-}" != candidate_validation ]]
+          exit
+        fi
+        count=0
+        [[ ! -f "$FAKE_NGINX_TEST_COUNT" ]] || count="$(cat "$FAKE_NGINX_TEST_COUNT")"
+        count=$((count + 1))
+        printf '%s\n' "$count" >"$FAKE_NGINX_TEST_COUNT"
+        if [[ "${FAIL_STEP:-}" == active_validation && "$count" -eq 1 ]]; then
+          exit 1
+        fi
+        ;;
+      -s)
+        count=0
+        [[ ! -f "$FAKE_RELOAD_COUNT" ]] || count="$(cat "$FAKE_RELOAD_COUNT")"
+        count=$((count + 1))
+        printf '%s\n' "$count" >"$FAKE_RELOAD_COUNT"
+        if [[ "${FAIL_STEP:-}" == reload && "$count" -eq 1 ]]; then
+          exit 1
+        fi
+        ;;
+      -T)
+        printf '# configuration file /etc/nginx/conf.d/default.conf:\n'
+        cat "$FAKE_PRODUCTION_DEFAULT"
+        if [[ "${FAIL_STEP:-}" != active_config_missing && -f "$FAKE_MANAGED_CONFIG" ]]; then
+          printf '# configuration file /etc/nginx/sandbox-conf.d/paymob-sandbox.conf:\n'
+          cat "$FAKE_MANAGED_CONFIG"
+        fi
+        ;;
+      *) exit 2 ;;
+    esac
+    ;;
+  *) exit 2 ;;
+esac
+""",
+        encoding="utf-8",
+    )
+    fake_docker.chmod(0o755)
+
+    probe = tmp_path / "ingress-probe.sh"
+    probe.write_text(
+        f"""#!/usr/bin/env bash
+set -Eeuo pipefail
+DRY_RUN=false
+CONFIRMATION={('ACTIVATE-SANDBOX-INGRESS' if action == 'activate' else 'DEACTIVATE-SANDBOX-INGRESS')!r}
+DOCKER_BIN={str(fake_docker)!r}
+PRODUCTION_PROXY_ID=production-proxy
+SANDBOX_DOMAIN=factorymind-sandbox.ddnsgeek.com
+EDGE_NETWORK=factorymind-paymob-sandbox-edge
+EDGE_ALIAS=factorymind-paymob-sandbox-upstream
+STATE_DIR={str(state_dir)!r}
+GENERATED_NGINX={str(state_dir / 'nginx/sandbox-vhost.conf')!r}
+NGINX_INCLUDE_SOURCE={str(include_dir)!r}
+NGINX_INCLUDE_DESTINATION=/etc/nginx/sandbox-conf.d
+NGINX_MANAGED_FILENAME=paymob-sandbox.conf
+NGINX_CERT_DESTINATION=/etc/nginx/paymob-sandbox-certs
+INGRESS_MARKER={str(ingress_marker)!r}
+TEMPLATE={str(_NGINX)!r}
+require_confirmation() {{ [[ "$CONFIRMATION" == "$1" ]]; }}
+require_environment() {{ :; }}
+verify_isolation() {{
+  printf 'verify-isolation %s\n' "$*" >>"$FAKE_COMMAND_LOG"
+  [[ "${{FAIL_STEP:-}}" != isolation ]]
+}}
+require_sandbox_services_ready() {{
+  printf 'sandbox-services-ready\n' >>"$FAKE_COMMAND_LOG"
+  [[ "${{FAIL_STEP:-}}" != health ]]
+}}
+sandbox_proxy_id() {{ printf 'sandbox-proxy'; }}
+ensure_edge_network() {{ :; }}
+require_managed_ingress_layout() {{
+  printf '%s\n%s\n' {str(include_dir)!r} {str(certificate_dir)!r}
+}}
+network_contains_container() {{
+  if [[ "$2" == sandbox-proxy ]]; then
+    return 0
+  fi
+  [[ -f "$FAKE_EDGE_STATE" ]]
+}}
+preflight() {{ :; }}
+quote_command() {{ :; }}
+{_shell_function('render_nginx', 'require_managed_ingress_layout')}
+{_shell_function('verify_active_sandbox_nginx', 'verify_sandbox_nginx_absent')}
+{_shell_function('verify_sandbox_nginx_absent', 'verify_local_sandbox_tls')}
+verify_local_sandbox_tls() {{
+  printf 'local-sni-validation\n' >>"$FAKE_COMMAND_LOG"
+  [[ "${{FAIL_STEP:-}}" != sni ]]
+}}
+{_shell_function('activate_ingress', 'refresh_certificate')}
+{_shell_function('deactivate_ingress', 'status')}
+for ((attempt = 0; attempt < {repetitions}; attempt++)); do
+  {('activate_ingress' if action == 'activate' else 'deactivate_ingress')}
+done
+""",
+        encoding="utf-8",
+    )
+    environment = os.environ.copy()
+    environment["PATH"] = os.pathsep.join(
+        (str(fake_bin), "/usr/bin", "/bin")
+    )
+    environment["FAIL_STEP"] = fail_step
+    environment["FAKE_COMMAND_LOG"] = str(command_log)
+    environment["FAKE_EDGE_STATE"] = str(edge_state)
+    environment["FAKE_MANAGED_CONFIG"] = str(managed_config)
+    environment["FAKE_NGINX_TEST_COUNT"] = str(nginx_test_count)
+    environment["FAKE_RELOAD_COUNT"] = str(reload_count)
+    environment["FAKE_PRODUCTION_DEFAULT"] = str(production_default)
+    result = subprocess.run(
+        ["bash", str(probe)],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=environment,
+    )
+    return result, {
+        "command_log": command_log,
+        "edge_state": edge_state,
+        "include_dir": include_dir,
+        "ingress_marker": ingress_marker,
+        "managed_config": managed_config,
+        "production_default": production_default,
+        "production_fullchain": production_fullchain,
+        "production_private_key": production_private_key,
+        "reload_count": reload_count,
     }
 
 
@@ -635,19 +872,179 @@ def test_ingress_activation_never_replaces_production_configuration() -> None:
     assert 'NGINX_INCLUDE_DESTINATION="/etc/nginx/sandbox-conf.d"' in script
     assert 'NGINX_MANAGED_FILENAME="paymob-sandbox.conf"' in script
     assert "require_managed_ingress_layout" in activation
-    assert 'sudo mv -- "$managed_config.next" "$managed_config"' in activation
-    assert 'sudo rm -f -- "$managed_config" "$managed_config.next"' in activation
+    assert 'candidate_config="$managed_config.next"' in activation
+    assert 'sudo mv -- "$candidate_config" "$managed_config"' in activation
+    assert 'sudo rm -f -- "$managed_config"' in activation
     assert "nginx -t" in activation
     assert "nginx -s reload" in activation
     assert activation.index("nginx -t") < activation.index("nginx -s reload")
     assert "/etc/nginx/conf.d/default.conf" not in activation
     assert "NGINX_BACKUP" not in script
-    assert 'cmp -s "$GENERATED_NGINX" "$managed_config"' in activation
+    assert "verify_active_sandbox_nginx" in activation
+    assert "verify_local_sandbox_tls" in activation
+    assert "rollback_activation" in activation
+    assert 'sudo mv -f -- "$backup_config" "$managed_config"' in activation
     assert 'sudo rm -- "$managed_config"' in deactivation
     assert "/etc/nginx/conf.d/default.conf" not in deactivation
     assert "certificate-backup" in refresh
     assert "rollback_certificate_refresh" in refresh
     assert "trap rollback_certificate_refresh ERR" in refresh
+
+
+def test_ingress_activation_installs_exact_managed_sandbox_vhost(
+    tmp_path: Path,
+) -> None:
+    result, paths = _run_ingress_probe(tmp_path)
+    managed_config = _text(paths["managed_config"])
+    output = result.stdout + result.stderr
+
+    assert result.returncode == 0
+    assert sorted(path.name for path in paths["include_dir"].iterdir()) == [
+        "paymob-sandbox.conf"
+    ]
+    assert "server_name factorymind-sandbox.ddnsgeek.com;" in managed_config
+    assert (
+        "ssl_certificate /etc/nginx/paymob-sandbox-certs/fullchain.pem;"
+        in managed_config
+    )
+    assert (
+        "ssl_certificate_key /etc/nginx/paymob-sandbox-certs/privkey.pem;"
+        in managed_config
+    )
+    assert (
+        "proxy_pass http://factorymind-paymob-sandbox-upstream:8080;"
+        in managed_config
+    )
+    assert "/etc/letsencrypt/" not in managed_config
+    assert "proxy_pass http://backend" not in managed_config
+    assert "proxy_pass http://frontend" not in managed_config
+    assert paths["ingress_marker"].is_file()
+    assert "sandbox-private-key-never-print" not in output
+    assert "production-private-key-never-print" not in output
+
+
+def test_ingress_activation_checks_isolation_health_dns_nginx_and_sni(
+    tmp_path: Path,
+) -> None:
+    result, paths = _run_ingress_probe(tmp_path)
+    command_log = _text(paths["command_log"])
+
+    assert result.returncode == 0
+    assert "verify-isolation false" in command_log
+    assert "sandbox-services-ready" in command_log
+    assert "getent\\ hosts" in command_log
+    assert "factorymind-paymob-sandbox-upstream" in command_log
+    assert "paymob-sandbox.conf.validation" in command_log
+    assert "nginx -t" in command_log
+    assert "nginx -s reload" in command_log
+    assert "nginx -T" in command_log
+    assert "local-sni-validation" in command_log
+
+
+def test_ingress_activation_fails_before_install_for_missing_cert_or_isolation(
+    tmp_path: Path,
+) -> None:
+    missing_certificate, missing_paths = _run_ingress_probe(
+        tmp_path / "missing-certificate",
+        missing_certificate=True,
+    )
+    failed_isolation, isolation_paths = _run_ingress_probe(
+        tmp_path / "failed-isolation",
+        fail_step="isolation",
+    )
+
+    assert missing_certificate.returncode != 0
+    assert failed_isolation.returncode != 0
+    assert not missing_paths["managed_config"].exists()
+    assert not isolation_paths["managed_config"].exists()
+    assert "Issue and stage the sandbox certificate" in missing_certificate.stderr
+    assert "nginx -s reload" not in _text(isolation_paths["command_log"])
+
+
+def test_ingress_activation_rolls_back_new_config_for_any_validation_failure(
+    tmp_path: Path,
+) -> None:
+    for fail_step in (
+        "candidate_validation",
+        "active_validation",
+        "reload",
+        "active_config_missing",
+        "sni",
+    ):
+        result, paths = _run_ingress_probe(
+            tmp_path / fail_step,
+            fail_step=fail_step,
+        )
+
+        assert result.returncode != 0
+        assert not paths["managed_config"].exists()
+        assert not paths["ingress_marker"].exists()
+        assert "rollback validation passed" in result.stderr
+
+
+def test_ingress_activation_restores_previous_config_after_failed_update(
+    tmp_path: Path,
+) -> None:
+    previous_config = "# previous Sandbox managed config\n"
+    result, paths = _run_ingress_probe(
+        tmp_path,
+        fail_step="active_validation",
+        previous_config=previous_config,
+    )
+
+    assert result.returncode != 0
+    assert _text(paths["managed_config"]) == previous_config
+    assert "rollback validation passed" in result.stderr
+
+
+def test_ingress_activation_is_idempotent_and_never_changes_production_files(
+    tmp_path: Path,
+) -> None:
+    result, paths = _run_ingress_probe(tmp_path, repetitions=2)
+    output = result.stdout + result.stderr
+
+    assert result.returncode == 0
+    assert _text(paths["reload_count"]) == "2\n"
+    assert _text(paths["production_default"]) == "production-default-unchanged\n"
+    assert _text(paths["production_fullchain"]) == (
+        "production-fullchain-unchanged\n"
+    )
+    assert _text(paths["production_private_key"]) == (
+        "production-private-key-never-print\n"
+    )
+    assert "sandbox-private-key-never-print" not in output
+    assert "production-private-key-never-print" not in output
+
+
+def test_ingress_deactivation_removes_only_managed_config(tmp_path: Path) -> None:
+    result, paths = _run_ingress_probe(tmp_path, action="deactivate")
+
+    assert result.returncode == 0
+    assert not paths["managed_config"].exists()
+    assert not paths["ingress_marker"].exists()
+    assert (paths["include_dir"] / "unrelated.conf").is_file()
+    assert not paths["edge_state"].exists()
+    assert _text(paths["production_default"]) == "production-default-unchanged\n"
+    assert _text(paths["production_private_key"]) == (
+        "production-private-key-never-print\n"
+    )
+
+
+def test_ingress_deactivation_restores_only_managed_config_on_failure(
+    tmp_path: Path,
+) -> None:
+    result, paths = _run_ingress_probe(
+        tmp_path,
+        action="deactivate",
+        fail_step="active_validation",
+    )
+
+    assert result.returncode != 0
+    assert paths["managed_config"].is_file()
+    assert paths["ingress_marker"].is_file()
+    assert paths["edge_state"].is_file()
+    assert (paths["include_dir"] / "unrelated.conf").is_file()
+    assert "rollback validation passed" in result.stderr
 
 
 def test_https_preparation_precreates_and_validates_managed_mounts() -> None:

@@ -15,6 +15,7 @@ readonly REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 readonly ENV_FILE="$REPO_ROOT/.env.paymob-sandbox"
 readonly STATE_DIR="$REPO_ROOT/.deployment/paymob-sandbox"
 readonly GENERATED_NGINX="$STATE_DIR/nginx/sandbox-vhost.conf"
+readonly NGINX_INCLUDE_SOURCE="$REPO_ROOT/.deployment/https/sandbox-conf.d"
 readonly NGINX_INCLUDE_DESTINATION="/etc/nginx/sandbox-conf.d"
 readonly NGINX_MANAGED_FILENAME="paymob-sandbox.conf"
 readonly NGINX_CERT_DESTINATION="/etc/nginx/paymob-sandbox-certs"
@@ -860,12 +861,21 @@ assert_host_port_owner() {
 }
 
 render_nginx() {
-  mkdir -p "$STATE_DIR/nginx"
-  sed \
+  local temporary_config
+  temporary_config="$(mktemp "${TMPDIR:-/tmp}/paymob-sandbox-nginx.XXXXXX")"
+  if ! sed \
     -e "s/__SANDBOX_DOMAIN__/$SANDBOX_DOMAIN/g" \
-    "$TEMPLATE" >"$GENERATED_NGINX.next"
-  chmod 0644 "$GENERATED_NGINX.next"
-  mv -f -- "$GENERATED_NGINX.next" "$GENERATED_NGINX"
+    "$TEMPLATE" >"$temporary_config"; then
+    rm -f -- "$temporary_config"
+    return 1
+  fi
+  if ! chmod 0644 "$temporary_config" || \
+    ! sudo install -d -m 0750 "$STATE_DIR/nginx" || \
+    ! sudo install -m 0644 "$temporary_config" "$GENERATED_NGINX"; then
+    rm -f -- "$temporary_config"
+    return 1
+  fi
+  rm -f -- "$temporary_config"
 }
 
 require_managed_ingress_layout() {
@@ -892,67 +902,161 @@ network_contains_container() {
     "$container_id" | grep -Fxq "$network"
 }
 
+sandbox_service_is_ready() {
+  local container_id="$1" status
+  status="$("$DOCKER_BIN" inspect --format \
+    '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' \
+    "$container_id")"
+  [[ "$status" == healthy || "$status" == running ]]
+}
+
+require_sandbox_services_ready() {
+  local service container_id
+  for service in backend training-worker frontend postgres redis reverse-proxy; do
+    container_id="$(sandbox_service_id "$service")"
+    sandbox_service_is_ready "$container_id" || {
+      echo "Sandbox service $service is not ready." >&2
+      exit 1
+    }
+  done
+}
+
+verify_active_sandbox_nginx() {
+  local active_config managed_config
+  active_config="$("$DOCKER_BIN" exec "$PRODUCTION_PROXY_ID" nginx -T 2>&1)" || return 1
+  managed_config="$(printf '%s\n' "$active_config" | awk \
+    -v header="# configuration file $NGINX_INCLUDE_DESTINATION/$NGINX_MANAGED_FILENAME:" '
+      $0 == header { active = 1; next }
+      active && /^# configuration file / { exit }
+      active { print }
+    ')"
+  [[ -n "$managed_config" ]] || return 1
+  grep -Fq "server_name $SANDBOX_DOMAIN;" <<<"$managed_config" || return 1
+  grep -Fq "ssl_certificate $NGINX_CERT_DESTINATION/fullchain.pem;" \
+    <<<"$managed_config" || return 1
+  grep -Fq "ssl_certificate_key $NGINX_CERT_DESTINATION/privkey.pem;" \
+    <<<"$managed_config" || return 1
+  grep -Fq "proxy_pass http://$EDGE_ALIAS:8080;" <<<"$managed_config" || return 1
+  ! grep -Fq '/etc/letsencrypt/' <<<"$managed_config" || return 1
+  ! grep -Eq 'proxy_pass http://(backend|frontend)(:|/)' <<<"$managed_config"
+}
+
+verify_sandbox_nginx_absent() {
+  local active_config
+  active_config="$("$DOCKER_BIN" exec "$PRODUCTION_PROXY_ID" nginx -T 2>&1)" || return 1
+  ! grep -Fq \
+    "# configuration file $NGINX_INCLUDE_DESTINATION/$NGINX_MANAGED_FILENAME:" \
+    <<<"$active_config" || return 1
+  ! grep -Fq "server_name $SANDBOX_DOMAIN;" <<<"$active_config"
+}
+
+verify_local_sandbox_tls() {
+  timeout 15 openssl s_client \
+    -connect 127.0.0.1:443 \
+    -servername "$SANDBOX_DOMAIN" \
+    -verify_hostname "$SANDBOX_DOMAIN" \
+    -verify_return_error </dev/null >/dev/null 2>&1
+}
+
 activate_ingress() {
-  local config_mount_source certificate_mount_source managed_config sandbox_proxy
-  local connected_here=false installed_here=false rollback_required=false
+  local config_mount_source certificate_mount_source managed_config mount_source sandbox_proxy
+  local backup_config candidate_config validation_config validation_source marker_next
+  local connected_here=false installed_here=false marker_written=false
+  local had_previous=false was_marked_active=false rollback_required=false
   local ingress_mounts=()
   require_confirmation ACTIVATE-SANDBOX-INGRESS
   require_environment
-  [[ -f "$STATE_DIR/https/certs/fullchain.pem" && -f "$STATE_DIR/https/certs/privkey.pem" ]] || {
+  sudo test -f "$STATE_DIR/https/certs/fullchain.pem" && \
+    sudo test -f "$STATE_DIR/https/certs/privkey.pem" || {
     echo "Issue and stage the sandbox certificate before ingress activation." >&2
     exit 1
   }
-  preflight
+  verify_isolation false
+  require_sandbox_services_ready
   sandbox_proxy="$(sandbox_proxy_id)"
   ensure_edge_network
-  mapfile -t ingress_mounts < <(require_managed_ingress_layout)
+  while IFS= read -r mount_source; do
+    ingress_mounts+=("$mount_source")
+  done < <(require_managed_ingress_layout)
   [[ "${#ingress_mounts[@]}" -eq 2 ]] || exit 1
   config_mount_source="${ingress_mounts[0]}"
   certificate_mount_source="${ingress_mounts[1]}"
   managed_config="$config_mount_source/$NGINX_MANAGED_FILENAME"
-  [[ "$(cd "$certificate_mount_source" && pwd -P)" == \
-    "$(cd "$STATE_DIR/https/certs" && pwd -P)" ]] || {
-    echo "The Sandbox certificate mount does not resolve to the managed state directory." >&2
+  [[ "$(sudo readlink -f -- "$config_mount_source")" == \
+    "$(sudo readlink -f -- "$NGINX_INCLUDE_SOURCE")" ]] || {
+    echo "The Sandbox include mount does not resolve to its managed host directory." >&2
     exit 1
   }
-  render_nginx
-  if [[ -e "$INGRESS_MARKER" ]]; then
-    [[ -f "$managed_config" ]] && cmp -s "$GENERATED_NGINX" "$managed_config" || {
-      echo "Ingress is marked active but the managed Sandbox include differs." >&2
-      exit 1
-    }
-    network_contains_container "$EDGE_NETWORK" "$PRODUCTION_PROXY_ID" &&
-      network_contains_container "$EDGE_NETWORK" "$sandbox_proxy" || {
-      echo "Ingress is marked active but edge membership is incomplete." >&2
-      exit 1
-    }
-    "$DOCKER_BIN" exec "$PRODUCTION_PROXY_ID" nginx -t
-    echo "Sandbox ingress is already active with the approved managed include."
-    return 0
-  fi
-  [[ ! -e "$managed_config" ]] || {
-    echo "An unmanaged Sandbox include exists without an activation marker." >&2
+  [[ "$(sudo readlink -f -- "$certificate_mount_source")" == \
+    "$(sudo readlink -f -- "$STATE_DIR/https/certs")" ]] || {
+    echo "The Sandbox certificate mount does not resolve to the managed state directory." >&2
     exit 1
   }
   if [[ "$DRY_RUN" == true ]]; then
     quote_command docker-network-connect "$EDGE_NETWORK" "$PRODUCTION_PROXY_ID"
-    quote_command install-managed-nginx-include "$GENERATED_NGINX" "$managed_config"
-    quote_command validate-and-reload-production-nginx-without-replacing-default
+    quote_command render-and-validate-managed-nginx-include "$managed_config"
+    quote_command atomically-install-and-reload-sandbox-nginx
+    quote_command verify-active-sandbox-nginx-and-local-sni
     return 0
+  fi
+
+  sudo install -d -m 0755 "$config_mount_source"
+  render_nginx
+  backup_config="$managed_config.rollback"
+  candidate_config="$managed_config.next"
+  validation_config="$managed_config.validation"
+  marker_next="$INGRESS_MARKER.next"
+  validation_source="$(mktemp "${TMPDIR:-/tmp}/paymob-sandbox-validation.XXXXXX")"
+  for temporary_path in \
+    "$backup_config" "$candidate_config" "$validation_config" "$marker_next"; do
+    ! sudo test -e "$temporary_path" || {
+      echo "A stale Sandbox ingress transaction file requires operator review." >&2
+      rm -f -- "$validation_source"
+      exit 1
+    }
+  done
+  sudo test -e "$INGRESS_MARKER" && was_marked_active=true
+  if sudo test -f "$managed_config"; then
+    had_previous=true
+  elif sudo test -e "$managed_config"; then
+    echo "The managed Sandbox include path is not a regular file." >&2
+    rm -f -- "$validation_source"
+    exit 1
   fi
 
   rollback_required=true
   rollback_activation() {
+    local rollback_ok=true
     if [[ "$rollback_required" == true ]]; then
+      rm -f -- "$validation_source" || rollback_ok=false
+      sudo rm -f -- "$validation_config" "$candidate_config" "$marker_next" || \
+        rollback_ok=false
       if [[ "$installed_here" == true ]]; then
-        sudo rm -f -- "$managed_config" "$managed_config.next"
+        if [[ "$had_previous" == true ]] && sudo test -f "$backup_config"; then
+          sudo mv -f -- "$backup_config" "$managed_config" || rollback_ok=false
+        else
+          sudo rm -f -- "$managed_config" || rollback_ok=false
+        fi
+        "$DOCKER_BIN" exec "$PRODUCTION_PROXY_ID" nginx -t >/dev/null 2>&1 || \
+          rollback_ok=false
+        "$DOCKER_BIN" exec "$PRODUCTION_PROXY_ID" nginx -s reload \
+          >/dev/null 2>&1 || rollback_ok=false
+      else
+        sudo rm -f -- "$backup_config" || rollback_ok=false
       fi
-      "$DOCKER_BIN" exec "$PRODUCTION_PROXY_ID" nginx -t >/dev/null 2>&1 || true
-      "$DOCKER_BIN" exec "$PRODUCTION_PROXY_ID" nginx -s reload >/dev/null 2>&1 || true
-      if [[ "$connected_here" == true ]] &&
+      if [[ "$marker_written" == true && "$was_marked_active" == false ]]; then
+        sudo rm -f -- "$INGRESS_MARKER" || rollback_ok=false
+      fi
+      if [[ "$connected_here" == true && "$was_marked_active" == false ]] &&
         network_contains_container "$EDGE_NETWORK" "$PRODUCTION_PROXY_ID"; then
         "$DOCKER_BIN" network disconnect \
-          "$EDGE_NETWORK" "$PRODUCTION_PROXY_ID" >/dev/null 2>&1 || true
+          "$EDGE_NETWORK" "$PRODUCTION_PROXY_ID" >/dev/null 2>&1 || \
+          rollback_ok=false
+      fi
+      if [[ "$rollback_ok" == true ]]; then
+        echo "Sandbox ingress activation failed and rollback validation passed." >&2
+      else
+        echo "Sandbox ingress activation failed and rollback could not be fully validated." >&2
       fi
     fi
   }
@@ -966,12 +1070,47 @@ activate_ingress() {
     echo "Sandbox ingress is not attached to the controlled edge network." >&2
     false
   }
-  sudo install -m 0644 "$GENERATED_NGINX" "$managed_config.next"
-  sudo mv -- "$managed_config.next" "$managed_config"
+  "$DOCKER_BIN" exec "$PRODUCTION_PROXY_ID" /bin/sh -c \
+    'getent hosts "$1" >/dev/null 2>&1 || nslookup "$1" >/dev/null 2>&1' \
+    _ "$EDGE_ALIAS" || {
+    echo "The production proxy cannot resolve the Sandbox upstream." >&2
+    false
+  }
+  if [[ "$had_previous" == true ]]; then
+    sudo cp -p -- "$managed_config" "$backup_config"
+  fi
+  sudo install -m 0644 "$GENERATED_NGINX" "$candidate_config"
+  printf '%s\n' \
+    'error_log stderr notice;' \
+    'pid /tmp/paymob-sandbox-validation.pid;' \
+    'events {}' \
+    "http { include $NGINX_INCLUDE_DESTINATION/$NGINX_MANAGED_FILENAME.next; }" \
+    >"$validation_source"
+  sudo install -m 0644 "$validation_source" "$validation_config"
+  rm -f -- "$validation_source"
+  "$DOCKER_BIN" exec "$PRODUCTION_PROXY_ID" nginx -t \
+    -c "$NGINX_INCLUDE_DESTINATION/$NGINX_MANAGED_FILENAME.validation"
+  sudo rm -- "$validation_config"
+  sudo mv -- "$candidate_config" "$managed_config"
   installed_here=true
   "$DOCKER_BIN" exec "$PRODUCTION_PROXY_ID" nginx -t
   "$DOCKER_BIN" exec "$PRODUCTION_PROXY_ID" nginx -s reload
-  : >"$INGRESS_MARKER"
+  sudo test -f "$managed_config" || {
+    echo "The managed Sandbox include is absent after installation." >&2
+    false
+  }
+  verify_active_sandbox_nginx || {
+    echo "Active Nginx does not contain the approved Sandbox server block." >&2
+    false
+  }
+  verify_local_sandbox_tls || {
+    echo "Local Sandbox SNI validation failed after Nginx reload." >&2
+    false
+  }
+  sudo install -m 0644 /dev/null "$marker_next"
+  sudo mv -f -- "$marker_next" "$INGRESS_MARKER"
+  marker_written=true
+  sudo rm -f -- "$backup_config"
   rollback_required=false
   trap - ERR
   echo "Sandbox ingress activated; production application services were not restarted."
@@ -987,7 +1126,7 @@ refresh_certificate() {
   }
   preflight
   require_managed_ingress_layout >/dev/null
-  run install -d -m 0700 "$certificate_backup"
+  run sudo install -d -m 0700 "$certificate_backup"
   run sudo cp -p -- "$STATE_DIR/https/certs/fullchain.pem" \
     "$certificate_backup/fullchain.pem"
   run sudo cp -p -- "$STATE_DIR/https/certs/privkey.pem" \
@@ -1009,53 +1148,94 @@ refresh_certificate() {
   stage_sandbox_certificate "/etc/letsencrypt/live/$SANDBOX_DOMAIN"
   run "$DOCKER_BIN" exec "$PRODUCTION_PROXY_ID" nginx -t
   run "$DOCKER_BIN" exec "$PRODUCTION_PROXY_ID" nginx -s reload
+  verify_active_sandbox_nginx || {
+    echo "Refreshed certificate is not attached to the approved Sandbox server block." >&2
+    false
+  }
+  verify_local_sandbox_tls || {
+    echo "Local Sandbox SNI validation failed after certificate refresh." >&2
+    false
+  }
   rollback_required=false
   trap - ERR
   echo "Sandbox certificate refreshed; the prior pair remains in the managed backup directory."
 }
 
 deactivate_ingress() {
-  local archived_config config_mount_source managed_config rollback_required=false
+  local config_mount_source managed_config backup_config mount_source sandbox_proxy
+  local disconnected_here=false rollback_required=false
   local ingress_mounts=()
   require_confirmation DEACTIVATE-SANDBOX-INGRESS
   preflight
-  mapfile -t ingress_mounts < <(require_managed_ingress_layout)
+  while IFS= read -r mount_source; do
+    ingress_mounts+=("$mount_source")
+  done < <(require_managed_ingress_layout)
   [[ "${#ingress_mounts[@]}" -eq 2 ]] || exit 1
   config_mount_source="${ingress_mounts[0]}"
   managed_config="$config_mount_source/$NGINX_MANAGED_FILENAME"
-  if [[ ! -e "$INGRESS_MARKER" && ! -e "$managed_config" ]]; then
+  backup_config="$managed_config.deactivate-rollback"
+  if ! sudo test -e "$INGRESS_MARKER" && ! sudo test -e "$managed_config"; then
     echo "Sandbox ingress is already inactive."
     return 0
   fi
-  [[ -e "$INGRESS_MARKER" && -f "$managed_config" ]] || {
+  sudo test -e "$INGRESS_MARKER" && sudo test -f "$managed_config" || {
     echo "Sandbox ingress marker and managed include are inconsistent." >&2
     exit 1
   }
-  archived_config="$STATE_DIR/nginx/sandbox-vhost.deactivated.$(date -u +%Y%m%dT%H%M%SZ).disabled"
+  ! sudo test -e "$backup_config" || {
+    echo "A stale Sandbox deactivation transaction requires operator review." >&2
+    exit 1
+  }
   if [[ "$DRY_RUN" == true ]]; then
     quote_command remove-only-managed-nginx-include "$managed_config"
     quote_command validate-and-reload-production-nginx
     return 0
   fi
-  cp -p -- "$managed_config" "$archived_config"
+  sandbox_proxy="$(sandbox_proxy_id)"
+  sudo cp -p -- "$managed_config" "$backup_config"
   rollback_required=true
   rollback_deactivation() {
-    if [[ "$rollback_required" == true && -f "$archived_config" ]]; then
-      sudo install -m 0644 "$archived_config" "$managed_config"
-      "$DOCKER_BIN" exec "$PRODUCTION_PROXY_ID" nginx -t >/dev/null 2>&1 || true
-      "$DOCKER_BIN" exec "$PRODUCTION_PROXY_ID" nginx -s reload >/dev/null 2>&1 || true
+    local rollback_ok=true
+    if [[ "$rollback_required" == true ]]; then
+      if [[ "$disconnected_here" == true ]] && \
+        ! network_contains_container "$EDGE_NETWORK" "$PRODUCTION_PROXY_ID"; then
+        "$DOCKER_BIN" network connect "$EDGE_NETWORK" "$PRODUCTION_PROXY_ID" \
+          >/dev/null 2>&1 || rollback_ok=false
+      fi
+      if sudo test -f "$backup_config"; then
+        sudo mv -f -- "$backup_config" "$managed_config" || rollback_ok=false
+      fi
+      "$DOCKER_BIN" exec "$PRODUCTION_PROXY_ID" nginx -t >/dev/null 2>&1 || \
+        rollback_ok=false
+      "$DOCKER_BIN" exec "$PRODUCTION_PROXY_ID" nginx -s reload \
+        >/dev/null 2>&1 || rollback_ok=false
+      if [[ "$rollback_ok" == true ]]; then
+        echo "Sandbox ingress deactivation failed and rollback validation passed." >&2
+      else
+        echo "Sandbox ingress deactivation failed and rollback could not be fully validated." >&2
+      fi
     fi
   }
   trap rollback_deactivation ERR
   sudo rm -- "$managed_config"
   "$DOCKER_BIN" exec "$PRODUCTION_PROXY_ID" nginx -t
   "$DOCKER_BIN" exec "$PRODUCTION_PROXY_ID" nginx -s reload
+  verify_sandbox_nginx_absent || {
+    echo "The Sandbox server block remains active after managed include removal." >&2
+    false
+  }
   if network_contains_container "$EDGE_NETWORK" "$PRODUCTION_PROXY_ID"; then
     "$DOCKER_BIN" network disconnect "$EDGE_NETWORK" "$PRODUCTION_PROXY_ID"
+    disconnected_here=true
   fi
-  rm -f -- "$INGRESS_MARKER"
+  network_contains_container "$EDGE_NETWORK" "$sandbox_proxy" || {
+    echo "Sandbox proxy unexpectedly left its controlled edge network." >&2
+    false
+  }
+  sudo rm -- "$INGRESS_MARKER"
   rollback_required=false
   trap - ERR
+  sudo rm -f -- "$backup_config"
   echo "Sandbox Nginx include removed; production configuration was untouched."
 }
 
@@ -1067,6 +1247,7 @@ status() {
 verify_isolation() {
   local sandbox_backend sandbox_postgres sandbox_proxy sandbox_redis
   local production_postgres_volume sandbox_postgres_volume variable sandbox_queue
+  local verify_active_ingress="${1:-true}"
   preflight
   sandbox_backend="$(sandbox_service_id backend)"
   sandbox_postgres="$(sandbox_service_id postgres)"
@@ -1129,10 +1310,18 @@ verify_isolation() {
   assert_host_port_owner 80 "$PRODUCTION_PROXY_ID"
   assert_host_port_owner 443 "$PRODUCTION_PROXY_ID"
   curl --fail --silent --show-error "https://$PRODUCTION_DOMAIN/healthz" >/dev/null
-  if [[ -e "$INGRESS_MARKER" ]]; then
+  if [[ -e "$INGRESS_MARKER" && "$verify_active_ingress" == true ]]; then
     require_managed_ingress_layout >/dev/null
     network_contains_container "$EDGE_NETWORK" "$PRODUCTION_PROXY_ID" || {
       echo "Active ingress lacks production proxy edge membership." >&2
+      exit 1
+    }
+    verify_active_sandbox_nginx || {
+      echo "Active ingress lacks the approved Sandbox Nginx server block." >&2
+      exit 1
+    }
+    verify_local_sandbox_tls || {
+      echo "Active ingress failed local Sandbox SNI validation." >&2
       exit 1
     }
     curl --fail --silent --show-error "https://$SANDBOX_DOMAIN/healthz" >/dev/null
