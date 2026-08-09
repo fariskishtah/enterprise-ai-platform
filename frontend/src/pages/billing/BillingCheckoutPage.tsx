@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactElement } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 
 import {
   changeSubscriptionPlan,
@@ -10,6 +10,7 @@ import {
   type Subscription,
 } from "../../api/billing";
 import { useAuth } from "../../auth/useAuth";
+import { ApiError } from "../../api/client";
 import {
   InlineError,
   LoadingSkeleton,
@@ -40,6 +41,7 @@ function safeCheckoutRedirect(value: string): void {
 
 export function BillingCheckoutPage(): ReactElement {
   const { planCode = "" } = useParams();
+  const navigate = useNavigate();
   const { user } = useAuth();
   const [plan, setPlan] = useState<BillingPlan | null>(null);
   const [subscription, setSubscription] = useState<Subscription | null>(null);
@@ -103,6 +105,16 @@ export function BillingCheckoutPage(): ReactElement {
     void request
       .then((checkout) => safeCheckoutRedirect(checkout.checkout_url))
       .catch((caught: unknown) => {
+        if (
+          caught instanceof ApiError &&
+          caught.code === "checkout_unresolved" &&
+          caught.paymentId !== null
+        ) {
+          navigate(
+            `/settings/billing/return?payment=${encodeURIComponent(caught.paymentId)}`,
+          );
+          return;
+        }
         submissionStarted.current = false;
         setError(
           caught instanceof Error ? caught.message : "Checkout could not be created.",

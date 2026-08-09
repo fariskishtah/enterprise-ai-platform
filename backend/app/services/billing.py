@@ -59,6 +59,18 @@ class BillingConflictError(BillingError):
     code = "billing_conflict"
 
 
+class CheckoutUnresolvedError(BillingConflictError):
+    code = "checkout_unresolved"
+
+    def __init__(self, payment: Payment) -> None:
+        super().__init__(
+            "We're still verifying your existing payment. Please don't try again yet."
+        )
+        self.payment_id = payment.id
+        self.checkout_intent_status = payment.checkout_intent_status
+        self.provider_decision = payment.provider_decision
+
+
 class BillingWebhookPayloadError(BillingError):
     code = "webhook_payload_conflict"
 
@@ -424,6 +436,11 @@ class BillingService:
         )
         return_reference: str | None = None
         if existing is None:
+            unresolved = await self._repository.list_unresolved_company_payments(
+                actor.company_id, lock=True
+            )
+            if unresolved:
+                raise CheckoutUnresolvedError(unresolved[0])
             plan_record = await self._ensure_plan(plan)
             subscription = await self._repository.get_company_subscription(
                 actor.company_id, lock=True
@@ -508,27 +525,6 @@ class BillingService:
                 provider_integration_id=self._policy.provider_integration_id,
                 provider_merchant_id=self._policy.provider_merchant_id,
             )
-            for prior in await self._repository.list_open_company_payments(
-                actor.company_id, lock=True
-            ):
-                if self._checkout_has_expired(prior, now):
-                    self._expire_checkout(prior)
-                    action = "checkout.expired"
-                    metadata: dict[str, object] = {"payment_id": str(prior.id)}
-                else:
-                    prior.checkout_intent_status = "superseded"
-                    prior.superseded_by_payment_id = payment_id
-                    action = "checkout.superseded"
-                    metadata = {
-                        "payment_id": str(prior.id),
-                        "superseded_by_payment_id": str(payment_id),
-                    }
-                self._audit(
-                    company_id=actor.company_id,
-                    actor_user_id=actor.id,
-                    action=action,
-                    metadata=metadata,
-                )
             self._repository.add_payment(payment)
             self._audit(
                 company_id=actor.company_id,
@@ -543,13 +539,22 @@ class BillingService:
             )
             try:
                 await self._session.commit()
-            except IntegrityError:
+            except IntegrityError as exc:
                 await self._session.rollback()
                 existing = await self._repository.get_by_idempotency(
                     actor.company_id, idempotency_key
                 )
                 if existing is None:
-                    raise
+                    unresolved = (
+                        await self._repository.list_unresolved_company_payments(
+                            actor.company_id, lock=True
+                        )
+                    )
+                    if unresolved:
+                        raise CheckoutUnresolvedError(unresolved[0]) from exc
+                    raise BillingConflictError(
+                        "Checkout creation conflicted with another request."
+                    ) from exc
             else:
                 existing = payment
                 created_here = True
@@ -570,26 +575,7 @@ class BillingService:
                 raise BillingConflictError("This hosted checkout has expired.")
             return self._checkout_result(payment, plan, reused=True)
         if payment.status == "provider_error":
-            if not self._checkout_is_open(payment, datetime.now(UTC)):
-                raise BillingConflictError(
-                    "This hosted checkout has expired or changed."
-                )
-            claimed = await self._repository.claim_payment_retry(payment.id)
-            await self._session.commit()
-            if not claimed:
-                raise BillingConflictError("Checkout creation is already in progress.")
-            created_here = True
-            return_reference = self.generate_return_reference()
-            now = datetime.now(UTC)
-            payment.return_reference_hash = self.hash_return_reference(return_reference)
-            payment.return_reference_expires_at = now + timedelta(
-                minutes=self._policy.return_reference_expiry_minutes
-            )
-            payment.checkout_expires_at = now + timedelta(
-                minutes=self._policy.checkout_expiry_minutes
-            )
-            payment.checkout_intent_status = "open"
-            await self._session.commit()
+            raise CheckoutUnresolvedError(payment)
         if payment.status == "creating" and not created_here:
             raise BillingConflictError("Checkout creation is already in progress.")
         if payment.status != "creating":
@@ -717,9 +703,6 @@ class BillingService:
     @staticmethod
     def _expire_checkout(payment: Payment) -> None:
         payment.checkout_intent_status = "expired"
-        payment.provider_decision = "expired"
-        if payment.status in {"creating", "pending", "provider_error"}:
-            payment.status = "cancelled"
 
     async def payment_status(self, *, actor: User, payment_id: UUID) -> Payment:
         payment = await self._repository.get_company_payment(
@@ -780,23 +763,16 @@ class BillingService:
         if payment is None:
             raise BillingNotFoundError("The payment does not exist.")
         if payment.status in {"creating", "pending", "provider_error"}:
-            payment.status = "cancelled"
             payment.checkout_intent_status = "cancelled"
             payment.failure_code = None
-            if payment.subscription_id and payment.purpose in {
-                "plan_change",
-                "reactivation",
-            }:
-                subscription = await self._repository.get_subscription(
-                    payment.subscription_id, lock=True
-                )
-                if subscription is not None:
-                    subscription.pending_plan_id = None
             self._audit(
                 company_id=actor.company_id,
                 actor_user_id=actor.id,
                 action="checkout.cancelled",
-                metadata={"payment_id": str(payment.id)},
+                metadata={
+                    "payment_id": str(payment.id),
+                    "provider_confirmation": "pending",
+                },
             )
             await self._session.commit()
             return payment
@@ -1588,6 +1564,7 @@ class BillingWebhookProcessor:
                     "succeeded_eligible": "succeeded",
                     "failed": "failed",
                     "cancelled": "cancelled",
+                    "expired": "cancelled",
                     "refunded": "refunded",
                     "reversed": "reversed",
                 }.get(decision, "pending")
@@ -1595,6 +1572,12 @@ class BillingWebhookProcessor:
                     payment.checkout_intent_status = "completed"
                 elif decision == "failed" and payment.checkout_intent_status == "open":
                     payment.checkout_intent_status = "failed"
+                elif (
+                    decision == "cancelled" and payment.checkout_intent_status == "open"
+                ):
+                    payment.checkout_intent_status = "cancelled"
+                elif decision == "expired" and payment.checkout_intent_status == "open":
+                    payment.checkout_intent_status = "expired"
                 subscription = (
                     await repository.get_subscription(
                         payment.subscription_id, lock=True

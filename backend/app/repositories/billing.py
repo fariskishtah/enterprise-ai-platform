@@ -91,14 +91,14 @@ class BillingRepository:
             ),
         )
 
-    async def list_open_company_payments(
+    async def list_unresolved_company_payments(
         self, company_id: UUID, *, lock: bool = False
     ) -> list[Payment]:
         statement: Select[tuple[Payment]] = (
             select(Payment)
             .where(
                 Payment.company_id == company_id,
-                Payment.checkout_intent_status == "open",
+                Payment.status.in_(("creating", "pending", "provider_error")),
             )
             .order_by(Payment.created_at, Payment.id)
         )
@@ -403,17 +403,6 @@ class BillingRepository:
 
     def add_payment(self, payment: Payment) -> None:
         self._session.add(payment)
-
-    async def claim_payment_retry(self, payment_id: UUID) -> bool:
-        result = cast(
-            CursorResult[object],
-            await self._session.execute(
-                update(Payment)
-                .where(Payment.id == payment_id, Payment.status == "provider_error")
-                .values(status="creating", failure_code=None)
-            ),
-        )
-        return bool(result.rowcount)
 
     async def get_event_by_provider_id(
         self, provider: str, provider_event_id: str

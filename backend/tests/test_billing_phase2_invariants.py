@@ -34,6 +34,7 @@ from app.services.billing import (
     BillingNotFoundError,
     BillingService,
     BillingWebhookProcessor,
+    CheckoutUnresolvedError,
 )
 from app.services.billing_reconciliation import (
     BillingReconciliationError,
@@ -529,7 +530,7 @@ async def test_reconciliation_compensation_requires_approval_and_is_audited(
 
 
 @pytest.mark.anyio
-async def test_new_checkout_supersedes_old_and_old_success_cannot_grant_access(
+async def test_new_checkout_is_blocked_until_existing_payment_is_terminal(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     actor = await _actor(session_factory)
@@ -542,18 +543,18 @@ async def test_new_checkout_supersedes_old_and_old_success_cannot_grant_access(
             billing_details=_billing_details(),
             idempotency_key="phase2-supersession-old-0001",
         )
-        newer = await service.create_checkout(
-            actor=actor,
-            plan_code="professional",
-            billing_details=_billing_details(),
-            idempotency_key="phase2-supersession-new-0001",
-        )
+        with pytest.raises(CheckoutUnresolvedError) as raised:
+            await service.create_checkout(
+                actor=actor,
+                plan_code="professional",
+                billing_details=_billing_details(),
+                idempotency_key="phase2-supersession-new-0001",
+            )
         old_payment = await session.get(Payment, older.payment_id)
-        new_payment = await session.get(Payment, newer.payment_id)
-        assert old_payment is not None and new_payment is not None
-        assert old_payment.checkout_intent_status == "superseded"
-        assert old_payment.superseded_by_payment_id == new_payment.id
-        assert new_payment.checkout_intent_status == "open"
+        assert old_payment is not None
+        assert raised.value.payment_id == old_payment.id
+        assert old_payment.checkout_intent_status == "open"
+        assert len(provider.checkout_requests) == 1
         provider.webhooks["old-paid"] = _event(
             old_payment, fixture="old-paid", state="succeeded"
         )
@@ -571,25 +572,10 @@ async def test_new_checkout_supersedes_old_and_old_success_cannot_grant_access(
 
     assert old_payment is not None and event is not None and subscription is not None
     assert old_payment.provider_decision == "succeeded_eligible"
-    assert event.status == "quarantined"
-    assert event.last_error == "manual_review_required"
-    assert subscription.status == "incomplete"
-
-    actor.is_platform_operator = True
-    async with session_factory() as session:
-        with pytest.raises(BillingConflictError, match="not eligible"):
-            await BillingService(session, provider).replay_webhook_event(
-                actor=actor,
-                company_id=actor.company_id,
-                event_id=ingested.event_id,
-                reason="Superseded checkout must remain quarantined",
-            )
-        replay_audit = await session.scalar(
-            select(BillingAuditEvent).where(
-                BillingAuditEvent.action == "webhook.replay_rejected"
-            )
-        )
-        assert replay_audit is not None
+    assert old_payment.status == "succeeded"
+    assert event.status == "processed"
+    assert subscription.status == "active"
+    assert subscription.latest_payment_id == old_payment.id
 
 
 @pytest.mark.anyio
@@ -617,6 +603,14 @@ async def test_expired_checkout_cannot_be_reused(
                 billing_details=_billing_details(),
                 idempotency_key="phase2-expired-checkout-0001",
             )
+        with pytest.raises(CheckoutUnresolvedError) as raised:
+            await service.create_checkout(
+                actor=actor,
+                plan_code="professional",
+                billing_details=_billing_details(),
+                idempotency_key="phase2-expired-checkout-other-tab",
+            )
+        assert raised.value.payment_id == payment.id
         provider.webhooks["expired-paid"] = _event(
             payment, fixture="expired-paid", state="succeeded"
         )

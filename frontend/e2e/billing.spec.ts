@@ -104,11 +104,13 @@ function payment(status = "succeeded", overrides: Record<string, unknown> = {}) 
         ? "under_review"
         : status === "expired"
           ? "expired"
-          : status === "refunded" || status === "reversed"
-            ? status
-            : status === "failed"
-              ? "failed"
-              : "pending";
+          : status === "cancelled"
+            ? "cancelled"
+            : status === "refunded" || status === "reversed"
+              ? status
+              : status === "failed"
+                ? "failed"
+                : "pending";
   const checkoutIntentStatus =
     status === "succeeded"
       ? "completed"
@@ -135,7 +137,12 @@ function payment(status = "succeeded", overrides: Record<string, unknown> = {}) 
     provider_payment_id: "paymob-42",
     provider_decision: providerDecision,
     purpose: "renewal",
-    status: ["under_review", "expired"].includes(status) ? "pending" : status,
+    status:
+      status === "under_review"
+        ? "pending"
+        : status === "expired"
+          ? "cancelled"
+          : status,
     updated_at: NOW,
     ...overrides,
   };
@@ -574,7 +581,7 @@ test("pending payment stays in processing and offers an explicit refresh", async
     "/settings/billing/return?state=phase2-return-state&success=true&amount=1&plan=starter",
   );
   await expect(page.getByRole("heading", { name: "Confirming payment" })).toBeVisible();
-  await expect(page.getByText(/waiting for an eligible provider event/i)).toBeVisible();
+  await expect(page.getByText(/still verifying your payment/i)).toBeVisible();
   await expect(page.getByRole("button", { name: "Check again" })).toBeVisible();
 });
 
@@ -602,7 +609,7 @@ test("cancelled payment remains inactive and is clearly disclosed", async ({
 }) => {
   await mockBilling(page, { paymentStatus: "cancelled" });
   await page.goto("/settings/billing/return?state=phase2-return-state&success=true");
-  await expect(page.getByRole("heading", { name: "Checkout cancelled" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Payment cancelled" })).toBeVisible();
   await expect(page.getByText(/no paid access was granted/i)).toBeVisible();
   await page.screenshot({
     fullPage: true,
@@ -627,7 +634,7 @@ test("missing and tampered return states show safe recovery", async ({ page }) =
 test("expired and under-review returns provide recovery actions", async ({ page }) => {
   await mockBilling(page, { paymentStatus: "expired" });
   await page.goto("/settings/billing/return?state=phase2-return-state");
-  await expect(page.getByRole("heading", { name: "Checkout expired" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Payment expired" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Start new checkout" })).toBeVisible();
 
   await page.unrouteAll({ behavior: "wait" });

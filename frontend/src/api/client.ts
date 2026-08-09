@@ -26,11 +26,19 @@ let refreshRequest: Promise<string> | null = null;
 let sessionExpiredHandler: SessionExpiredHandler | null = null;
 
 export class ApiError extends Error {
+  readonly code: string | null;
+  readonly paymentId: string | null;
   readonly status: number;
 
-  constructor(message: string, status: number) {
+  constructor(
+    message: string,
+    status: number,
+    context: { readonly code?: string; readonly paymentId?: string } = {},
+  ) {
     super(message);
     this.name = "ApiError";
+    this.code = context.code ?? null;
+    this.paymentId = context.paymentId ?? null;
     this.status = status;
   }
 }
@@ -90,6 +98,29 @@ function errorMessage(payload: unknown, fallback: string): string {
     }
   }
   return fallback;
+}
+
+function errorContext(payload: unknown): {
+  readonly code?: string;
+  readonly paymentId?: string;
+} {
+  if (
+    typeof payload !== "object" ||
+    payload === null ||
+    !("detail" in payload) ||
+    typeof payload.detail !== "object" ||
+    payload.detail === null
+  )
+    return {};
+  const detail = payload.detail;
+  return {
+    ...("code" in detail && typeof detail.code === "string"
+      ? { code: detail.code }
+      : {}),
+    ...("payment_id" in detail && typeof detail.payment_id === "string"
+      ? { paymentId: detail.payment_id }
+      : {}),
+  };
 }
 
 function isTokenPair(payload: unknown): payload is TokenPair {
@@ -248,6 +279,7 @@ export async function apiRequest<T>(
     throw new ApiError(
       errorMessage(payload, `Request failed with status ${response.status}.`),
       response.status,
+      errorContext(payload),
     );
   }
   return payload as T;

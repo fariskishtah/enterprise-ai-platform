@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID, uuid4
@@ -27,8 +28,9 @@ from app.services.billing import (
     BillingNotFoundError,
     BillingService,
     BillingWebhookProcessor,
+    CheckoutUnresolvedError,
 )
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
@@ -69,6 +71,22 @@ class RecordingBillingQueue:
     def enqueue(self, event_id: UUID) -> str:
         self.event_ids.append(event_id)
         return str(event_id)
+
+
+class BlockingCheckoutProvider(FixtureProvider):
+    def __init__(self) -> None:
+        super().__init__()
+        self.started = asyncio.Event()
+        self.release = asyncio.Event()
+
+    async def create_checkout(self, request: CheckoutRequest) -> HostedCheckout:
+        self.checkout_requests.append(request)
+        self.started.set()
+        await self.release.wait()
+        return HostedCheckout(
+            provider_checkout_id=f"pi_{request.reference}",
+            checkout_url=f"https://accept.paymob.com/unifiedcheckout/{request.reference}",
+        )
 
 
 def _billing_details() -> BillingDetails:
@@ -175,14 +193,164 @@ async def test_provider_failure_is_persisted_without_fake_success(
         assert payment.status == "provider_error"
         assert payment.provider_payment_id is None
         provider.checkout_error = None
-        retried = await BillingService(session, provider).create_checkout(
+        with pytest.raises(CheckoutUnresolvedError, match="still verifying"):
+            await BillingService(session, provider).create_checkout(
+                actor=actor,
+                plan_code="starter",
+                billing_details=_billing_details(),
+                idempotency_key="checkout-contract-0004",
+            )
+        with pytest.raises(CheckoutUnresolvedError, match="still verifying"):
+            await BillingService(session, provider).create_checkout(
+                actor=actor,
+                plan_code="professional",
+                billing_details=_billing_details(),
+                idempotency_key="checkout-contract-0004-other-tab",
+            )
+        assert len(provider.checkout_requests) == 1
+
+
+@pytest.mark.anyio
+async def test_concurrent_checkout_requests_create_one_provider_checkout(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    actor = await _actor(session_factory)
+    provider = BlockingCheckoutProvider()
+
+    async def create_first_checkout() -> object:
+        async with session_factory() as session:
+            return await BillingService(session, provider).create_checkout(
+                actor=actor,
+                plan_code="starter",
+                billing_details=_billing_details(),
+                idempotency_key="checkout-concurrency-first",
+            )
+
+    first = asyncio.create_task(create_first_checkout())
+    await provider.started.wait()
+    try:
+        async with session_factory() as session:
+            with pytest.raises(CheckoutUnresolvedError) as raised:
+                await BillingService(session, provider).create_checkout(
+                    actor=actor,
+                    plan_code="professional",
+                    billing_details=_billing_details(),
+                    idempotency_key="checkout-concurrency-second",
+                )
+            assert raised.value.checkout_intent_status == "open"
+            assert raised.value.provider_decision == "pending"
+    finally:
+        provider.release.set()
+    await first
+
+    async with session_factory() as session:
+        payment_count = await session.scalar(
+            select(func.count())
+            .select_from(Payment)
+            .where(Payment.company_id == actor.company_id)
+        )
+    assert payment_count == 1
+    assert len(provider.checkout_requests) == 1
+
+
+@pytest.mark.anyio
+async def test_local_checkout_cancellation_does_not_unlock_another_payment(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    actor = await _actor(session_factory)
+    provider = FixtureProvider()
+    async with session_factory() as session:
+        service = BillingService(session, provider)
+        checkout = await service.create_checkout(
             actor=actor,
             plan_code="starter",
             billing_details=_billing_details(),
-            idempotency_key="checkout-contract-0004",
+            idempotency_key="checkout-local-cancel-first",
         )
-        assert retried.status == "pending"
-        assert len(provider.checkout_requests) == 2
+        cancelled = await service.cancel_checkout(
+            actor=actor, payment_id=checkout.payment_id
+        )
+        assert cancelled.checkout_intent_status == "cancelled"
+        assert cancelled.status == "pending"
+        assert cancelled.provider_decision == "pending"
+        with pytest.raises(CheckoutUnresolvedError) as raised:
+            await service.create_checkout(
+                actor=actor,
+                plan_code="professional",
+                billing_details=_billing_details(),
+                idempotency_key="checkout-local-cancel-second",
+            )
+        assert raised.value.payment_id == checkout.payment_id
+    assert len(provider.checkout_requests) == 1
+
+
+@pytest.mark.anyio
+async def test_only_definitive_provider_failure_unlocks_another_checkout(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    actor = await _actor(session_factory)
+    provider = FixtureProvider()
+    async with session_factory() as session:
+        service = BillingService(session, provider)
+        first = await service.create_checkout(
+            actor=actor,
+            plan_code="starter",
+            billing_details=_billing_details(),
+            idempotency_key="checkout-terminal-failure-first",
+        )
+        payment = await session.get(Payment, first.payment_id)
+        assert payment is not None
+        provider.webhooks["terminal-failure"] = _event(
+            payment, fixture="terminal-failure", state="failed"
+        )
+        ingested = await service.ingest_webhook(
+            {"fixture": "terminal-failure"}, signature="valid"
+        )
+    await BillingWebhookProcessor(session_factory, "paymob").execute(ingested.event_id)
+
+    async with session_factory() as session:
+        second = await BillingService(session, provider).create_checkout(
+            actor=actor,
+            plan_code="professional",
+            billing_details=_billing_details(),
+            idempotency_key="checkout-after-terminal-failure",
+        )
+        assert second.payment_id != first.payment_id
+    assert len(provider.checkout_requests) == 2
+
+
+@pytest.mark.anyio
+async def test_business_quarantine_keeps_checkout_blocked(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    actor = await _actor(session_factory)
+    provider = FixtureProvider()
+    async with session_factory() as session:
+        service = BillingService(session, provider)
+        checkout = await service.create_checkout(
+            actor=actor,
+            plan_code="starter",
+            billing_details=_billing_details(),
+            idempotency_key="checkout-business-quarantine-first",
+        )
+        payment = await session.get(Payment, checkout.payment_id)
+        assert payment is not None
+        provider.webhooks["business-quarantine"] = replace(
+            _event(payment, fixture="business-quarantine", state="succeeded"),
+            validation_outcome="quarantined_wrong_merchant",
+        )
+        ingested = await service.ingest_webhook(
+            {"fixture": "business-quarantine"}, signature="valid"
+        )
+        assert ingested.should_enqueue is False
+        with pytest.raises(CheckoutUnresolvedError):
+            await service.create_checkout(
+                actor=actor,
+                plan_code="professional",
+                billing_details=_billing_details(),
+                idempotency_key="checkout-business-quarantine-second",
+            )
+    assert len(provider.checkout_requests) == 1
 
 
 @pytest.mark.anyio
@@ -226,6 +394,11 @@ async def test_checkout_and_webhook_api_contracts(
             headers={**owner_headers, "Idempotency-Key": "api-checkout-contract-001"},
             json=checkout_payload,
         )
+        blocked_other_tab = await client.post(
+            "/billing/checkouts",
+            headers={**owner_headers, "Idempotency-Key": "api-checkout-other-tab-01"},
+            json={**checkout_payload, "plan_code": "professional"},
+        )
         invalid_plan = await client.post(
             "/billing/checkouts",
             headers={**owner_headers, "Idempotency-Key": "api-checkout-contract-002"},
@@ -243,6 +416,17 @@ async def test_checkout_and_webhook_api_contracts(
         assert replayed.status_code == 201
         assert replayed.json()["payment_id"] == created.json()["payment_id"]
         assert replayed.json()["reused"] is True
+        assert blocked_other_tab.status_code == 409
+        assert blocked_other_tab.json()["detail"] == {
+            "code": "checkout_unresolved",
+            "message": (
+                "We're still verifying your existing payment. "
+                "Please don't try again yet."
+            ),
+            "payment_id": created.json()["payment_id"],
+            "checkout_intent_status": "open",
+            "provider_decision": "pending",
+        }
         assert invalid_plan.status_code == 404
         assert supplied_money.status_code == 422
 

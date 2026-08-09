@@ -71,6 +71,7 @@ from app.services.billing import (
     BillingService,
     BillingWebhookPayloadError,
     CheckoutResult,
+    CheckoutUnresolvedError,
 )
 from app.services.billing_reconciliation import (
     BillingReconciliationError,
@@ -81,8 +82,17 @@ from app.services.entitlements import EntitlementOverrideError, EntitlementServi
 router = APIRouter(prefix="/billing", tags=["billing"])
 
 
-def _error_detail(exc: BillingError) -> dict[str, str]:
-    return {"code": exc.code, "message": str(exc)}
+def _error_detail(exc: BillingError) -> dict[str, object]:
+    detail: dict[str, object] = {"code": exc.code, "message": str(exc)}
+    if isinstance(exc, CheckoutUnresolvedError):
+        detail.update(
+            {
+                "payment_id": str(exc.payment_id),
+                "checkout_intent_status": exc.checkout_intent_status,
+                "provider_decision": exc.provider_decision,
+            }
+        )
+    return detail
 
 
 def _service(

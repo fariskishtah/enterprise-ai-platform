@@ -18,8 +18,9 @@ const MAXIMUM_POLL_ATTEMPTS = 7;
 
 function isProcessing(payment: PaymentStatus): boolean {
   return (
-    payment.checkout_intent_status === "open" &&
-    ["pending", "authorized_not_captured"].includes(payment.provider_decision)
+    !["succeeded", "failed", "cancelled", "refunded", "reversed"].includes(
+      payment.status,
+    ) && ["pending", "authorized_not_captured"].includes(payment.provider_decision)
   );
 }
 
@@ -47,22 +48,20 @@ function resultCopy(payment: PaymentStatus): {
       detail:
         "A verified, eligible provider event was applied. Your prepaid access period is now available in billing.",
     };
-  if (payment.checkout_intent_status === "expired")
-    return {
-      title: "Checkout expired",
-      detail:
-        "This hosted checkout is no longer active. Start a new checkout to continue.",
-    };
-  if (payment.status === "failed" || payment.status === "provider_error")
+  if (payment.provider_decision === "failed")
     return {
       title: "Payment was declined",
-      detail: "No paid access was granted. You can safely start a new checkout.",
+      detail: "The provider confirmed failure. No paid access was granted.",
     };
-  if (payment.checkout_intent_status === "cancelled")
+  if (payment.provider_decision === "cancelled")
     return {
-      title: "Checkout cancelled",
-      detail:
-        "No paid access was granted by this browser action. A later verified provider event remains authoritative.",
+      title: "Payment cancelled",
+      detail: "The provider confirmed cancellation. No paid access was granted.",
+    };
+  if (payment.provider_decision === "expired")
+    return {
+      title: "Payment expired",
+      detail: "The provider confirmed expiry. No paid access was granted.",
     };
   if (payment.provider_decision === "refunded")
     return {
@@ -79,16 +78,17 @@ function resultCopy(payment: PaymentStatus): {
   return {
     title: "Confirming payment",
     detail:
-      "We are waiting for an eligible provider event. Redirect values are not accepted as proof of payment.",
+      "We're still verifying your payment. Please don't try again yet. Redirect values are not accepted as proof of payment.",
   };
 }
 
 export function BillingReturnPage(): ReactElement {
   const [parameters] = useSearchParams();
   const returnState = parameters.get("state");
+  const directPaymentId = parameters.get("payment");
   const [payment, setPayment] = useState<PaymentStatus | null>(null);
   const [error, setError] = useState<string | null>(
-    returnState === null
+    returnState === null && directPaymentId === null
       ? "This payment return link is missing its secure state."
       : null,
   );
@@ -101,9 +101,16 @@ export function BillingReturnPage(): ReactElement {
   const shouldPoll = payment !== null && isProcessing(payment);
 
   useEffect(() => {
-    if (returnState === null || payment !== null) return;
+    if (payment !== null) return;
     const controller = new AbortController();
-    resolveBillingReturn(returnState, controller.signal)
+    const request =
+      directPaymentId !== null
+        ? getPaymentStatus(directPaymentId, controller.signal)
+        : returnState !== null
+          ? resolveBillingReturn(returnState, controller.signal)
+          : null;
+    if (request === null) return;
+    request
       .then((value) => {
         setPayment(value);
         setError(null);
@@ -117,7 +124,7 @@ export function BillingReturnPage(): ReactElement {
           );
       });
     return () => controller.abort();
-  }, [payment, resolveRevision, returnState]);
+  }, [directPaymentId, payment, resolveRevision, returnState]);
 
   useEffect(() => {
     if (paymentId === undefined || !shouldPoll) return;
@@ -171,7 +178,8 @@ export function BillingReturnPage(): ReactElement {
   const canRetryCheckout =
     payment?.plan_code !== null &&
     payment !== null &&
-    ["failed", "expired", "cancelled"].includes(payment.checkout_intent_status);
+    ["failed", "cancelled"].includes(payment.status) &&
+    ["failed", "cancelled", "expired"].includes(payment.provider_decision);
 
   return (
     <section
