@@ -934,9 +934,12 @@ async def test_timezone_less_provider_timestamp_processes_successfully(
         )
         event = await session.get(BillingWebhookEvent, ingested.event_id)
         assert event is not None and event.safe_payload is not None
+        payment.checkout_expires_at = event.received_at + timedelta(minutes=1)
         event.safe_payload = {
             **event.safe_payload,
-            "occurred_at": datetime.now(UTC).replace(tzinfo=None).isoformat(),
+            "occurred_at": (event.received_at + timedelta(hours=3))
+            .replace(tzinfo=None)
+            .isoformat(),
         }
         await session.commit()
 

@@ -1452,9 +1452,15 @@ class BillingWebhookProcessor:
                     payload.get("decision") or _decision_for_legacy_state(state)
                 )
                 occurred_value = payload.get("occurred_at")
-                occurred_at = (
-                    _as_utc(datetime.fromisoformat(str(occurred_value)))
+                parsed_occurred_at = (
+                    datetime.fromisoformat(str(occurred_value))
                     if occurred_value
+                    else None
+                )
+                occurred_at = (
+                    _as_utc(parsed_occurred_at)
+                    if parsed_occurred_at is not None
+                    and parsed_occurred_at.tzinfo is not None
                     else None
                 )
             except (KeyError, TypeError, ValueError):
@@ -1541,7 +1547,7 @@ class BillingWebhookProcessor:
                 )
                 payment.provider_occurred_at = occurred_at
                 event.company_id = payment.company_id
-                event_time = occurred_at or datetime.now(UTC)
+                event_time = occurred_at or _as_utc(event.received_at)
                 expired_before_payment = bool(
                     payment.checkout_expires_at is not None
                     and _as_utc(payment.checkout_expires_at) < event_time
@@ -1603,7 +1609,7 @@ class BillingWebhookProcessor:
                         payment,
                         event,
                         prior_state=prior_state,
-                        now=occurred_at or datetime.now(UTC),
+                        now=event_time,
                     )
                 event.status = "processed"
                 event.last_error = None

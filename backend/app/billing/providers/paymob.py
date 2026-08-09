@@ -115,9 +115,7 @@ def _parse_timestamp(value: object) -> datetime | None:
         parsed = datetime.fromisoformat(normalized)
     except ValueError:
         return None
-    return (
-        parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed.astimezone(UTC)
-    )
+    return None if parsed.tzinfo is None else parsed.astimezone(UTC)
 
 
 def _safe_failure_code(obj: dict[str, Any]) -> str | None:
