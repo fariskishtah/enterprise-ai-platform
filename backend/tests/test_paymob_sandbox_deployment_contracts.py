@@ -1522,6 +1522,34 @@ def test_reconciliation_api_key_update_is_interactive_sandbox_only_and_hidden() 
     assert ".env.production" not in function
 
 
+def test_email_configuration_is_interactive_sandbox_only_atomic_and_hidden() -> None:
+    script = _text(_SCRIPT)
+    function = script.split("configure_email_delivery()", maxsplit=1)[1].split(
+        "\n}", maxsplit=1
+    )[0]
+
+    assert "CONFIGURE-SANDBOX-EMAIL" in function
+    assert "require_environment" in function
+    assert 'read_env_value APP_PUBLIC_URL' in function
+    assert '"https://$SANDBOX_DOMAIN"' in function
+    assert 'read_hidden "Resend sandbox API key' in function
+    assert 'read_hidden "Verified Sandbox sender email' in function
+    assert 'read_hidden "Sandbox acceptance/support mailbox' in function
+    assert 'write_env "$next_file" EMAIL_PROVIDER resend' in function
+    assert 'write_env "$next_file" RESEND_API_KEY "$resend_api"' in function
+    assert 'write_env "$next_file" EMAIL_FROM_ADDRESS "$email_from"' in function
+    assert 'write_env "$next_file" EMAIL_VERIFICATION_REQUIRED true' in function
+    assert 'write_env "$next_file" EXPOSE_LOCAL_EMAIL_VERIFICATION_TOKEN false' in function
+    assert 'write_env "$next_file" EXPOSE_LOCAL_PASSWORD_RESET_TOKEN false' in function
+    assert 'chmod 600 "$next_file"' in function
+    assert 'mv -f -- "$next_file" "$ENV_FILE"' in function
+    assert 'echo "$resend_api"' not in function
+    assert 'echo "$email_from"' not in function
+    assert 'echo "$acceptance_email"' not in function
+    assert ".env.production" not in function
+    assert "configure-email) configure_email_delivery" in script
+
+
 def test_file_mode_prefers_gnu_stat_and_returns_only_the_mode(tmp_path: Path) -> None:
     result = _run_permission_probe(tmp_path, implementation="gnu", mode="600")
 

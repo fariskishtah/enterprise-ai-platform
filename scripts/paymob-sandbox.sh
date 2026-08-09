@@ -52,6 +52,7 @@ Read-only actions:
 
 Local/sandbox actions:
   configure          Interactively create .env.paymob-sandbox (secrets hidden).
+  configure-email    TOKEN: CONFIGURE-SANDBOX-EMAIL
   configure-inquiry  TOKEN: CONFIGURE-SANDBOX-RECONCILIATION
   bootstrap-owner    TOKEN: BOOTSTRAP-SANDBOX-CALLBACK-OWNER
   start              TOKEN: START-SANDBOX
@@ -513,6 +514,61 @@ configure_reconciliation() {
   trap - EXIT
   unset paymob_api
   echo "Sandbox reconciliation credential configured without displaying it."
+}
+
+configure_email_delivery() {
+  local next_file resend_api email_from email_reply_to acceptance_email line
+  require_confirmation CONFIGURE-SANDBOX-EMAIL
+  require_environment
+  [[ "$(read_env_value APP_PUBLIC_URL)" == "https://$SANDBOX_DOMAIN" ]] || {
+    echo "Sandbox APP_PUBLIC_URL must use the expected HTTPS origin." >&2
+    exit 1
+  }
+
+  read_hidden "Resend sandbox API key: "
+  resend_api="$HIDDEN_VALUE"
+  read_hidden "Verified Sandbox sender email: "
+  email_from="$HIDDEN_VALUE"
+  read_hidden "Sandbox Reply-To email: "
+  email_reply_to="$HIDDEN_VALUE"
+  read_hidden "Sandbox acceptance/support mailbox: "
+  acceptance_email="$HIDDEN_VALUE"
+  unset HIDDEN_VALUE
+
+  [[ "$email_from" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ \
+    && "$email_reply_to" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ \
+    && "$acceptance_email" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]] || {
+    echo "Sandbox email addresses must be valid." >&2
+    exit 1
+  }
+
+  umask 077
+  next_file="$ENV_FILE.next"
+  : >"$next_file"
+  trap 'rm -f -- "$next_file"' EXIT
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    case "$line" in
+      APP_PUBLIC_URL=*|EMAIL_PROVIDER=*|RESEND_API_KEY=*|EMAIL_FROM_ADDRESS=*|EMAIL_FROM_NAME=*|EMAIL_REPLY_TO=*|SUPPORT_NOTIFICATION_EMAIL=*|EMAIL_VERIFICATION_REQUIRED=*|EXPOSE_LOCAL_EMAIL_VERIFICATION_TOKEN=*|EXPOSE_LOCAL_PASSWORD_RESET_TOKEN=*)
+        continue
+        ;;
+    esac
+    printf '%s\n' "$line" >>"$next_file"
+  done <"$ENV_FILE"
+  write_env "$next_file" APP_PUBLIC_URL "https://$SANDBOX_DOMAIN"
+  write_env "$next_file" EMAIL_PROVIDER resend
+  write_env "$next_file" RESEND_API_KEY "$resend_api"
+  write_env "$next_file" EMAIL_FROM_ADDRESS "$email_from"
+  write_env "$next_file" EMAIL_FROM_NAME "FactoryMind by FK Solutions"
+  write_env "$next_file" EMAIL_REPLY_TO "$email_reply_to"
+  write_env "$next_file" SUPPORT_NOTIFICATION_EMAIL "$acceptance_email"
+  write_env "$next_file" EMAIL_VERIFICATION_REQUIRED true
+  write_env "$next_file" EXPOSE_LOCAL_EMAIL_VERIFICATION_TOKEN false
+  write_env "$next_file" EXPOSE_LOCAL_PASSWORD_RESET_TOKEN false
+  chmod 600 "$next_file"
+  mv -f -- "$next_file" "$ENV_FILE"
+  trap - EXIT
+  unset resend_api email_from email_reply_to acceptance_email
+  echo "Sandbox Resend configuration updated without displaying credentials or addresses."
 }
 
 ensure_edge_network() {
@@ -1541,6 +1597,7 @@ case "$action" in
   labels) preflight ;;
   preflight) preflight ;;
   configure) configure ;;
+  configure-email) configure_email_delivery ;;
   configure-inquiry) configure_reconciliation ;;
   bootstrap-owner) bootstrap_callback_owner ;;
   start) start_sandbox ;;
