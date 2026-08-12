@@ -277,3 +277,15 @@ The legal and external-alert P1 findings are not silently accepted risks.
 - At day 30: review SLO warm-up data, support load, backup history, restore evidence, capacity envelope, legal/SEO closure, and whether expansion beyond 20 users is justified.
 
 Technical closure status: **PASS**. Project closure still requires P0 = 0 and P1 = 0. Current status: **OWNER ACTION REQUIRED**.
+
+## 21. Final acceptance security cleanup
+
+Post-acceptance security cleanup executed on 2026-08-12:
+
+- **Exposed Credentials Invalidated**: Passwords for test/demo accounts whose credentials appeared in acceptance logs were rotated to strong, randomly generated hashes via `app.utils.passwords.PasswordHasher`.
+- **Session Revocation**: All active `refresh_tokens` for test/demo accounts were deleted from the production database.
+- **Disposable Account Purging**: Temporary registration acceptance-test accounts (`fkishtah+verification101@gmail.com`, `acceptance.test.99@factorymind-demo.com`) were purged from `users`, `email_verification_tokens`, and `refresh_tokens`.
+- **DB Verification Flag Audit**: The manual database update setting `is_email_verified = true` for the isolated demo workspace account (`demo.user.52766@factorymind-demo.com`) was reviewed and documented. No customer data or non-test tenant was affected.
+- **Customer Data Integrity**: Verified 0 customer accounts or non-test database records were altered or deleted (`REAL_CUSTOMER_ACCOUNTS_TOUCHED: NO`).
+- **Production Health & Revision**: Production deployment remains healthy at commit `0389b20607bec9f37703441996718802b59ecc4a`, database migration head remains `0033_billing_phase2_contracts`, and `PAYMENT_PROVIDER` remains `disabled`.
+
