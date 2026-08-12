@@ -37,6 +37,35 @@ def test_explicit_permission_matrix_covers_exactly_six_roles() -> None:
 
 
 @pytest.mark.anyio
+async def test_audit_read_capability_matches_owner_admin_and_analyst_policy(
+    settings: Settings,
+    session_factory: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    async with ai_api_client(settings, session_factory, tmp_path=tmp_path) as (
+        client,
+        _application,
+    ):
+        for role in (UserRole.OWNER, UserRole.ADMIN, UserRole.ANALYST):
+            headers = await auth_headers(
+                client,
+                session_factory,
+                role=role,
+                email=f"audit-{role.value}@example.com",
+            )
+            assert (
+                await client.get("/audit-events", headers=headers)
+            ).status_code == 200
+        viewer = await auth_headers(
+            client,
+            session_factory,
+            role=UserRole.VIEWER,
+            email="audit-viewer@example.com",
+        )
+        assert (await client.get("/audit-events", headers=viewer)).status_code == 403
+
+
+@pytest.mark.anyio
 async def test_owner_admin_privilege_boundaries_and_last_owner_protection(
     settings: Settings,
     session_factory: async_sessionmaker[AsyncSession],

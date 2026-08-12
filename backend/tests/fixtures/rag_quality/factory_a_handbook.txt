@@ -1,0 +1,7 @@
+Factory A operations handbook.
+Compressor-01 has a preventive maintenance interval of 14 days.
+Compressor-01 has a maximum operating temperature limit of 82 C.
+The emergency shutdown procedure for Compressor-01 is to isolate power, close valve A-17, and press the blue reset.
+Alarm A-417 means low oil pressure.
+The approved production target is 480 units/shift.
+Operators must wear a face shield in the compressor cell.

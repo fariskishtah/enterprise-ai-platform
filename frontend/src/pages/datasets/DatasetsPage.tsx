@@ -8,6 +8,8 @@ import {
   type DatasetStatus,
 } from "../../api/datasets";
 import { isRequestCancelled } from "../../api/client";
+import { hasProductCapability } from "../../auth/permissions";
+import { useAuth } from "../../auth/useAuth";
 import { LifecycleStatus } from "../../components/dataRag/DataRagUi";
 import {
   EmptyState,
@@ -22,6 +24,8 @@ import { formatDate, hierarchyError } from "../hierarchy/shared";
 const PAGE_SIZE = 20;
 
 export function DatasetsPage(): ReactElement {
+  const { role } = useAuth();
+  const canWrite = hasProductCapability(role, "engineering.write");
   const [page, setPage] = useState<DatasetPage | null>(null);
   const [kind, setKind] = useState<DatasetKind | "">("");
   const [status, setStatus] = useState<DatasetStatus | "">("");
@@ -63,14 +67,16 @@ export function DatasetsPage(): ReactElement {
     <section aria-labelledby="datasets-heading">
       <PageHeader
         actions={
-          <Link className={primaryButtonClassName} to="/datasets/new">
-            Register dataset
-          </Link>
+          canWrite ? (
+            <Link className={primaryButtonClassName} to="/datasets/new">
+              Add data or documents
+            </Link>
+          ) : undefined
         }
-        description="Register immutable tabular and document dataset versions for authorized platform workflows."
-        eyebrow="Data foundation"
+        description="Organize trusted CSV data and documents used by authorized FactoryMind workflows."
+        eyebrow="Trusted data"
         headingId="datasets-heading"
-        title="Dataset Registry"
+        title="Datasets & Documents"
       />
       <div className="mt-6 grid gap-3 rounded-lg border border-border bg-card p-4 sm:grid-cols-2 lg:max-w-2xl">
         <label className="text-sm font-medium text-foreground">
@@ -119,12 +125,18 @@ export function DatasetsPage(): ReactElement {
         ) : page === null || page.items.length === 0 ? (
           <EmptyState
             action={
-              <Link className={primaryButtonClassName} to="/datasets/new">
-                Register dataset
-              </Link>
+              canWrite ? (
+                <Link className={primaryButtonClassName} to="/datasets/new">
+                  Add data or documents
+                </Link>
+              ) : undefined
             }
-            description="Upload a small bounded tabular file or document to create the first immutable version."
-            title="No datasets"
+            description={
+              canWrite
+                ? "Add a CSV file for analysis or a plain-text document for grounded AI questions."
+                : "No trusted data or documents are available to review yet."
+            }
+            title="No data or documents yet"
           />
         ) : (
           <>

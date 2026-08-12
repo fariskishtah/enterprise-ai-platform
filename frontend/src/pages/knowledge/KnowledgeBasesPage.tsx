@@ -2,6 +2,8 @@ import { useEffect, useState, type ReactElement } from "react";
 import { Link } from "react-router-dom";
 
 import { isRequestCancelled } from "../../api/client";
+import { hasProductCapability } from "../../auth/permissions";
+import { useAuth } from "../../auth/useAuth";
 import {
   listKnowledgeBases,
   type KnowledgeBasePage,
@@ -23,6 +25,8 @@ import { formatDate, hierarchyError } from "../hierarchy/shared";
 const PAGE_SIZE = 20;
 
 export function KnowledgeBasesPage(): ReactElement {
+  const { role } = useAuth();
+  const canWrite = hasProductCapability(role, "engineering.write");
   const [page, setPage] = useState<KnowledgeBasePage | null>(null);
   const [status, setStatus] = useState<KnowledgeBaseStatus | "">("");
   const [offset, setOffset] = useState(0);
@@ -57,28 +61,29 @@ export function KnowledgeBasesPage(): ReactElement {
     <section aria-labelledby="knowledge-heading">
       <PageHeader
         actions={
-          <div className="flex flex-wrap gap-2">
-            <Link
-              className={secondaryButtonClassName}
-              to="/datasets/new?kind=document_collection"
-            >
-              Register document
-            </Link>
-            <Link className={primaryButtonClassName} to="/knowledge/new">
-              Create knowledge base
-            </Link>
-          </div>
+          canWrite ? (
+            <div className="flex flex-wrap gap-2">
+              <Link
+                className={secondaryButtonClassName}
+                to="/datasets/new?kind=document_collection"
+              >
+                Add a source document
+              </Link>
+              <Link className={primaryButtonClassName} to="/knowledge/new">
+                Create trusted knowledge
+              </Link>
+            </div>
+          ) : undefined
         }
-        description="Build authorization-aware indexes from ready registered document versions."
+        description="Prepare approved company documents so FactoryMind can answer questions with traceable sources."
         eyebrow="Grounded AI"
         headingId="knowledge-heading"
         title="Knowledge Bases"
       />
       <div className="mt-5 max-w-3xl">
         <InlineNotice>
-          First register a supported TXT document in Dataset Registry and wait for its
-          version to show Ready. Then create a knowledge base and select that exact
-          version for indexing.
+          First add a supported plain-text document and wait until it is Ready. Then
+          create trusted knowledge and choose the document sources it may use.
         </InlineNotice>
       </div>
       <label className="mt-6 block max-w-xs text-sm font-medium text-foreground">
@@ -111,20 +116,26 @@ export function KnowledgeBasesPage(): ReactElement {
         ) : page === null || page.items.length === 0 ? (
           <EmptyState
             action={
-              <div className="flex flex-wrap justify-center gap-2">
-                <Link
-                  className={secondaryButtonClassName}
-                  to="/datasets/new?kind=document_collection"
-                >
-                  Register TXT document
-                </Link>
-                <Link className={primaryButtonClassName} to="/knowledge/new">
-                  Create knowledge base
-                </Link>
-              </div>
+              canWrite ? (
+                <div className="flex flex-wrap justify-center gap-2">
+                  <Link
+                    className={secondaryButtonClassName}
+                    to="/datasets/new?kind=document_collection"
+                  >
+                    Add a source document
+                  </Link>
+                  <Link className={primaryButtonClassName} to="/knowledge/new">
+                    Create trusted knowledge
+                  </Link>
+                </div>
+              ) : undefined
             }
-            description="Create a knowledge base and attach one or more ready document dataset versions."
-            title="No knowledge bases"
+            description={
+              canWrite
+                ? "Add an approved document, then create trusted knowledge for grounded questions."
+                : "No approved knowledge sources are available to review yet."
+            }
+            title="No trusted knowledge yet"
           />
         ) : (
           <>
@@ -143,8 +154,7 @@ export function KnowledgeBasesPage(): ReactElement {
                         {knowledgeBase.name}
                       </Link>
                       <p className="mt-1 text-xs text-muted-foreground">
-                        {knowledgeBase.embedding_provider} ·{" "}
-                        {knowledgeBase.embedding_model}
+                        Grounded company knowledge
                       </p>
                     </div>
                     <LifecycleStatus status={knowledgeBase.status} />
@@ -153,7 +163,8 @@ export function KnowledgeBasesPage(): ReactElement {
                     {knowledgeBase.description ?? "No description provided."}
                   </p>
                   <p className="mt-4 text-xs text-muted-foreground">
-                    {knowledgeBase.attached_dataset_version_count} attached versions ·
+                    {knowledgeBase.attached_dataset_version_count} approved source
+                    {knowledgeBase.attached_dataset_version_count === 1 ? "" : "s"} ·
                     Updated {formatDate(knowledgeBase.updated_at)}
                   </p>
                 </li>

@@ -16,6 +16,7 @@ import {
   type RetrainingTrigger,
 } from "../../api/retraining";
 import { useAuth } from "../../auth/useAuth";
+import { hasProductCapability } from "../../auth/permissions";
 import {
   EmptyState,
   InlineError,
@@ -36,7 +37,8 @@ import { isRequestCancelled } from "../../api/client";
 export function RetrainingPage(): ReactElement {
   const { role } = useAuth();
   const navigate = useNavigate();
-  const canManage = role === "admin" || role === "engineer";
+  const canManage = hasProductCapability(role, "engineering.write");
+  const canAdminister = hasProductCapability(role, "tenant.administer");
   const [status, setStatus] = useState<RetrainingStatus | null>(null);
   const [requests, setRequests] = useState<RetrainingRequestPage | null>(null);
   const [policies, setPolicies] = useState<readonly RetrainingPolicy[]>([]);
@@ -59,7 +61,7 @@ export function RetrainingPage(): ReactElement {
         ? listRetrainingRequests({ limit: 20, offset: 0, signal: c.signal })
         : Promise.resolve(null),
       canManage ? listPolicies(c.signal) : Promise.resolve([]),
-      role === "admin"
+      canAdminister
         ? listRetrainingAudits({ limit: 50, offset: 0, signal: c.signal })
         : Promise.resolve(null),
     ]).then(([statusResult, requestsResult, policiesResult, auditsResult]) => {
@@ -93,7 +95,7 @@ export function RetrainingPage(): ReactElement {
       active = false;
       c.abort();
     };
-  }, [canManage, revision, role]);
+  }, [canAdminister, canManage, revision]);
   if (error)
     return (
       <InlineError
@@ -334,7 +336,7 @@ export function RetrainingPage(): ReactElement {
                       {p.cooldown_seconds}s cooldown · {p.maximum_active_requests}{" "}
                       active maximum
                     </p>
-                    {role === "admin" ? (
+                    {canAdminister ? (
                       <button
                         className={`${secondaryButtonClassName} mt-3`}
                         type="button"

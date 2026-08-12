@@ -4,6 +4,7 @@ import { Link, useLocation } from "react-router-dom";
 import { isRequestCancelled } from "../api/client";
 import { searchOperations, type OperationalSearchResult } from "../api/operations";
 import { useAuth } from "../auth/useAuth";
+import { roleDisplayName } from "../auth/permissions";
 import { useProductExperience } from "../product/productExperience";
 import {
   readFavorites,
@@ -235,7 +236,7 @@ export function Topbar({
                 {user?.full_name ?? user?.email}
               </span>
               <span className="block text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-                {role}
+                {role === null ? "Account" : roleDisplayName(role)}
               </span>
             </span>
           </button>

@@ -77,6 +77,11 @@ def has_permissions(
     return tenant_requested.issubset(ROLE_PERMISSIONS[role])
 
 
+def is_tenant_administrator(role: UserRole) -> bool:
+    """Return whether a role inherits tenant-administrator scope."""
+    return has_permissions(role, Permission.TENANT_ADMINISTER)
+
+
 def legacy_route_permission(
     allowed_roles: tuple[UserRole, ...], *, safe_method: bool
 ) -> Permission:

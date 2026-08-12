@@ -15,6 +15,7 @@ import {
   type TimelineEvent,
 } from "../../api/operations";
 import { useAuth } from "../../auth/useAuth";
+import { hasProductCapability } from "../../auth/permissions";
 import { EmptyState, LoadingSkeleton } from "../../components/hierarchy/ResourceStates";
 import {
   ActionPriorityBadge,
@@ -36,8 +37,10 @@ interface SimpleHomeData {
 }
 
 export function HomePage(): ReactElement {
+  const { role } = useAuth();
   const { features, mode } = useProductExperience();
-  return mode === "simple" && features.operations_workflow_enabled ? (
+  const operationsFocused = mode === "simple" || role === "admin";
+  return operationsFocused && features.operations_workflow_enabled ? (
     <SimpleHome />
   ) : (
     <Dashboard />
@@ -46,6 +49,7 @@ export function HomePage(): ReactElement {
 
 function SimpleHome(): ReactElement {
   const { role } = useAuth();
+  const canManageWorkspace = hasProductCapability(role, "tenant.administer");
   const [data, setData] = useState<SimpleHomeData | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [revision, setRevision] = useState(0);
@@ -102,11 +106,19 @@ function SimpleHome(): ReactElement {
     (data.summary.action_counts.in_progress ?? 0) +
     (data.summary.action_counts.blocked ?? 0);
   const heading =
-    role === "operator" ? "Your operations home" : "Factory operations overview";
+    role === "operator"
+      ? "Your operations home"
+      : role === "admin"
+        ? "Operations manager overview"
+        : role === "viewer"
+          ? "Read-only operations overview"
+          : "Factory operations overview";
   const description =
     role === "operator"
       ? "See the machines, alerts, and assigned work that need your attention now."
-      : "Review company-scoped machine risk, unresolved work, alerts, and shift status.";
+      : role === "viewer"
+        ? "Follow factory health, active issues, and recent work without changing operational records."
+        : "Review machine health, unresolved work, alerts, and shift status before choosing the next action.";
 
   return (
     <section aria-labelledby="simple-home-heading">
@@ -120,7 +132,13 @@ function SimpleHome(): ReactElement {
           </Link>
         }
         description={description}
-        eyebrow={role === "operator" ? "What needs attention" : "Simple mode"}
+        eyebrow={
+          role === "operator"
+            ? "What needs attention"
+            : role === "viewer"
+              ? "Operational visibility"
+              : "Operational health"
+        }
         headingId="simple-home-heading"
         title={heading}
       />
@@ -302,7 +320,48 @@ function SimpleHome(): ReactElement {
           </dl>
         </section>
       </div>
+      <section
+        aria-labelledby="operations-next-steps"
+        className={`${operationalPanelClassName} mt-6`}
+      >
+        <h2
+          className="text-lg font-semibold text-foreground"
+          id="operations-next-steps"
+        >
+          Continue your workflow
+        </h2>
+        <p className="mt-1 text-sm text-secondary-foreground">
+          Move from current conditions to the part of FactoryMind you need next.
+        </p>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <JourneyLink label="Factories & assets" to="/factories" />
+          <JourneyLink label="Monitoring" to="/monitoring" />
+          <JourneyLink label="Shift handover" to="/operations/shifts" />
+          {canManageWorkspace ? (
+            <JourneyLink label="Operational reports" to="/reports" />
+          ) : (
+            <JourneyLink label="Recent activity" to="/activity" />
+          )}
+        </div>
+      </section>
     </section>
+  );
+}
+
+function JourneyLink({
+  label,
+  to,
+}: {
+  readonly label: string;
+  readonly to: string;
+}): ReactElement {
+  return (
+    <Link
+      className="rounded-md border border-border-strong bg-elevated px-4 py-3 text-center text-sm font-semibold text-foreground hover:bg-muted"
+      to={to}
+    >
+      {label}
+    </Link>
   );
 }
 

@@ -12,6 +12,7 @@ import {
   type Sensor,
 } from "../../api/hierarchy";
 import { useAuth } from "../../auth/useAuth";
+import { hasProductCapability } from "../../auth/permissions";
 import { ConfirmDialog } from "../../components/hierarchy/Dialogs";
 import { SensorFormDialog } from "../../components/hierarchy/HierarchyForms";
 import {
@@ -26,8 +27,8 @@ export function SensorDetailPage(): ReactElement {
   const { factoryId = "", machineId = "", sensorId = "" } = useParams();
   const navigate = useNavigate();
   const { role } = useAuth();
-  const canWrite = role === "admin" || role === "engineer";
-  const canDelete = role === "admin";
+  const canWrite = hasProductCapability(role, "engineering.write");
+  const canDelete = hasProductCapability(role, "tenant.administer");
   const readingsPath = `/factories/${factoryId}/machines/${machineId}/sensors/${sensorId}/readings`;
   const [factory, setFactory] = useState<Factory | null>(null);
   const [machine, setMachine] = useState<Machine | null>(null);

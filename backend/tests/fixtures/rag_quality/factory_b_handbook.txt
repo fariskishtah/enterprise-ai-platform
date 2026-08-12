@@ -1,0 +1,7 @@
+Factory B operations handbook.
+Compressor-01 has a preventive maintenance interval of 30 days.
+Compressor-01 has a maximum operating temperature limit of 96 C.
+The emergency shutdown procedure for Compressor-01 is to isolate power, close valve B-09, and press the red reset.
+Alarm B-902 means high discharge pressure.
+The approved production target is 620 units/shift.
+Operators must wear hearing protection in the compressor cell.

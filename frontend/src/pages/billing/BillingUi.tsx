@@ -10,6 +10,7 @@ export const entitlementLabels: Readonly<Record<string, string>> = {
   advanced_reports: "Advanced reports",
   audit_log: "Audit log",
   document_storage_gb: "Document storage",
+  document_storage_bytes: "Document storage",
   documents: "Documents",
   factories: "Factories",
   machines: "Machines",

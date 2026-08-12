@@ -7,6 +7,7 @@ import {
   type TrainingJobStatus,
 } from "../../api/aiLifecycle";
 import { useAuth } from "../../auth/useAuth";
+import { hasProductCapability } from "../../auth/permissions";
 import { JobStatusBadge, TrainerLabel } from "../../components/aiLifecycle/LifecycleUi";
 import { TrainingJobFormDialog } from "../../components/aiLifecycle/TrainingJobFormDialog";
 import { PageHeader } from "../../components/ui/PageHeader";
@@ -30,6 +31,7 @@ const statuses: readonly TrainingJobStatus[] = [
 
 export function TrainingJobsPage(): ReactElement {
   const { role } = useAuth();
+  const canCreate = hasProductCapability(role, "engineering.write");
   const navigate = useNavigate();
   const [page, setPage] = useState<TrainingJobPage | null>(null);
   const [offset, setOffset] = useState(0);
@@ -57,19 +59,21 @@ export function TrainingJobsPage(): ReactElement {
     return () => controller.abort();
   }, [offset, revision, status]);
 
-  if (role === "operator") return <Navigate replace to="/" />;
+  if (role === "operator") return <Navigate replace to="/dashboard" />;
   const reload = (): void => setRevision((value) => value + 1);
   return (
     <section aria-labelledby="training-heading">
       <PageHeader
         actions={
-          <button
-            className={primaryButtonClassName}
-            onClick={() => setCreating(true)}
-            type="button"
-          >
-            Create training job
-          </button>
+          canCreate ? (
+            <button
+              className={primaryButtonClassName}
+              onClick={() => setCreating(true)}
+              type="button"
+            >
+              Create training job
+            </button>
+          ) : undefined
         }
         description={
           <>
@@ -129,13 +133,15 @@ export function TrainingJobsPage(): ReactElement {
         ) : page === null || page.total === 0 ? (
           <EmptyState
             action={
-              <button
-                className={primaryButtonClassName}
-                onClick={() => setCreating(true)}
-                type="button"
-              >
-                Create training job
-              </button>
+              canCreate ? (
+                <button
+                  className={primaryButtonClassName}
+                  onClick={() => setCreating(true)}
+                  type="button"
+                >
+                  Create training job
+                </button>
+              ) : undefined
             }
             description="No authorized training jobs match this status."
             title="No training jobs"
@@ -198,7 +204,7 @@ export function TrainingJobsPage(): ReactElement {
           </>
         )}
       </div>
-      {creating ? (
+      {creating && canCreate ? (
         <TrainingJobFormDialog
           onClose={() => setCreating(false)}
           onCreated={(id) =>

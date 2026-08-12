@@ -126,7 +126,7 @@ export function AutoMLCreatePage(): ReactElement {
     () => algorithms.filter((item) => item.task_type === form.task),
     [algorithms, form.task],
   );
-  if (role === "operator") return <Navigate replace to="/" />;
+  if (role === "operator") return <Navigate replace to="/dashboard" />;
 
   const update = <K extends keyof FormState>(key: K, value: FormState[K]): void =>
     setForm((current) => ({ ...current, [key]: value }));

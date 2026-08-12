@@ -15,6 +15,7 @@ _ENTRY_SCRIPTS = (
     _K6_DIR / "data-rag-load.js",
     _K6_DIR / "stress.js",
     _K6_DIR / "soak.js",
+    _K6_DIR / "document-ingest-load.js",
 )
 _COMMON = _K6_DIR / "common.js"
 _CI = _ROOT / ".github/workflows/ci.yml"
@@ -30,7 +31,7 @@ def test_k6_entry_scripts_exist_and_share_safe_helpers() -> None:
     for script in _ENTRY_SCRIPTS:
         assert script.is_file()
         text = _text(script)
-        assert "from './common.js'" in text
+        assert re.search(r"from ['\"]\./common\.js['\"]", text)
         assert "http_req_failed" in text
         assert "checks" in text
         assert "summaryTrendStats" in text
@@ -51,25 +52,41 @@ def test_default_load_profiles_are_bounded() -> None:
     api = _text(_K6_DIR / "api-load.js")
     auth = _text(_K6_DIR / "auth-load.js")
 
-    assert "boundedInteger('SMOKE_DURATION_SECONDS', 10, 1, 30)" in smoke
-    assert "boundedInteger('SMOKE_VUS', 5, 1, 5)" in smoke
-    assert "boundedInteger('API_VUS', 3, 1, 20)" in api
+    assert re.search(
+        r'boundedInteger\(\s*"SMOKE_DURATION_SECONDS",\s*10,\s*1,\s*30,?\s*\)',
+        smoke,
+    )
+    assert 'boundedInteger("SMOKE_VUS", 5, 1, 5)' in smoke
+    assert 'boundedInteger("API_VUS", 3, 1, 20)' in api
     assert "> 300" in api
-    assert "boundedInteger('AUTH_ITERATIONS', 2, 1, 3)" in auth
+    assert 'boundedInteger("AUTH_ITERATIONS", 2, 1, 3)' in auth
     assert "vus: 1" in auth
-    assert "maxDuration: '2m'" in auth
+    assert 'maxDuration: "2m"' in auth
 
 
 def test_training_is_opt_in_small_idempotent_and_bounded() -> None:
     training = _text(_K6_DIR / "training-job-load.js")
 
-    assert "enabled('ENABLE_TRAINING_LOAD')" in training
-    assert "boundedInteger('TRAINING_JOBS', 1, 1, 3)" in training
+    assert 'enabled("ENABLE_TRAINING_LOAD")' in training
+    assert 'boundedInteger("TRAINING_JOBS", 1, 1, 3)' in training
     assert "vus: 1" in training
-    assert "maxDuration: '5m'" in training
-    assert "'Idempotency-Key'" in training
+    assert 'maxDuration: "5m"' in training
+    assert '"Idempotency-Key"' in training
     assert "n_estimators: 3" in training
     assert "for (let poll = 0; poll < maxPolls; poll += 1)" in training
+
+
+def test_document_ingestion_is_opt_in_single_synthetic_and_bounded() -> None:
+    ingestion = _text(_K6_DIR / "document-ingest-load.js")
+
+    assert 'enabled("ENABLE_DOCUMENT_INGESTION_LOAD")' in ingestion
+    assert "iterations: 1" in ingestion
+    assert "vus: 1" in ingestion
+    assert 'maxDuration: "2m"' in ingestion
+    assert "for (let poll = 0; poll < 20; poll += 1)" in ingestion
+    assert "text/plain" in ingestion
+    assert "no customer or production data" in ingestion
+    assert "PAYMOB" not in ingestion
 
 
 def test_ci_uses_one_pinned_k6_version_for_inspection_only() -> None:

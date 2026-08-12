@@ -692,6 +692,106 @@ def seed_knowledge_base(
     return knowledge_base_id, created
 
 
+def seed_rag_load_pool() -> int:
+    """Create reusable owner-isolated KB fixtures for bounded local load tests."""
+    count = int(os.getenv("RAG_LOAD_USER_COUNT", "0"))
+    if count == 0:
+        return 0
+    if not 1 <= count <= 100:
+        raise DemoSeedError("RAG_LOAD_USER_COUNT must be between 1 and 100")
+    prefix = os.getenv("RAG_LOAD_EMAIL_PREFIX", "phase5-rag")
+    domain = os.getenv("RAG_LOAD_EMAIL_DOMAIN", "example.com")
+    created_count = 0
+    for index in range(1, count + 1):
+        email = f"{prefix}-{index:03d}@{domain}"
+        with ApiClient(base_url=API_BASE_URL, timeout=60.0) as anonymous:
+            login = require_response(
+                anonymous.post(
+                    "/auth/login",
+                    json={"email": email, "password": DEMO_PASSWORD},
+                ),
+                {200},
+                "login one RAG load identity",
+            ).json()
+        headers = {"Authorization": f"Bearer {login['access_token']}"}
+        with ApiClient(base_url=API_BASE_URL, headers=headers, timeout=60.0) as client:
+            current_user = require_response(
+                client.get("/users/me"),
+                {200},
+                "load one RAG load identity",
+            ).json()
+            document_version, _ = seed_dataset_version(
+                client,
+                name=f"Phase 5 RAG Load Documents {index:03d}",
+                owner_user_id=str(current_user["id"]),
+                kind="document_collection",
+                filename="phase5-maintenance-procedure.txt",
+                media_type="text/plain",
+                content=MAINTENANCE_DOCUMENT,
+            )
+            document_version_id = str(document_version["id"])
+            name = f"Phase 5 RAG Load {index:03d}"
+            knowledge_base = exact_named(
+                list_items(client, "/ai/rag/knowledge-bases"), name
+            )
+            if knowledge_base is None:
+                knowledge_base = require_response(
+                    client.post(
+                        "/ai/rag/knowledge-bases",
+                        json={
+                            "name": name,
+                            "description": "Disposable owner-isolated load fixture",
+                            "chunk_size": 400,
+                            "chunk_overlap": 40,
+                        },
+                    ),
+                    {201},
+                    "create one RAG load knowledge base",
+                ).json()
+                created_count += 1
+            knowledge_base_id = str(knowledge_base["knowledge_base_id"])
+            detail = require_response(
+                client.get(f"/ai/rag/knowledge-bases/{knowledge_base_id}"),
+                {200},
+                "load one RAG load knowledge base",
+            ).json()
+            attached = {
+                str(item["dataset_version_id"]) for item in detail["dataset_versions"]
+            }
+            if document_version_id not in attached:
+                require_response(
+                    client.post(
+                        f"/ai/rag/knowledge-bases/{knowledge_base_id}/dataset-versions",
+                        json={"dataset_version_id": document_version_id},
+                    ),
+                    {201},
+                    "attach one RAG load document fixture",
+                )
+            if detail["status"] != "ready":
+                builds = list_items(
+                    client,
+                    f"/ai/rag/knowledge-bases/{knowledge_base_id}/builds",
+                )
+                if not any(
+                    item.get("status") in {"queued", "running"} for item in builds
+                ):
+                    require_response(
+                        client.post(
+                            f"/ai/rag/knowledge-bases/{knowledge_base_id}/build"
+                        ),
+                        {202},
+                        "build one RAG load knowledge base",
+                    )
+                _wait_for_status(
+                    client,
+                    f"/ai/rag/knowledge-bases/{knowledge_base_id}",
+                    successful={"ready"},
+                    failed={"failed", "archived"},
+                    operation="build one RAG load knowledge base",
+                )
+    return created_count
+
+
 def train_model(
     client: ApiClient, training_dataset_version_id: str
 ) -> tuple[str, str, bool]:
@@ -1330,6 +1430,7 @@ def run() -> None:
             operator_id=operator_id,
         )
         sprint_demo = ensure_sprints_3_5_demo(client, domain)
+    rag_load_knowledge_bases_created = seed_rag_load_pool()
     sprint_schedule_result = asyncio.run(ensure_demo_report_schedule())
 
     created_resources = (
@@ -1353,6 +1454,10 @@ def run() -> None:
     print(
         f"  Knowledge base: {knowledge_base_id} "
         f"({'created' if knowledge_base_created else 'reused'})"
+    )
+    print(
+        "  RAG load knowledge bases created: "
+        f"{rag_load_knowledge_bases_created} (remaining fixtures reused)"
     )
     print(f"  Training job: {job_id} ({'created' if job_created else 'reused'})")
     print(f"  Model: {MODEL_NAME} version {version}")

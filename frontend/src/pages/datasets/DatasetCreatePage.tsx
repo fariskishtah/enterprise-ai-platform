@@ -84,13 +84,13 @@ export function DatasetCreatePage(): ReactElement {
   return (
     <section aria-labelledby="dataset-create-heading">
       <Breadcrumbs
-        items={[{ label: "Dataset Registry", to: "/datasets" }, { label: "Register" }]}
+        items={[{ label: "Datasets & Documents", to: "/datasets" }, { label: "Add" }]}
       />
       <PageHeader
-        description="Create an owner-scoped registry entry and its first immutable version from one bounded upload."
-        eyebrow="Dataset Registry"
+        description="Add a CSV file for analysis or a plain-text document for grounded AI. FactoryMind keeps each uploaded version for traceability."
+        eyebrow="Trusted data"
         headingId="dataset-create-heading"
-        title="Register dataset"
+        title="Add data or documents"
       />
       <div className="mt-6 max-w-3xl">
         <InlineNotice>
@@ -102,7 +102,7 @@ export function DatasetCreatePage(): ReactElement {
           <LifecycleCard>
             <div className="grid gap-5 sm:grid-cols-2">
               <label className="text-sm font-medium text-foreground sm:col-span-2">
-                Dataset name
+                Name
                 <input
                   autoComplete="off"
                   className="mt-1 w-full rounded-md border border-border-strong bg-elevated px-3 py-2"
@@ -129,7 +129,7 @@ export function DatasetCreatePage(): ReactElement {
                 />
               </label>
               <label className="text-sm font-medium text-foreground">
-                Dataset kind
+                What are you adding?
                 <select
                   className="mt-1 w-full rounded-md border border-border-strong bg-elevated px-3 py-2"
                   disabled={submitting}
@@ -139,8 +139,8 @@ export function DatasetCreatePage(): ReactElement {
                   }}
                   value={kind}
                 >
-                  <option value="tabular">Tabular</option>
-                  <option value="document_collection">Document collection</option>
+                  <option value="tabular">Machine or operational data (CSV)</option>
+                  <option value="document_collection">Reference document (TXT)</option>
                 </select>
               </label>
               <label className="text-sm font-medium text-foreground">
@@ -211,7 +211,7 @@ export function DatasetCreatePage(): ReactElement {
                 disabled={submitting || file === null}
                 type="submit"
               >
-                {submitting ? "Registering…" : "Upload and register dataset"}
+                {submitting ? "Adding…" : "Add to FactoryMind"}
               </button>
             </div>
           </LifecycleCard>

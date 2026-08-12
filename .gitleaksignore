@@ -7,3 +7,14 @@
 # False positive: this exact generic-api-key finding is a Python call that passes
 # an integer upload-size bound alongside an internal storage object key.
 fcd042747f7acd664dfc96a47532dd214f75d4ca:backend/app/services/guided_data.py:generic-api-key:263
+
+# Historical synthetic billing idempotency keys. These exercise replay and
+# concurrency behavior and are not credentials or provider secrets.
+92ad319897401619211dfa9a0d6c610a0b09c6c2:backend/tests/test_billing_phase2_invariants.py:generic-api-key:311
+92ad319897401619211dfa9a0d6c610a0b09c6c2:backend/tests/test_billing_phase2_invariants.py:generic-api-key:425
+92ad319897401619211dfa9a0d6c610a0b09c6c2:backend/tests/test_billing_phase2_invariants.py:generic-api-key:433
+92ad319897401619211dfa9a0d6c610a0b09c6c2:backend/tests/test_billing_phase2_invariants.py:generic-api-key:497
+
+# Historical interactive prompt label; the script reads the sandbox key at
+# runtime and this line contains no credential value.
+c6890f0af1c05fad7c914cd2bf2bfb2aad649efe:scripts/paymob-sandbox.sh:generic-api-key:356

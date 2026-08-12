@@ -10,6 +10,7 @@ import {
   type TrainingJob,
 } from "../../api/aiLifecycle";
 import { useAuth } from "../../auth/useAuth";
+import { hasProductCapability } from "../../auth/permissions";
 import { MetricsGrid, TrainerLabel } from "../../components/aiLifecycle/LifecycleUi";
 import { Dialog } from "../../components/hierarchy/Dialogs";
 import {
@@ -81,8 +82,9 @@ export function ModelVersionPage(): ReactElement {
         }}
       />
     );
-  const canChallenger = role === "admin" || role === "engineer";
-  const canChampion = role === "admin" && version.aliases.includes("challenger");
+  const canChallenger = hasProductCapability(role, "engineering.write");
+  const canAdminister = hasProductCapability(role, "tenant.administer");
+  const canChampion = canAdminister && version.aliases.includes("challenger");
   return (
     <section aria-labelledby="version-heading">
       <Breadcrumbs
@@ -174,7 +176,7 @@ export function ModelVersionPage(): ReactElement {
           title={`Promote version ${version.model_version} to ${target}?`}
         >
           <div className="space-y-4">
-            {role === "admin" ? (
+            {canAdminister ? (
               <label className="flex items-center gap-2 text-sm">
                 <input
                   checked={force}
@@ -217,7 +219,7 @@ export function ModelVersionPage(): ReactElement {
                   setBusy(true);
                   setMutationError(null);
                   promoteModel(name, version.model_version, target, {
-                    force: role === "admin" && force,
+                    force: canAdminister && force,
                     reason: reason.trim() || null,
                   })
                     .then((promotion) => {

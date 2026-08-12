@@ -12,9 +12,10 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import Response
 
-from app.dependencies.auth import require_roles
+from app.dependencies.auth import require_permissions
 from app.dependencies.services import get_audit_service
-from app.models.user import User, UserRole
+from app.models.user import User
+from app.permissions import Permission
 from app.schemas.audit import AuditEventPage, AuditEventResponse
 from app.services.audit import AuditService
 
@@ -23,7 +24,7 @@ router = APIRouter(prefix="/audit-events", tags=["audit"])
 
 @router.get("", response_model=AuditEventPage)
 async def list_audit_events(
-    current_user: Annotated[User, Depends(require_roles(UserRole.ADMIN))],
+    current_user: Annotated[User, Depends(require_permissions(Permission.AUDIT_READ))],
     service: Annotated[AuditService, Depends(get_audit_service)],
     actor_user_id: UUID | None = None,
     action: Annotated[str | None, Query(max_length=128)] = None,
@@ -57,7 +58,7 @@ async def list_audit_events(
 
 @router.get("/export")
 async def export_audit_events(
-    current_user: Annotated[User, Depends(require_roles(UserRole.ADMIN))],
+    current_user: Annotated[User, Depends(require_permissions(Permission.AUDIT_READ))],
     service: Annotated[AuditService, Depends(get_audit_service)],
     export_format: Literal["csv", "json"] = "csv",
 ) -> Response:

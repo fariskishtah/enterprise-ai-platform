@@ -1,0 +1,26 @@
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /accept-invitation
+Disallow: /forgot-password
+Disallow: /login
+Disallow: /register
+Disallow: /reset-password
+Disallow: /verify-email
+Disallow: /audit-log
+Disallow: /automl
+Disallow: /chat
+Disallow: /datasets
+Disallow: /factories
+Disallow: /guided-ai
+Disallow: /models
+Disallow: /monitoring
+Disallow: /predictions
+Disallow: /reports
+Disallow: /retraining
+Disallow: /sensor-data
+Disallow: /settings
+Disallow: /training
+Disallow: /users
+
+Sitemap: https://factorymind.ddnsgeek.com/sitemap.xml

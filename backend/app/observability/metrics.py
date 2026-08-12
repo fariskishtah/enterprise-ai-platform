@@ -135,6 +135,22 @@ HTTP_REQUESTS_IN_PROGRESS = Gauge(
     "Backend HTTP requests currently in progress.",
     ("service", "environment", "method"),
 )
+DATABASE_POOL_CONNECTIONS = Gauge(
+    "database_pool_connections",
+    "Current SQLAlchemy pool connections by bounded state.",
+    ("service", "environment", "state"),
+)
+DATABASE_POOL_EXHAUSTIONS = Counter(
+    "database_pool_exhaustions_total",
+    "Requests that exhausted the configured SQLAlchemy pool timeout.",
+    ("service", "environment"),
+)
+AUTH_LOGIN_PHASE_DURATION = Histogram(
+    "auth_login_phase_duration_seconds",
+    "Login duration by bounded processing phase.",
+    ("service", "environment", "phase"),
+    buckets=_EVALUATION_DURATION_BUCKETS,
+)
 
 TRAINING_JOBS_SUBMITTED = Counter(
     "training_jobs_submitted_total",
@@ -434,6 +450,51 @@ def record_http_request_completed(
             **labels,
             method=method,
         ).dec(),
+    )
+
+
+def record_database_pool_state(
+    *, size: int, checked_in: int, checked_out: int, overflow: int
+) -> None:
+    """Record bounded pool state without database identifiers."""
+    labels = _base_labels()
+    for state, value in (
+        ("size", size),
+        ("checked_in", checked_in),
+        ("checked_out", checked_out),
+        ("overflow", overflow),
+    ):
+
+        def set_value(state_name: str = state, current_value: int = value) -> None:
+            DATABASE_POOL_CONNECTIONS.labels(**labels, state=state_name).set(
+                max(current_value, 0)
+            )
+
+        _safe_record(
+            "database_pool_connections",
+            set_value,
+        )
+
+
+def record_database_pool_exhaustion() -> None:
+    """Count one bounded connection-pool timeout."""
+    labels = _base_labels()
+    _safe_record(
+        "database_pool_exhaustions_total",
+        lambda: DATABASE_POOL_EXHAUSTIONS.labels(**labels).inc(),
+    )
+
+
+def record_auth_login_phase(*, phase: str, duration_seconds: float) -> None:
+    """Record safe login timing without identity or credential labels."""
+    if phase not in {"user_lookup", "password_verify", "session_issue"}:
+        return
+    labels = _base_labels()
+    _safe_record(
+        "auth_login_phase_duration_seconds",
+        lambda: AUTH_LOGIN_PHASE_DURATION.labels(**labels, phase=phase).observe(
+            max(duration_seconds, 0.0)
+        ),
     )
 
 

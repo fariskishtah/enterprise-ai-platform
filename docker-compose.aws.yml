@@ -17,3 +17,14 @@ services:
       timeout: 5s
       retries: 12
       start_period: 30s
+
+  reverse-proxy:
+    networks:
+      - public
+      - application
+      - paymob-sandbox-edge
+
+networks:
+  paymob-sandbox-edge:
+    external: true
+    name: factorymind-paymob-sandbox-edge

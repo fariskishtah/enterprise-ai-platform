@@ -17,6 +17,7 @@ import {
   type SensorReading,
 } from "../../api/sensorData";
 import { useAuth } from "../../auth/useAuth";
+import { hasProductCapability } from "../../auth/permissions";
 import { CsvUploadDialog } from "../../components/dataOperations/CsvUploadDialog";
 import { ReadingFormDialog } from "../../components/dataOperations/ReadingFormDialog";
 import {
@@ -51,7 +52,7 @@ export function SensorReadingsPage(): ReactElement {
   const { factoryId = "", machineId = "", sensorId = "" } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
   const { role } = useAuth();
-  const canWrite = role === "admin" || role === "engineer";
+  const canWrite = hasProductCapability(role, "engineering.write");
   const [factory, setFactory] = useState<Factory | null>(null);
   const [machine, setMachine] = useState<Machine | null>(null);
   const [sensor, setSensor] = useState<Sensor | null>(null);

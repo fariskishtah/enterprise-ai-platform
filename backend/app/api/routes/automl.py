@@ -39,6 +39,7 @@ from app.ml.domain import TaskType
 from app.ml.plugins import create_default_plugin_registry
 from app.models.automl import AutoMLStudy, AutoMLTrial
 from app.models.user import User, UserRole
+from app.permissions import is_tenant_administrator
 from app.repositories.automl import AutoMLRepository
 from app.schemas.automl import (
     AutoMLAlgorithmMetadataResponse,
@@ -245,13 +246,14 @@ async def list_studies(
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> AutoMLStudyListResponse:
-    if requester_id is not None and current_user.role is not UserRole.ADMIN:
+    tenant_admin = is_tenant_administrator(current_user.role)
+    if requester_id is not None and not tenant_admin:
         raise HTTPException(
             status.HTTP_403_FORBIDDEN, "Only administrators may filter by requester."
         )
     page = await _service(session).list_studies(
         user_id=current_user.id,
-        is_admin=current_user.role is UserRole.ADMIN,
+        is_admin=tenant_admin,
         status=study_status,
         task_type=task_type,
         plugin_id=plugin_id,
@@ -283,7 +285,7 @@ async def get_study(
         value = await _service(session).get_study(
             study_id=study_id,
             user_id=current_user.id,
-            is_admin=current_user.role is UserRole.ADMIN,
+            is_admin=is_tenant_administrator(current_user.role),
         )
     except AutoMLNotFoundError as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
@@ -311,7 +313,7 @@ async def list_trials(
         page = await _service(session).list_trials(
             study_id=study_id,
             user_id=current_user.id,
-            is_admin=current_user.role is UserRole.ADMIN,
+            is_admin=is_tenant_administrator(current_user.role),
             status=trial_status,
             plugin_id=plugin_id,
             limit=limit,
@@ -346,7 +348,7 @@ async def get_trial(
             study_id=study_id,
             trial_id=trial_id,
             user_id=current_user.id,
-            is_admin=current_user.role is UserRole.ADMIN,
+            is_admin=is_tenant_administrator(current_user.role),
         )
     except AutoMLNotFoundError as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
@@ -384,7 +386,7 @@ async def cancel_study(
         value, outcome = await _service(session).cancel(
             study_id=study_id,
             user_id=current_user.id,
-            is_admin=current_user.role is UserRole.ADMIN,
+            is_admin=is_tenant_administrator(current_user.role),
         )
     except AutoMLNotFoundError as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
@@ -492,12 +494,12 @@ async def get_leaderboard(
         study = await service.get_study(
             study_id=study_id,
             user_id=current_user.id,
-            is_admin=current_user.role is UserRole.ADMIN,
+            is_admin=is_tenant_administrator(current_user.role),
         )
         page = await service.list_trials(
             study_id=study_id,
             user_id=current_user.id,
-            is_admin=current_user.role is UserRole.ADMIN,
+            is_admin=is_tenant_administrator(current_user.role),
             status=AutoMLTrialStatus.SUCCEEDED,
             plugin_id=None,
             limit=100,

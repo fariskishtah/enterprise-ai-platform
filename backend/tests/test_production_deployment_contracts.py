@@ -116,6 +116,29 @@ def test_production_services_have_restart_logs_and_resources() -> None:
         assert resources["reservations"]["memory"], name
         assert resources["reservations"]["cpus"], name
 
+    backend = services["backend"]
+    assert backend["mem_limit"] == "1536m"
+    assert backend["cpus"] == 4.0
+    assert backend["deploy"]["resources"]["limits"] == {
+        "memory": "1536m",
+        "cpus": "4.0",
+    }
+
+
+def test_backend_database_pool_is_explicit_and_bounded() -> None:
+    backend = _yaml(_PRODUCTION_COMPOSE)["services"]["backend"]
+    environment = backend["environment"]
+
+    assert environment["DATABASE_POOL_SIZE"] == "${DATABASE_POOL_SIZE:-10}"
+    assert environment["DATABASE_MAX_OVERFLOW"] == "${DATABASE_MAX_OVERFLOW:-5}"
+    assert environment["DATABASE_POOL_TIMEOUT_SECONDS"] == (
+        "${DATABASE_POOL_TIMEOUT_SECONDS:-5}"
+    )
+    assert environment["DATABASE_POOL_RECYCLE_SECONDS"] == (
+        "${DATABASE_POOL_RECYCLE_SECONDS:-1800}"
+    )
+    assert "--workers" not in " ".join(backend["command"])
+
 
 def test_production_secrets_are_required_without_working_fallbacks() -> None:
     services = _yaml(_PRODUCTION_COMPOSE)["services"]
@@ -183,6 +206,7 @@ def test_deployment_scripts_are_executable_and_non_destructive() -> None:
     for script in _SCRIPTS:
         assert script.stat().st_mode & stat.S_IXUSR
         assert _text(script).startswith("#!/usr/bin/env bash\nset -Eeuo pipefail\n")
+        assert 'readonly PROJECT_NAME="ai-manufacturing-platform"' in _text(script)
     for forbidden in (
         "down -v",
         "docker volume rm",
@@ -198,6 +222,7 @@ def test_deployment_scripts_are_executable_and_non_destructive() -> None:
     assert "target PostgreSQL image is not compatible" in _text(_SCRIPTS[2])
     assert "pg_extension WHERE extname" in _text(_SCRIPTS[1])
     assert "/operational-status" in _text(_SCRIPTS[1])
+    assert _text(_SCRIPTS[1]).count("/api/ready") == 2
 
 
 def test_data_rag_runtime_settings_are_mapped_to_api_and_worker() -> None:

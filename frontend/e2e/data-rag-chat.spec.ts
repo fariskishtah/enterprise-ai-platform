@@ -685,18 +685,20 @@ test("dataset registry lists data and validates document uploads", async ({ page
   await expect(page.getByRole("link", { name: "Production readings" })).toBeVisible();
   api.setDatasetListEmpty(true);
   await page.reload();
-  await expect(page.getByRole("heading", { name: "No datasets" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "No data or documents yet" }),
+  ).toBeVisible();
   api.setDatasetListEmpty(false);
 
   await page.goto("/datasets/new");
-  await page.getByLabel("Dataset name").fill("Fixture handbook");
-  await page.getByLabel("Dataset kind").selectOption("document_collection");
+  await page.getByLabel(/^Name/).fill("Fixture handbook");
+  await page.getByLabel("What are you adding?").selectOption("document_collection");
   await page.getByLabel("Plain text file").setInputFiles({
     buffer: Buffer.from("%PDF fixture"),
     name: "unsupported.pdf",
     mimeType: "application/pdf",
   });
-  await page.getByRole("button", { name: "Upload and register dataset" }).click();
+  await page.getByRole("button", { name: "Add to FactoryMind" }).click();
   await expect(
     page.getByText("Document collections currently accept plain text files."),
   ).toBeVisible();
@@ -705,7 +707,7 @@ test("dataset registry lists data and validates document uploads", async ({ page
     name: "handbook.txt",
     mimeType: "text/plain",
   });
-  await page.getByRole("button", { name: "Upload and register dataset" }).click();
+  await page.getByRole("button", { name: "Add to FactoryMind" }).click();
   await expect(page).toHaveURL(
     new RegExp(`/datasets/${DOCUMENT_DATASET_ID}/versions/${DOCUMENT_VERSION_ID}$`),
   );
@@ -720,13 +722,13 @@ test("dataset schema, document safety, archiving, and accessibility", async ({
   await authenticated(page);
   const api = await mockProductApi(page);
   await page.goto("/datasets/new");
-  await page.getByLabel("Dataset name").fill("Fixture readings");
+  await page.getByLabel(/^Name/).fill("Fixture readings");
   await page.getByLabel("CSV file").setInputFiles({
     buffer: Buffer.from("temperature,target\n1,2\n"),
     name: "tiny.csv",
     mimeType: "text/csv",
   });
-  await page.getByRole("button", { name: "Upload and register dataset" }).dblclick();
+  await page.getByRole("button", { name: "Add to FactoryMind" }).dblclick();
   await expect(page).toHaveURL(
     new RegExp(`/datasets/${DATASET_ID}/versions/${VERSION_ID}$`),
   );
@@ -777,7 +779,7 @@ test("operator cannot navigate to dataset or RAG workspaces", async ({ page }) =
     return json(route, { items: [], limit: 6, offset: 0, total: 0 });
   });
   await page.goto("/datasets");
-  await expect(page).toHaveURL(/\/$/);
+  await expect(page).toHaveURL(/\/dashboard$/);
   await expect(
     page.getByRole("heading", { name: "Your operations home" }),
   ).toBeVisible();
@@ -796,20 +798,23 @@ test("knowledge-base creation, indexing controls, retrieval, dark theme, and mob
   await page.goto("/knowledge/new");
   await page.getByLabel("Name").fill("Operations knowledge");
   await page.getByText("Operations handbook").click();
-  await page.getByRole("button", { name: "Create knowledge base" }).click();
+  await page.getByRole("button", { name: "Create trusted knowledge" }).click();
   await expect(page).toHaveURL(new RegExp(`/knowledge/${KNOWLEDGE_BASE_ID}$`));
+  await page.getByText("Technical indexing details").click();
   await expect(page.getByText("local_hashing")).toBeVisible();
   await expect(
     page.getByText("The local embedding provider was unavailable."),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Build index" }).click();
-  await expect(page.getByRole("button", { name: "Cancel build" })).toBeVisible();
-  await page.getByRole("button", { name: "Cancel build" }).click();
-  await expect(page.getByRole("button", { name: "Build index" })).toBeVisible();
+  await page.getByRole("button", { name: "Prepare for questions" }).click();
+  await expect(page.getByRole("button", { name: "Cancel preparation" })).toBeVisible();
+  await page.getByRole("button", { name: "Cancel preparation" }).click();
+  await expect(
+    page.getByRole("button", { name: "Prepare for questions" }),
+  ).toBeVisible();
   await page
     .getByLabel("Grounded query")
     .fill("How should maintenance isolate the machine?");
-  await page.getByRole("button", { name: "Search registered evidence" }).click();
+  await page.getByRole("button", { name: "Search approved sources" }).click();
   await expect(page.getByRole("list", { name: "Retrieval citations" })).toContainText(
     "red isolation switch",
   );
@@ -841,7 +846,12 @@ test("grounded chat keeps citations, insufficient evidence, cancellation, and ar
   await expect(page.getByRole("region", { name: "Citations" })).toContainText(
     "Operations handbook",
   );
+  await expect(page.getByText("Using Operations knowledge")).toBeVisible();
+  await expect(page.getByText(KNOWLEDGE_BASE_ID)).toHaveCount(0);
   await expect(page.getByText(/insufficient to support an answer/)).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: "Add or update trusted knowledge" }),
+  ).toBeVisible();
   await expect(page.getByText("queued", { exact: true })).toBeVisible();
   await expect(page.getByText("retrieving", { exact: true })).toBeVisible();
   await expect(page.getByText("generating", { exact: true })).toBeVisible();
@@ -877,13 +887,13 @@ test("partial dataset and knowledge-base creation navigate to recoverable detail
   await authenticated(page);
   await mockProductApi(page, { failDatasetVersionUpload: true });
   await page.goto("/datasets/new");
-  await page.getByLabel("Dataset name").fill("Recoverable dataset");
+  await page.getByLabel(/^Name/).fill("Recoverable dataset");
   await page.getByLabel("CSV file").setInputFiles({
     buffer: Buffer.from("feature,target\n1,2\n"),
     mimeType: "text/csv",
     name: "recoverable.csv",
   });
-  await page.getByRole("button", { name: "Upload and register dataset" }).click();
+  await page.getByRole("button", { name: "Add to FactoryMind" }).click();
   await expect(page).toHaveURL(new RegExp(`/datasets/${DATASET_ID}$`));
   await expect(
     page.getByText(
@@ -898,7 +908,7 @@ test("partial dataset and knowledge-base creation navigate to recoverable detail
   await knowledgePage.goto("/knowledge/new");
   await knowledgePage.getByLabel("Name").fill("Recoverable knowledge");
   await knowledgePage.getByText("Operations handbook").click();
-  await knowledgePage.getByRole("button", { name: "Create knowledge base" }).click();
+  await knowledgePage.getByRole("button", { name: "Create trusted knowledge" }).click();
   await expect(knowledgePage).toHaveURL(new RegExp(`/knowledge/${KNOWLEDGE_BASE_ID}$`));
   await expect(
     knowledgePage.getByText(/knowledge base was created and 0 of 1 selected versions/i),

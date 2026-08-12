@@ -41,6 +41,7 @@ import {
   type Sensor,
 } from "../../api/hierarchy";
 import { useAuth } from "../../auth/useAuth";
+import { hasProductCapability } from "../../auth/permissions";
 import {
   EmptyState,
   InlineError,
@@ -136,10 +137,10 @@ export function DataOnboardingPage(): ReactElement {
   return (
     <section aria-labelledby="onboarding-heading">
       <PageHeader
-        description="Upload a bounded UTF-8 CSV, confirm its column mapping, review quality findings, then explicitly import accepted readings."
-        eyebrow="Smart data onboarding"
+        description="Upload a CSV of machine readings, match its columns, review any data issues, and confirm what should be imported."
+        eyebrow="Machine data"
         headingId="onboarding-heading"
-        title="Guided CSV import"
+        title="Data Onboarding"
       />
       <ol className="mt-6 grid gap-2 sm:grid-cols-3 lg:grid-cols-6">
         {["Upload", "Preview", "Map columns", "Validate", "Confirm", "Result"].map(
@@ -152,11 +153,11 @@ export function DataOnboardingPage(): ReactElement {
         )}
       </ol>
       <InlineNotice>
-        CSV selection does not import data. Files are limited by the server, parsed as
-        UTF-8, and only imported after mapping and quality confirmation.
+        Choosing a file does not import it. You can preview the rows, match each column,
+        and correct blocking issues before confirming the import.
       </InlineNotice>
       <div className={`${panel} mt-4`}>
-        <h3 className="font-semibold text-foreground">Expected long-format CSV</h3>
+        <h3 className="font-semibold text-foreground">How to format your CSV</h3>
         <p className="mt-2 text-sm text-secondary-foreground">
           Map columns containing timestamp, machine name, sensor name, and numeric
           value. Names must match registered resources exactly.
@@ -413,6 +414,16 @@ export function DataOnboardingPage(): ReactElement {
             <dt>Progress</dt>
             <dd>{item?.progress_percent ?? 0}%</dd>
           </dl>
+          {item?.completed_at !== null && item?.completed_at !== undefined ? (
+            <div className="mt-4 flex flex-wrap gap-2 border-t border-border pt-4">
+              <Link className={secondaryButtonClassName} to="/sensor-data/quality">
+                Review data quality
+              </Link>
+              <Link className={primaryButtonClassName} to="/guided-ai">
+                Continue to Guided AI
+              </Link>
+            </div>
+          ) : null}
         </div>
       </div>
     </section>
@@ -420,6 +431,8 @@ export function DataOnboardingPage(): ReactElement {
 }
 
 export function DataQualityPage(): ReactElement {
+  const { role } = useAuth();
+  const canWrite = hasProductCapability(role, "engineering.write");
   const [items, setItems] = useState<readonly DataImport[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
@@ -435,12 +448,14 @@ export function DataQualityPage(): ReactElement {
     <section aria-labelledby="quality-heading">
       <PageHeader
         actions={
-          <Link className={primaryButtonClassName} to="/sensor-data/onboarding">
-            New guided import
-          </Link>
+          canWrite ? (
+            <Link className={primaryButtonClassName} to="/sensor-data/onboarding">
+              Start a data import
+            </Link>
+          ) : undefined
         }
-        description="Recent import freshness, invalid-value rate, schema findings, and blocking issues. Model drift remains in Monitoring."
-        eyebrow="Data operations"
+        description="Review recent imports, rejected rows, and issues that must be corrected before the data can be trusted."
+        eyebrow="Machine data"
         headingId="quality-heading"
         title="Data quality"
       />
@@ -451,7 +466,11 @@ export function DataQualityPage(): ReactElement {
           <LoadingSkeleton />
         ) : items.length === 0 ? (
           <EmptyState
-            description="Run a guided import to establish data-quality history."
+            description={
+              canWrite
+                ? "Start a data import to establish quality history."
+                : "No data-quality history is available to review yet."
+            }
             title="No quality history"
           />
         ) : (
@@ -527,12 +546,23 @@ export function GuidedAiPage(): ReactElement {
   return (
     <section aria-labelledby="guided-ai-heading">
       <PageHeader
-        description="Configure an existing supported training workflow without changing deployment or promotion state."
+        description="Choose a factory goal and a completed data import. FactoryMind checks whether the data is ready before model training begins."
         eyebrow="Guided AI"
         headingId="guided-ai-heading"
-        title="Training readiness"
+        title="Prepare an AI use case"
       />
       {error ? <InlineError message={error} onRetry={() => setError(null)} /> : null}
+      {imports.length === 0 ? (
+        <div className="mt-5">
+          <InlineNotice>
+            Complete a machine-data import before checking an AI use case.{" "}
+            <Link className="font-semibold text-link" to="/sensor-data/onboarding">
+              Open Data Onboarding
+            </Link>
+            .
+          </InlineNotice>
+        </div>
+      ) : null}
       <form className={`mt-6 grid gap-4 ${panel}`} onSubmit={submit}>
         <label>
           <span className="text-sm font-medium">Use case</span>
@@ -544,7 +574,7 @@ export function GuidedAiPage(): ReactElement {
           </select>
         </label>
         <label>
-          <span className="text-sm font-medium">Completed imported data</span>
+          <span className="text-sm font-medium">Completed machine-data import</span>
           <select className={`${input} mt-1`} name="import" required>
             <option value="">Select an import</option>
             {imports.map((item) => (
@@ -555,29 +585,32 @@ export function GuidedAiPage(): ReactElement {
           </select>
         </label>
         <label>
-          <span className="text-sm font-medium">Features (comma separated)</span>
+          <span className="text-sm font-medium">Data columns to use</span>
           <input className={`${input} mt-1`} name="features" required />
+          <span className="mt-1 block text-xs text-muted-foreground">
+            Enter the useful measurement columns, separated by commas.
+          </span>
         </label>
         <label>
-          <span className="text-sm font-medium">Optional target</span>
+          <span className="text-sm font-medium">Value to predict (optional)</span>
           <input className={`${input} mt-1`} name="target" />
         </label>
         <label>
-          <span className="text-sm font-medium">Training profile</span>
+          <span className="text-sm font-medium">Analysis depth</span>
           <select className={`${input} mt-1`} name="profile">
-            <option value="fast_demo">Fast demo</option>
+            <option value="fast_demo">Quick check</option>
             <option value="balanced">Balanced</option>
             <option value="thorough">Thorough</option>
           </select>
         </label>
         <button className={primaryButtonClassName} type="submit">
-          Review readiness
+          Check readiness
         </button>
       </form>
       {result ? (
         <article className={`mt-5 ${panel}`} aria-live="polite">
           <h3 className="font-semibold">
-            {result.ready ? "Ready for existing training workflow" : "Not ready"}
+            {result.ready ? "Ready to begin model training" : "More preparation needed"}
           </h3>
           <p className="mt-2 text-sm">
             {result.valid_rows}/{result.dataset_size} valid rows ·{" "}

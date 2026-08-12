@@ -7,7 +7,10 @@ from pathlib import Path
 
 import pytest
 import yaml
-from app.api.routes.health import _dataset_storage_status
+from app.api.routes.health import (
+    _dataset_storage_status,
+    _generation_provider_status,
+)
 from app.observability.metrics import (
     configure_metrics,
     record_chatbot_generation,
@@ -24,6 +27,11 @@ from app.observability.tracing import (
     _safe_domain_span_name,
 )
 from app.observability.worker_logging import worker_job_name
+from app.rag.generation import (
+    LOCAL_EXTRACTIVE_MODEL_NAME,
+    LOCAL_EXTRACTIVE_PROVIDER_NAME,
+    LocalExtractiveGenerationProvider,
+)
 from httpx import AsyncClient
 from prometheus_client import generate_latest
 
@@ -150,6 +158,15 @@ async def test_operational_status_separates_optional_data_rag_capabilities(
     assert payload["generation_provider"] == "available"
     assert payload["rag_index"] == "available"
     assert payload["status"] in {"operational", "degraded"}
+
+
+def test_generation_capability_status_tracks_the_current_local_provider() -> None:
+    provider = LocalExtractiveGenerationProvider()
+
+    assert provider.provider_name == LOCAL_EXTRACTIVE_PROVIDER_NAME
+    assert provider.model_name == LOCAL_EXTRACTIVE_MODEL_NAME
+    assert provider.model_name == "grounded-extractive-v2"
+    assert _generation_provider_status() == "available"
 
 
 @pytest.mark.anyio

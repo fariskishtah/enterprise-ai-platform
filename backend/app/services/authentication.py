@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import timedelta
+from time import perf_counter
 from uuid import UUID, uuid4
 
 from app.config.settings import Settings
 from app.models.user import User, UserRole
+from app.observability.metrics import record_auth_login_phase
 from app.repositories.users import UserRepository
 from app.services.exceptions import (
     InactiveUserError,
@@ -79,17 +81,36 @@ class AuthenticationService:
         source_ip: str | None = None,
     ) -> IssuedTokenPair:
         """Authenticate a user and issue a token pair."""
+        started_at = perf_counter()
         user = await self._repository.get_by_email(normalize_email(email))
+        record_auth_login_phase(
+            phase="user_lookup",
+            duration_seconds=perf_counter() - started_at,
+        )
         if user is None:
             raise InvalidCredentialsError("Invalid email or password.")
-        if not self._password_hasher.verify(password, user.hashed_password):
+        started_at = perf_counter()
+        verified = await self._password_hasher.verify_async(
+            password, user.hashed_password
+        )
+        record_auth_login_phase(
+            phase="password_verify",
+            duration_seconds=perf_counter() - started_at,
+        )
+        if not verified:
             raise InvalidCredentialsError("Invalid email or password.")
         if not user.is_active:
             raise InactiveUserError("User is inactive.")
 
-        return await self._issue_token_pair(
+        started_at = perf_counter()
+        tokens = await self._issue_token_pair(
             user, user_agent=user_agent, source_ip=source_ip
         )
+        record_auth_login_phase(
+            phase="session_issue",
+            duration_seconds=perf_counter() - started_at,
+        )
+        return tokens
 
     async def refresh(self, *, refresh_token: str) -> IssuedTokenPair:
         """Rotate a refresh token and issue a new token pair."""

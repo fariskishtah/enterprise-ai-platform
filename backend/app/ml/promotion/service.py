@@ -40,6 +40,7 @@ from app.ml.registry import (
 )
 from app.models.user import UserRole
 from app.observability.tracing import traced_async_operation
+from app.permissions import Permission, has_permissions, is_tenant_administrator
 from app.repositories.ai_governance import (
     ModelPromotionAuditRepository,
     PromotionAuditPage,
@@ -292,19 +293,20 @@ def _authorize(request: ModelPromotionRequest, role: UserRole) -> None:
         raise PromotionValidationError(
             "The candidate alias is assigned only by successful background training.",
         )
-    if request.target_alias is ModelAlias.CHAMPION and role is not UserRole.ADMIN:
+    if request.target_alias is ModelAlias.CHAMPION and not is_tenant_administrator(
+        role
+    ):
         raise PromotionAuthorizationError(
             "Only administrators may promote a champion model.",
         )
-    if request.target_alias is ModelAlias.CHALLENGER and role not in {
-        UserRole.ADMIN,
-        UserRole.ENGINEER,
-    }:
+    if request.target_alias is ModelAlias.CHALLENGER and not has_permissions(
+        role, Permission.ENGINEERING_WRITE
+    ):
         raise PromotionAuthorizationError(
             "Only administrators or engineers may promote a challenger model.",
         )
     if request.force:
-        if role is not UserRole.ADMIN:
+        if not is_tenant_administrator(role):
             raise PromotionAuthorizationError(
                 "Only administrators may force a promotion.",
             )

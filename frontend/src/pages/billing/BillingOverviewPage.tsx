@@ -5,15 +5,11 @@ import {
   cancelSubscription,
   getEntitlements,
   getSubscription,
-  listBillingAuditEvents,
   listBillingPlans,
-  listBillingProviderEvents,
   listInvoices,
   listPayments,
   reactivateSubscription,
   type BillingPlan,
-  type BillingAuditEvent,
-  type BillingProviderEvent,
   type EntitlementSnapshot,
   type InvoiceReference,
   type PaymentStatus,
@@ -36,12 +32,10 @@ import {
 } from "./BillingUi";
 
 interface BillingWorkspace {
-  readonly auditEvents: readonly BillingAuditEvent[];
   readonly entitlements: EntitlementSnapshot;
   readonly invoices: readonly InvoiceReference[];
   readonly payments: readonly PaymentStatus[];
   readonly plans: readonly BillingPlan[];
-  readonly providerEvents: readonly BillingProviderEvent[];
   readonly subscription: Subscription | null;
 }
 
@@ -71,7 +65,7 @@ function LifecycleBanner({
   } else if (subscription.status === "incomplete") {
     title = "Checkout not completed";
     detail =
-      "Your plan will activate only after the payment provider sends a verified success event.";
+      "Your plan will activate only after FactoryMind receives verified payment confirmation.";
   } else if (subscription.cancel_at_period_end) {
     title = "Cancellation scheduled";
     detail = `Access continues until ${formatBillingDate(subscription.current_period_end)}. You can reactivate before then.`;
@@ -97,9 +91,19 @@ function UsageCard({
     item.limit !== null && item.used !== null && item.limit > 0
       ? Math.min(100, Math.round((item.used / item.limit) * 100))
       : 0;
+  const limitReached =
+    item.limit !== null &&
+    item.used !== null &&
+    (item.remaining === 0 || item.over_limit);
+  const formatValue = (value: number): string =>
+    item.key === "document_storage_bytes"
+      ? `${new Intl.NumberFormat("en-EG", { maximumFractionDigits: 1 }).format(
+          value / 1024 ** 3,
+        )} GB`
+      : value.toLocaleString();
   const description =
     item.limit !== null
-      ? `${(item.used ?? 0).toLocaleString()} of ${item.limit.toLocaleString()}`
+      ? `${formatValue(item.used ?? 0)} of ${formatValue(item.limit)}`
       : item.enabled === true
         ? "Included"
         : item.enabled === false
@@ -111,7 +115,11 @@ function UsageCard({
         <p className="text-sm font-semibold text-foreground">
           {entitlementLabels[item.key] ?? item.key.replaceAll("_", " ")}
         </p>
-        {item.over_limit ? <BillingStatus status="past_due" /> : null}
+        {limitReached ? (
+          <span className="rounded-full bg-red-100 px-2.5 py-1 text-xs font-semibold text-red-800">
+            Limit reached
+          </span>
+        ) : null}
       </div>
       <p className="mt-2 text-2xl font-semibold text-foreground">{description}</p>
       {item.limit !== null && item.used !== null ? (
@@ -124,7 +132,7 @@ function UsageCard({
           aria-valuenow={ratio}
         >
           <div
-            className={`h-full rounded-full ${item.over_limit ? "bg-red-600" : ratio >= 80 ? "bg-amber-500" : "bg-purple-700"}`}
+            className={`h-full rounded-full ${limitReached ? "bg-red-600" : ratio >= 80 ? "bg-amber-500" : "bg-purple-700"}`}
             style={{ width: `${ratio}%` }}
           />
         </div>
@@ -134,6 +142,15 @@ function UsageCard({
           ? `Resets ${formatBillingDate(item.period_end)}`
           : `Source: ${item.source}`}
       </p>
+      {limitReached ? (
+        <p className="mt-2 text-xs font-medium text-red-700">
+          New use is paused at this limit. Existing data remains available.
+        </p>
+      ) : ratio >= 80 ? (
+        <p className="mt-2 text-xs font-medium text-amber-700">
+          Approaching the plan limit.
+        </p>
+      ) : null}
     </li>
   );
 }
@@ -158,28 +175,15 @@ export function BillingOverviewPage(): ReactElement {
       listPayments(controller.signal),
       listInvoices(controller.signal),
       listBillingPlans(controller.signal),
-      listBillingAuditEvents(controller.signal),
-      listBillingProviderEvents(controller.signal),
     ])
-      .then(
-        ([
-          subscription,
+      .then(([subscription, entitlements, payments, invoices, plans]) =>
+        setWorkspace({
           entitlements,
-          payments,
-          invoices,
-          plans,
-          auditEvents,
-          providerEvents,
-        ]) =>
-          setWorkspace({
-            auditEvents: auditEvents.items,
-            entitlements,
-            invoices: invoices.items,
-            payments: payments.items,
-            plans: plans.items,
-            providerEvents: providerEvents.items,
-            subscription: subscription.item,
-          }),
+          invoices: invoices.items,
+          payments: payments.items,
+          plans: plans.items,
+          subscription: subscription.item,
+        }),
       )
       .catch((caught: unknown) => {
         if (!isRequestCancelled(caught, controller.signal)) {
@@ -211,13 +215,17 @@ export function BillingOverviewPage(): ReactElement {
       .finally(() => setBusy(false));
   };
 
+  const currentPlan =
+    workspace?.plans.find((plan) => plan.code === workspace.subscription?.plan_code) ??
+    null;
+
   return (
     <section aria-labelledby="billing-heading">
       <PageHeader
         eyebrow="Workspace administration"
         headingId="billing-heading"
-        title="Billing & subscription"
-        description="Manage the current plan, verified payment lifecycle, limits, invoices, and workspace usage."
+        title="Plan & billing"
+        description="See your plan, access period, usage limits, payments, and available upgrades."
       />
       {error ? (
         <div className="mt-6">
@@ -259,7 +267,7 @@ export function BillingOverviewPage(): ReactElement {
                     className="mt-2 text-2xl font-semibold capitalize text-foreground"
                     id="current-plan-heading"
                   >
-                    {workspace.subscription?.plan_code ?? "No active plan"}
+                    {currentPlan?.name ?? "No active plan"}
                   </h3>
                   <div className="mt-3">
                     <BillingStatus
@@ -276,20 +284,22 @@ export function BillingOverviewPage(): ReactElement {
                   </div>
                 ) : null}
               </div>
+              {currentPlan ? (
+                <div className="mt-5 rounded-lg border border-border bg-elevated p-4">
+                  <p className="text-2xl font-semibold text-foreground">
+                    {formatMoney(currentPlan.monthly_price_minor)}
+                    <span className="ml-2 text-sm font-normal text-muted-foreground">
+                      per prepaid access period
+                    </span>
+                  </p>
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    Renewal is manual. FactoryMind will never charge the next period
+                    automatically.
+                  </p>
+                </div>
+              ) : null}
               {workspace.subscription ? (
                 <dl className="mt-6 grid gap-3 border-t border-border pt-5 text-sm sm:grid-cols-2">
-                  <div>
-                    <dt className="text-muted-foreground">Subscription ID</dt>
-                    <dd className="mt-1 break-all font-medium text-foreground">
-                      {workspace.subscription.subscription_id}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-muted-foreground">Version</dt>
-                    <dd className="mt-1 font-medium text-foreground">
-                      {workspace.subscription.version}
-                    </dd>
-                  </div>
                   {workspace.subscription.pending_plan_code ? (
                     <div>
                       <dt className="text-muted-foreground">Pending plan</dt>
@@ -310,6 +320,19 @@ export function BillingOverviewPage(): ReactElement {
               ) : null}
               {workspace.subscription ? (
                 <div className="mt-5 flex flex-wrap gap-3">
+                  {currentPlan &&
+                  ["trialing", "active", "past_due"].includes(
+                    workspace.subscription.status,
+                  ) ? (
+                    <Link
+                      className={primaryButtonClassName}
+                      to={`/settings/billing/checkout/${currentPlan.code}`}
+                    >
+                      {workspace.subscription.status === "past_due"
+                        ? "Retry payment"
+                        : "Renew access"}
+                    </Link>
+                  ) : null}
                   {workspace.subscription.allowed_actions.includes("reactivate") ? (
                     <button
                       className={primaryButtonClassName}
@@ -378,8 +401,7 @@ export function BillingOverviewPage(): ReactElement {
                 {workspace.entitlements.access_mode.replaceAll("_", " ")}
               </h3>
               <p className="mt-2 text-sm text-muted-foreground">
-                Calculated by the server from subscription state, plan limits, current
-                usage, and active overrides.
+                Your access reflects payment status, plan limits, and current usage.
               </p>
               {workspace.entitlements.recommended_plan ? (
                 <Link
@@ -425,8 +447,8 @@ export function BillingOverviewPage(): ReactElement {
               Change plan
             </h3>
             <p className="mt-1 text-sm text-muted-foreground">
-              Checkout is hosted by Paymob. A redirect result never changes your plan
-              until the backend verifies the provider event.
+              Payment happens on a secure hosted page. Your plan changes only after
+              FactoryMind receives verified payment confirmation.
             </p>
             <p className="mt-1 text-sm text-muted-foreground">
               Plans are prepaid for one access period. Renewal or a plan change requires
@@ -468,107 +490,12 @@ export function BillingOverviewPage(): ReactElement {
             </div>
           </section>
 
-          <div className="mt-6 grid gap-6 xl:grid-cols-2">
+          <div className="mt-6 grid gap-6 2xl:grid-cols-2">
             <HistoryTable payments={workspace.payments} />
             <InvoiceTable invoices={workspace.invoices} />
           </div>
-          <div className="mt-6 grid gap-6 xl:grid-cols-2">
-            <BillingAuditTable events={workspace.auditEvents} />
-            <ProviderEventTable events={workspace.providerEvents} />
-          </div>
         </>
       ) : null}
-    </section>
-  );
-}
-
-function BillingAuditTable({
-  events,
-}: {
-  readonly events: readonly BillingAuditEvent[];
-}): ReactElement {
-  return (
-    <section className={billingPanelClassName} aria-labelledby="billing-events-heading">
-      <h3 className="text-xl font-semibold text-foreground" id="billing-events-heading">
-        Billing activity
-      </h3>
-      <p className="mt-1 text-sm text-muted-foreground">
-        Tenant-scoped administrative lifecycle audit trail.
-      </p>
-      {events.length === 0 ? (
-        <p className="mt-5 text-sm text-muted-foreground">
-          No billing activity has been recorded.
-        </p>
-      ) : (
-        <ul className="mt-5 divide-y divide-border">
-          {events.map((event) => (
-            <li
-              className="flex items-start justify-between gap-4 py-4 first:pt-0 last:pb-0"
-              key={event.event_id}
-            >
-              <div>
-                <p className="font-medium text-foreground">
-                  {event.action.replaceAll("_", " ")}
-                </p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {formatBillingDate(event.created_at)}
-                </p>
-              </div>
-              <BillingStatus status={event.result} />
-            </li>
-          ))}
-        </ul>
-      )}
-    </section>
-  );
-}
-
-function ProviderEventTable({
-  events,
-}: {
-  readonly events: readonly BillingProviderEvent[];
-}): ReactElement {
-  return (
-    <section
-      className={billingPanelClassName}
-      aria-labelledby="provider-events-heading"
-    >
-      <h3
-        className="text-xl font-semibold text-foreground"
-        id="provider-events-heading"
-      >
-        Provider event inspection
-      </h3>
-      <p className="mt-1 text-sm text-muted-foreground">
-        Authenticated Paymob callbacks and their durable processing state.
-      </p>
-      {events.length === 0 ? (
-        <p className="mt-5 text-sm text-muted-foreground">
-          No provider events have been received.
-        </p>
-      ) : (
-        <ul className="mt-5 divide-y divide-border">
-          {events.map((event) => (
-            <li className="py-4 first:pt-0 last:pb-0" key={event.event_id}>
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <p className="font-medium text-foreground">
-                    {event.event_type.replaceAll("_", " ")}
-                  </p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {event.provider} · {event.provider_event_id} · {event.attempts}{" "}
-                    attempt{event.attempts === 1 ? "" : "s"}
-                  </p>
-                </div>
-                <BillingStatus status={event.status} />
-              </div>
-              {event.last_error ? (
-                <p className="mt-2 text-sm text-red-700">{event.last_error}</p>
-              ) : null}
-            </li>
-          ))}
-        </ul>
-      )}
     </section>
   );
 }
@@ -627,7 +554,7 @@ function HistoryTable({
                   <td className="py-4">
                     <BillingStatus status={payment.status} />
                     <p className="mt-1 text-xs capitalize text-muted-foreground">
-                      Intent: {payment.checkout_intent_status.replaceAll("_", " ")}
+                      Checkout: {payment.checkout_intent_status.replaceAll("_", " ")}
                     </p>
                   </td>
                 </tr>
@@ -656,6 +583,10 @@ function InvoiceTable({
       >
         Invoices & receipts
       </h3>
+      <p className="mt-1 text-sm text-muted-foreground">
+        Downloadable payment documents appear here when issued. A payment reference
+        alone is not a tax invoice.
+      </p>
       {invoices.length === 0 ? (
         <p className="mt-5 text-sm text-muted-foreground">
           No invoices have been issued.
@@ -671,7 +602,7 @@ function InvoiceTable({
             <thead className="border-b border-border text-xs uppercase text-muted-foreground">
               <tr>
                 <th className="pb-3 pr-4">Issued</th>
-                <th className="pb-3 pr-4">Reference</th>
+                <th className="pb-3 pr-4">Payment reference</th>
                 <th className="pb-3 pr-4">Amount</th>
                 <th className="pb-3">Receipt</th>
               </tr>

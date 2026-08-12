@@ -1339,9 +1339,9 @@ def test_shared_redis_network_is_rejected(tmp_path: Path) -> None:
 
 def test_shared_redis_volume_is_rejected(tmp_path: Path) -> None:
     state = _redis_isolation_state()
-    state["containers"]["sandbox-redis"]["volume"] = (
-        "ai-manufacturing-platform_redis-data"
-    )
+    state["containers"]["sandbox-redis"][
+        "volume"
+    ] = "ai-manufacturing-platform_redis-data"
 
     result = _run_redis_isolation_probe(tmp_path, state)
 
@@ -1424,9 +1424,9 @@ def test_redis_identity_verifier_never_prints_url_credentials(
     tmp_path: Path,
 ) -> None:
     state = _redis_isolation_state()
-    state["urls"]["production-backend"] = (
-        "redis://production:production-password@redis:6379/0"
-    )
+    state["urls"][
+        "production-backend"
+    ] = "redis://production:production-password@redis:6379/0"
     state["urls"]["sandbox-backend"] = "redis://sandbox:sandbox-password@redis:6379/0"
     state["resolved_ips"]["sandbox-backend"] = "172.28.0.99"
 
@@ -1530,7 +1530,7 @@ def test_email_configuration_is_interactive_sandbox_only_atomic_and_hidden() -> 
 
     assert "CONFIGURE-SANDBOX-EMAIL" in function
     assert "require_environment" in function
-    assert 'read_env_value APP_PUBLIC_URL' in function
+    assert "read_env_value APP_PUBLIC_URL" in function
     assert '"https://$SANDBOX_DOMAIN"' in function
     assert 'read_hidden "Resend sandbox API key' in function
     assert 'read_hidden "Verified Sandbox sender email' in function
@@ -1539,7 +1539,9 @@ def test_email_configuration_is_interactive_sandbox_only_atomic_and_hidden() -> 
     assert 'write_env "$next_file" RESEND_API_KEY "$resend_api"' in function
     assert 'write_env "$next_file" EMAIL_FROM_ADDRESS "$email_from"' in function
     assert 'write_env "$next_file" EMAIL_VERIFICATION_REQUIRED true' in function
-    assert 'write_env "$next_file" EXPOSE_LOCAL_EMAIL_VERIFICATION_TOKEN false' in function
+    assert (
+        'write_env "$next_file" EXPOSE_LOCAL_EMAIL_VERIFICATION_TOKEN false' in function
+    )
     assert 'write_env "$next_file" EXPOSE_LOCAL_PASSWORD_RESET_TOKEN false' in function
     assert 'chmod 600 "$next_file"' in function
     assert 'mv -f -- "$next_file" "$ENV_FILE"' in function

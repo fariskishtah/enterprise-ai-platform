@@ -17,6 +17,7 @@ import {
   type ModelFeatureSchema,
 } from "../../api/predictions";
 import { useAuth } from "../../auth/useAuth";
+import { hasProductCapability } from "../../auth/permissions";
 import { ApiError, isRequestCancelled } from "../../api/client";
 import {
   InlineNotice,
@@ -62,7 +63,8 @@ function executionErrorMessage(error: unknown): string {
 
 export function PredictionsPage(): ReactElement {
   const { role } = useAuth();
-  const canReadHistory = role === "admin" || role === "engineer";
+  const canReadHistory = hasProductCapability(role, "engineering.read");
+  const canExecutePrediction = hasProductCapability(role, "operations.execute");
   const [model, setModel] = useState("");
   const [version, setVersion] = useState("");
   const [task, setTask] = useState<TrainingTask>("regression");
@@ -81,7 +83,7 @@ export function PredictionsPage(): ReactElement {
   const [schemaUnavailable, setSchemaUnavailable] = useState(false);
   const [structuredValues, setStructuredValues] = useState<Record<string, string>>({});
   const [advancedInput, setAdvancedInput] = useState(false);
-  const canUseAdvancedInput = role === "admin" || role === "engineer";
+  const canUseAdvancedInput = hasProductCapability(role, "engineering.write");
 
   useEffect(() => {
     if (!canReadHistory) return;
@@ -186,6 +188,7 @@ export function PredictionsPage(): ReactElement {
           className={panelClassName}
           onSubmit={(event) => {
             event.preventDefault();
+            if (!canExecutePrediction) return;
             setExecutionError(null);
             setFeatureMatrixInvalid(false);
             setExecutionResult(null);
@@ -254,6 +257,13 @@ export function PredictionsPage(): ReactElement {
           }}
         >
           <h2 className="text-lg font-semibold text-foreground">Execute prediction</h2>
+          {!canExecutePrediction ? (
+            <div className="mt-4">
+              <InlineNotice>
+                You have read-only access to prediction history and model information.
+              </InlineNotice>
+            </div>
+          ) : null}
           <div className="mt-4 grid gap-4 sm:grid-cols-2">
             <label className="text-sm font-medium text-secondary-foreground">
               Discoverable model or direct name
@@ -407,7 +417,11 @@ export function PredictionsPage(): ReactElement {
           ) : null}
           <button
             className={`${primaryButtonClassName} mt-5`}
-            disabled={executionLoading || (schemaUnavailable && !canUseAdvancedInput)}
+            disabled={
+              !canExecutePrediction ||
+              executionLoading ||
+              (schemaUnavailable && !canUseAdvancedInput)
+            }
             type="submit"
           >
             {executionLoading ? "Running prediction…" : "Run prediction"}

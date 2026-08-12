@@ -51,6 +51,7 @@ from app.rag.embeddings import (
 from app.rag.generation import (
     GroundedGenerationProvider,
     LocalExtractiveGenerationProvider,
+    expand_retrieval_query,
 )
 from app.rag.queue import RAGIndexQueue
 from app.repositories.rag import EntityPage, RAGRepository, StoredRetrievalCandidate
@@ -870,7 +871,10 @@ class RAGService:
             or knowledge_base.active_index_build_id is None
         ):
             raise RAGConflictError("The knowledge base is not ready for retrieval.")
-        query_vector = (await self._embed_texts((query,), workload="rag_retrieval"))[0]
+        retrieval_query = expand_retrieval_query(query)
+        query_vector = (
+            await self._embed_texts((retrieval_query,), workload="rag_retrieval")
+        )[0]
         candidates = await self._repository.list_retrieval_candidates(
             knowledge_base_id=knowledge_base.id,
             active_build_id=knowledge_base.active_index_build_id,

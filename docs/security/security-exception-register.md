@@ -6,25 +6,6 @@ controls, and a mandatory review condition. Expired exceptions fail the release 
 
 ## Open exceptions
 
-### SEC-2026-001 — Black formatter equivalence failure
-
-| Field | Value |
-| --- | --- |
-| Advisories | `PYSEC-2026-2120`, `PYSEC-2026-2121` |
-| Affected package | Development-only `black==24.10.0` |
-| Fixed versions | `26.3.0` and `26.3.1`, respectively |
-| Scope | Developer and CI formatting environment only; absent from production lock and images |
-| Risk assessment | Low release-runtime exposure, but untrusted source files must not be formatted with this version |
-| Reason | Black 26.5.1 produces a documented internal equivalence error on `app/ml/monitoring/capture.py` and would reformat 13 additional files. Adopting it without resolving that failure would make the required formatting gate unreliable. |
-| Compensating controls | CI uses Black only against trusted checked-out repository source in check mode; Ruff, mypy, Bandit, Semgrep, tests, and production dependency/image scans remain mandatory. |
-| Owner | Release engineering owner |
-| Recorded | 2026-07-23 |
-| Expires | 2026-08-31 |
-| Removal condition | Resolve or isolate the formatter equivalence defect, reformat under a fixed Black release, and remove both CI audit ignores in the same reviewed change. |
-
-No production dependency advisory is accepted by this exception. New findings require a
-new reviewed entry; CI flags cannot be added without a matching, unexpired record.
-
 ### SEC-2026-002 — Unfixed official Python base-image findings
 
 | Field | Value |
@@ -38,29 +19,26 @@ new reviewed entry; CI flags cannot be added without a matching, unexpired recor
 | Compensating controls | Full unfiltered image reports are retained; CI fails on every high/critical finding that has a fix. Runtime runs as UID 10001 with no added capabilities, no privilege escalation, read-only root filesystem, private data network, and reverse-proxy-only ingress. |
 | Owner | Release engineering and security owners |
 | Recorded | 2026-07-23 |
-| Expires | 2026-08-06 |
+| Renewed | 2026-08-12 |
+| Approved revision | `af3f48f4247809bae45cb06957799bf883f6c68c` |
+| Security Owner decision | APPROVED renewal through 2026-08-26 under the documented compensating controls. |
+| Expires | 2026-08-26 |
 | Removal condition | A fixed official Python 3.12 base or reviewed low-CVE compatible base becomes available; rebuild, rescan, and remove this exception. |
 
 This exception does not hide the findings: the unfiltered Trivy report remains a release
 artifact. `--ignore-unfixed` is used only by the blocking second pass so newly actionable
 high/critical findings fail immediately.
 
-### SEC-2026-003 — React Router RSC-only advisory
-
-| Field | Value |
-| --- | --- |
-| Advisory | `GHSA-qwww-vcr4-c8h2` |
-| Affected packages | `react-router==7.18.1`, `react-router-dom==7.18.1` |
-| Fixed version | `react-router==8.3.0`, which requires React 19.2.7 and removal of the compatibility `react-router-dom` package |
-| Scope | Static Vite browser SPA only; no React Server Components, server actions, React Router framework server, or RSC request handler is deployed |
-| Risk assessment | The vulnerable RSC action-execution path is absent from the built and deployed architecture. The dependency finding remains high severity and must drive a bounded React 19/Router 8 migration. |
-| Reason | No secure React 18-compatible release exists: 7.18.1 fixes the earlier router advisory but is covered by this RSC-only advisory, while 8.3.0 requires a coordinated React/runtime migration unsuitable for an unreviewed production-hardening patch. |
-| Compensating controls | The frontend is built to static files and served by unprivileged Nginx; all mutations go through authenticated FastAPI endpoints with server-side authorization and CSRF-independent bearer-token validation. The audit wrapper accepts only advisory source `1124282` for these exact package versions, preserves unfiltered JSON, and fails on every other HIGH/CRITICAL finding or after expiry. |
-| Owner | Frontend platform and security owners |
-| Recorded | 2026-07-24 |
-| Expires | 2026-08-15 |
-| Removal condition | Migrate to React 19.2.7 and React Router 8.3.0 or a later compatible fixed release, rerun browser/security validation, and remove the narrow audit exception in the same reviewed change. |
-
 ## Closed exceptions
 
-None.
+### SEC-2026-001 — Closed 2026-08-12
+
+Black was upgraded to `26.5.1`, its formatting/equivalence checks now pass, the two
+`pip-audit` ignores were removed from CI and release validation, and the unfiltered
+development-environment audit reports no known vulnerabilities.
+
+### SEC-2026-003 — Closed 2026-08-12
+
+React Router and React Router DOM were upgraded to `7.18.2`. The unfiltered npm audit
+reports zero vulnerabilities, the narrow Trivy ignore was removed, and browser/build
+validation is required by the normal release gate.

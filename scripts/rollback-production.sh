@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-readonly PROJECT_NAME="ai-manufacturing-production"
+readonly PROJECT_NAME="ai-manufacturing-platform"
 REVISION=""
 ENV_FILE=".env.production"
 HEALTH_TIMEOUT="${PRODUCTION_HEALTH_TIMEOUT_SECONDS:-180}"

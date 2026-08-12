@@ -16,6 +16,7 @@ import {
   type OperationalActionPage,
 } from "../../api/operations";
 import { useAuth } from "../../auth/useAuth";
+import { hasProductCapability } from "../../auth/permissions";
 import {
   EmptyState,
   LoadingSkeleton,
@@ -42,7 +43,7 @@ export function RequiredActionsPage(): ReactElement {
   const [error, setError] = useState<unknown>(null);
   const [revision, setRevision] = useState(0);
   const [showCreate, setShowCreate] = useState(false);
-  const canManage = role === "admin" || role === "engineer";
+  const canManage = hasProductCapability(role, "engineering.write");
 
   useEffect(() => {
     const controller = new AbortController();

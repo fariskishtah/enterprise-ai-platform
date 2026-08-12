@@ -20,6 +20,7 @@ import {
 import { getModelVersion } from "../../api/aiLifecycle";
 import { isRequestCancelled } from "../../api/client";
 import { useAuth } from "../../auth/useAuth";
+import { hasProductCapability } from "../../auth/permissions";
 import {
   InlineError,
   InlineNotice,
@@ -61,7 +62,7 @@ function Section({
 export function ModelMonitoringPage(): ReactElement {
   const { registeredModelName = "", versionOrAlias = "" } = useParams();
   const { role } = useAuth();
-  const canEvaluate = role === "admin" || role === "engineer";
+  const canEvaluate = hasProductCapability(role, "engineering.write");
   const [data, setData] = useState<Reports | null>(null);
   const [resolvedVersion, setResolvedVersion] = useState<string | null>(null);
   const [errors, setErrors] = useState<string[]>([]);

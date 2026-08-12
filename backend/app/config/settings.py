@@ -47,6 +47,10 @@ class Settings(BaseSettings):
     project_name: str = "AI Manufacturing Platform"
     app_version: str = Field(default_factory=get_application_version)
     database_url: str = Field(min_length=1)
+    database_pool_size: PositiveInt = Field(default=10, le=30)
+    database_max_overflow: int = Field(default=5, ge=0, le=30)
+    database_pool_timeout_seconds: PositiveFloat = Field(default=5.0, le=60)
+    database_pool_recycle_seconds: PositiveInt = Field(default=1800, le=86_400)
     redis_url: str = Field(min_length=1)
     secret_key: SecretStr = Field(min_length=32)
     environment: EnvironmentName = Field(

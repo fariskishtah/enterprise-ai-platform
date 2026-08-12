@@ -14,6 +14,7 @@ import {
   type Sensor,
 } from "../../api/hierarchy";
 import { useAuth } from "../../auth/useAuth";
+import { hasProductCapability } from "../../auth/permissions";
 import { ConfirmDialog } from "../../components/hierarchy/Dialogs";
 import {
   MachineFormDialog,
@@ -41,8 +42,8 @@ export function MachineDetailPage(): ReactElement {
   const { factoryId = "", machineId = "" } = useParams();
   const navigate = useNavigate();
   const { role, user } = useAuth();
-  const canWrite = role === "admin" || role === "engineer";
-  const canDelete = role === "admin";
+  const canWrite = hasProductCapability(role, "engineering.write");
+  const canDelete = hasProductCapability(role, "tenant.administer");
   const [factory, setFactory] = useState<Factory | null>(null);
   const [machine, setMachine] = useState<Machine | null>(null);
   const [sensors, setSensors] = useState<PaginatedResponse<Sensor> | null>(null);
@@ -272,7 +273,11 @@ export function MachineDetailPage(): ReactElement {
                 </button>
               ) : undefined
             }
-            description="No active sensors belong to this machine."
+            description={
+              canWrite
+                ? "Add the first sensor to connect this asset to machine readings and data onboarding."
+                : "No sensors are configured for this machine yet."
+            }
             title="No sensors yet"
           />
         ) : (
@@ -312,6 +317,29 @@ export function MachineDetailPage(): ReactElement {
           </>
         )}
       </div>
+
+      <section className="mt-6 rounded-lg border border-blue-200 bg-blue-50 p-5">
+        <h3 className="font-semibold text-blue-950">Next: bring in machine data</h3>
+        <p className="mt-1 text-sm leading-6 text-blue-900">
+          Once sensors are configured, use Data Onboarding to match CSV columns and
+          review quality before confirming an import.
+        </p>
+        {canWrite ? (
+          <Link
+            className="mt-3 inline-block text-sm font-semibold text-blue-900 underline underline-offset-2"
+            to="/sensor-data/onboarding"
+          >
+            Open Data Onboarding
+          </Link>
+        ) : (
+          <Link
+            className="mt-3 inline-block text-sm font-semibold text-blue-900 underline underline-offset-2"
+            to="/sensor-data"
+          >
+            Review machine data
+          </Link>
+        )}
+      </section>
 
       {form === "machine" ? (
         <MachineFormDialog

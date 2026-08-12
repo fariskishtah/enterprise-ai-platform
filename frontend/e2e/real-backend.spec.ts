@@ -130,7 +130,7 @@ async function login(page: Page, email: string): Promise<void> {
     throw new Error(`Login for ${email} failed with alert: ${text}`);
   }
 
-  await expect(page).toHaveURL(/\/$/, { timeout: 20_000 });
+  await expect(page).toHaveURL(/\/dashboard$/, { timeout: 20_000 });
 }
 
 function collectUnexpectedBrowserErrors(page: Page): string[] {

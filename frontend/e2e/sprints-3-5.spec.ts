@@ -182,10 +182,10 @@ test.describe("Sprints 3-5 real-backend acceptance", () => {
   test("operator is denied expert onboarding and guided training", async ({ page }) => {
     await login(page, accounts.operator);
     await page.goto("/sensor-data/onboarding");
-    await expect(page).toHaveURL(/\/$/);
+    await expect(page).toHaveURL(/\/dashboard$/);
     await expect(page.getByRole("link", { name: "Data Onboarding" })).toHaveCount(0);
     await page.goto("/guided-ai");
-    await expect(page).toHaveURL(/\/$/);
+    await expect(page).toHaveURL(/\/dashboard$/);
   });
 
   test("admin runs deterministic warning flow and opens map and TV mode", async ({

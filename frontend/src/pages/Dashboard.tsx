@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import { listTrainingJobs, type TrainingJob } from "../api/aiLifecycle";
 import { listFactories, type Factory } from "../api/hierarchy";
 import { listUploadJobs, type UploadJob } from "../api/sensorData";
+import { hasProductCapability } from "../auth/permissions";
 import { useAuth } from "../auth/useAuth";
 import { StatusBadge, type StatusBadgeStatus } from "../components/StatusBadge";
 import { InlineError, LoadingSkeleton } from "../components/hierarchy/ResourceStates";
@@ -25,6 +26,74 @@ const statusTone = (status: string): StatusBadgeStatus => {
   if (["PENDING", "queued"].includes(status)) return "inactive";
   return "inactive";
 };
+
+function GettingStarted({
+  canManageAi,
+  canManageFactories,
+}: {
+  readonly canManageAi: boolean;
+  readonly canManageFactories: boolean;
+}): ReactElement {
+  return (
+    <section className="mt-7 rounded-lg border border-purple-200 bg-purple-50 p-5 text-neutral-950 shadow-panel sm:p-6">
+      <p className="text-xs font-semibold uppercase tracking-[0.12em] text-purple-800">
+        Start here
+      </p>
+      <h2 className="mt-2 text-xl font-semibold">Build your workspace step by step</h2>
+      <p className="mt-2 max-w-3xl text-sm text-neutral-700">
+        FactoryMind becomes useful as you add real manufacturing context. Complete one
+        step at a time; advanced AI tools can wait until your data is ready.
+      </p>
+      <ol className="mt-5 grid gap-3 lg:grid-cols-3">
+        <li className="rounded-md border border-purple-200 bg-white p-4">
+          <p className="text-xs font-semibold uppercase text-purple-800">1 · Factory</p>
+          <p className="mt-2 font-semibold">Add your site and equipment</p>
+          <p className="mt-1 text-sm text-neutral-600">
+            Organize the factory, machines, and sensors your team works with.
+          </p>
+          {canManageFactories ? (
+            <Link
+              className="mt-3 inline-block text-sm font-semibold text-purple-800"
+              to="/factories"
+            >
+              Set up the first factory
+            </Link>
+          ) : null}
+        </li>
+        <li className="rounded-md border border-purple-200 bg-white p-4">
+          <p className="text-xs font-semibold uppercase text-purple-800">2 · Data</p>
+          <p className="mt-2 font-semibold">Bring in trusted data</p>
+          <p className="mt-1 text-sm text-neutral-600">
+            Upload machine readings or documents and check their quality.
+          </p>
+          {canManageAi ? (
+            <Link
+              className="mt-3 inline-block text-sm font-semibold text-purple-800"
+              to="/sensor-data/onboarding"
+            >
+              Open data onboarding
+            </Link>
+          ) : null}
+        </li>
+        <li className="rounded-md border border-purple-200 bg-white p-4">
+          <p className="text-xs font-semibold uppercase text-purple-800">3 · Insight</p>
+          <p className="mt-2 font-semibold">Use guided, grounded AI</p>
+          <p className="mt-1 text-sm text-neutral-600">
+            Start with guided workflows before opening advanced model tools.
+          </p>
+          {canManageAi ? (
+            <Link
+              className="mt-3 inline-block text-sm font-semibold text-purple-800"
+              to="/guided-ai"
+            >
+              Explore Guided AI
+            </Link>
+          ) : null}
+        </li>
+      </ol>
+    </section>
+  );
+}
 
 function MetricCard({
   label,
@@ -50,7 +119,11 @@ export function Dashboard(): ReactElement {
   const [data, setData] = useState<DashboardData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
-  const canManageAi = role === "admin" || role === "engineer";
+  const canReadEngineering = hasProductCapability(role, "engineering.read");
+  const canWriteEngineering = hasProductCapability(role, "engineering.write");
+  const canManageWorkspace = hasProductCapability(role, "tenant.administer");
+  const engineeringPersona = role === "engineer" || role === "analyst";
+  const ownerPersona = role === "owner";
 
   useEffect(() => {
     const controller = new AbortController();
@@ -59,10 +132,10 @@ export function Dashboard(): ReactElement {
     const emptyUploads = { items: [], limit: 12, offset: 0, total: 0 };
     Promise.all([
       listFactories({ limit: 12, signal: controller.signal }),
-      canManageAi
+      canReadEngineering
         ? listTrainingJobs({ limit: 12, offset: 0, signal: controller.signal })
         : Promise.resolve(emptyTraining),
-      canManageAi
+      canReadEngineering
         ? listUploadJobs({ limit: 12, signal: controller.signal })
         : Promise.resolve(emptyUploads),
     ])
@@ -89,7 +162,7 @@ export function Dashboard(): ReactElement {
       active = false;
       controller.abort();
     };
-  }, [canManageAi, revision]);
+  }, [canReadEngineering, revision]);
 
   const models = useMemo(
     () =>
@@ -141,22 +214,35 @@ export function Dashboard(): ReactElement {
     <section aria-labelledby="dashboard-heading">
       <PageHeader
         actions={<StatusBadge label="Platform healthy" status="healthy" />}
-        description="Authorized manufacturing assets, ingestion activity, and governed model lifecycle operations."
-        eyebrow="Operations command center"
+        description={
+          engineeringPersona
+            ? "Prepare trusted factory data, review AI work, and open advanced tools when the workflow requires them."
+            : "See your factories and move to the next setup, team, data, or plan task from one place."
+        }
+        eyebrow={
+          engineeringPersona ? "Engineering and data" : "Your manufacturing workspace"
+        }
         headingId="dashboard-heading"
-        title="AI Manufacturing Platform"
+        title={engineeringPersona ? "Data & AI workspace" : "Factory overview"}
       />
+
+      {data.factoryTotal === 0 ? (
+        <GettingStarted
+          canManageAi={canWriteEngineering}
+          canManageFactories={canWriteEngineering}
+        />
+      ) : null}
 
       <div className="mt-7 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <MetricCard label="Visible factories" value={data.factoryTotal} />
-        {canManageAi ? (
-          <MetricCard label="Recent upload jobs" value={data.uploadTotal} />
+        {canReadEngineering ? (
+          <MetricCard label="Recent data imports" value={data.uploadTotal} />
         ) : null}
-        {canManageAi ? (
-          <MetricCard label="Training jobs" value={data.trainingTotal} />
+        {engineeringPersona ? (
+          <MetricCard label="Model training runs" value={data.trainingTotal} />
         ) : null}
-        {canManageAi ? (
-          <MetricCard label="Models in recent jobs" value={models} />
+        {engineeringPersona ? (
+          <MetricCard label="Available AI models" value={models} />
         ) : null}
       </div>
 
@@ -179,9 +265,22 @@ export function Dashboard(): ReactElement {
             </Link>
           </div>
           {data.factories.length === 0 ? (
-            <p className="mt-8 rounded-md bg-elevated p-5 text-sm text-secondary-foreground">
-              No factories are available for this account.
-            </p>
+            <div className="mt-8 rounded-md bg-elevated p-5">
+              <p className="font-semibold text-foreground">No factories yet</p>
+              <p className="mt-1 text-sm text-secondary-foreground">
+                {canWriteEngineering
+                  ? "Set up the first factory to organize production assets, machines, and sensor data."
+                  : "Ask a workspace owner to add a factory so you can begin exploring operations."}
+              </p>
+              {canWriteEngineering ? (
+                <Link
+                  className="mt-4 inline-block text-sm font-semibold text-link"
+                  to="/factories"
+                >
+                  Set up your first factory
+                </Link>
+              ) : null}
+            </div>
           ) : (
             <div className="mt-5 grid gap-3 sm:grid-cols-2">
               {data.factories.slice(0, 6).map((factory) => (
@@ -210,29 +309,53 @@ export function Dashboard(): ReactElement {
               className="rounded-md bg-purple-700 px-4 py-3 text-center text-sm font-semibold text-inverse hover:bg-purple-800"
               to="/factories"
             >
-              Browse manufacturing assets
+              {data.factoryTotal === 0 ? "Set up a factory" : "View factories & assets"}
             </Link>
-            {canManageAi ? (
+            {canWriteEngineering ? (
               <Link
                 className="rounded-md border border-border-strong bg-elevated px-4 py-3 text-center text-sm font-semibold text-secondary-foreground hover:bg-muted"
-                to="/sensor-data"
+                to="/sensor-data/onboarding"
               >
-                Manage sensor ingestion
+                Bring in machine data
               </Link>
             ) : null}
-            {canManageAi ? (
+            {ownerPersona && canManageWorkspace ? (
               <Link
                 className="rounded-md border border-border-strong bg-elevated px-4 py-3 text-center text-sm font-semibold text-secondary-foreground hover:bg-muted"
-                to="/training"
+                to="/users"
               >
-                Review training jobs
+                Manage your team
+              </Link>
+            ) : null}
+            {ownerPersona && canManageWorkspace ? (
+              <Link
+                className="rounded-md border border-border-strong bg-elevated px-4 py-3 text-center text-sm font-semibold text-secondary-foreground hover:bg-muted"
+                to="/settings/billing"
+              >
+                Review plan & usage
+              </Link>
+            ) : null}
+            {engineeringPersona && canWriteEngineering ? (
+              <Link
+                className="rounded-md border border-border-strong bg-elevated px-4 py-3 text-center text-sm font-semibold text-secondary-foreground hover:bg-muted"
+                to="/knowledge"
+              >
+                Prepare trusted documents
+              </Link>
+            ) : null}
+            {engineeringPersona && !canWriteEngineering ? (
+              <Link
+                className="rounded-md border border-border-strong bg-elevated px-4 py-3 text-center text-sm font-semibold text-secondary-foreground hover:bg-muted"
+                to="/models"
+              >
+                Review available models
               </Link>
             ) : null}
           </div>
         </article>
       </div>
 
-      {canManageAi ? (
+      {engineeringPersona ? (
         <div className="mt-6 grid gap-6 lg:grid-cols-2">
           <article className="rounded-lg border border-border bg-card p-5 shadow-panel sm:p-6">
             <h2 className="text-lg font-semibold text-foreground">Training status</h2>

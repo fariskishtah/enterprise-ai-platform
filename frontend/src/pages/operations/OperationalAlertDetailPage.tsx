@@ -15,6 +15,7 @@ import {
   type OperationalNote,
 } from "../../api/operations";
 import { useAuth } from "../../auth/useAuth";
+import { hasProductCapability } from "../../auth/permissions";
 import {
   Breadcrumbs,
   LoadingSkeleton,
@@ -49,7 +50,7 @@ export function OperationalAlertDetailPage(): ReactElement {
   const [busy, setBusy] = useState(false);
   const [revision, setRevision] = useState(0);
   const [favorite, setFavorite] = useState(false);
-  const canManage = role === "admin" || role === "engineer";
+  const canManage = hasProductCapability(role, "engineering.write");
 
   useEffect(() => {
     const controller = new AbortController();

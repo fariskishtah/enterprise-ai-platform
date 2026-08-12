@@ -1,0 +1,23 @@
+{
+  "name": "FactoryMind",
+  "short_name": "FactoryMind",
+  "description": "Industrial AI and operational intelligence for manufacturing teams.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0b1023",
+  "theme_color": "#0b1023",
+  "icons": [
+    {
+      "src": "/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

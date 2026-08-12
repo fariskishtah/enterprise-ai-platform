@@ -176,7 +176,7 @@ class PaymobPaymentProvider:
                 {
                     "name": request.plan_name,
                     "amount": request.amount_minor,
-                    "description": f"{request.plan_code} monthly subscription",
+                    "description": f"{request.plan_code} prepaid access period",
                     "quantity": 1,
                 }
             ],

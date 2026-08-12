@@ -1,6 +1,17 @@
 """Password hashing and password policy utilities."""
 
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
+
 from pwdlib import PasswordHash
+
+# Argon2 is deliberately expensive and must not block the ASGI event loop. Four
+# bounded verification slots fit the 4-CPU/1.5-GiB backend budget while
+# preserving the recommended password-hash parameters.
+_PASSWORD_VERIFY_EXECUTOR = ThreadPoolExecutor(
+    max_workers=4,
+    thread_name_prefix="password-verify",
+)
 
 
 class PasswordPolicyError(ValueError):
@@ -20,6 +31,16 @@ class PasswordHasher:
     def verify(self, password: str, password_hash: str) -> bool:
         """Verify a plaintext password against a stored hash."""
         return self._password_hash.verify(password, password_hash)
+
+    async def verify_async(self, password: str, password_hash: str) -> bool:
+        """Verify outside the event loop using the bounded security executor."""
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            _PASSWORD_VERIFY_EXECUTOR,
+            self.verify,
+            password,
+            password_hash,
+        )
 
 
 def validate_password_strength(password: str) -> None:

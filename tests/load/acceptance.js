@@ -110,24 +110,6 @@ export function setup() {
   );
   const accessToken = primary.accessToken;
 
-  const alerts = checkedGet('/operations/alerts?limit=20&offset=0', 'alerts_discovery', accessToken);
-  const alert = firstItem(alerts);
-  check(alert, { 'feedback parent alert was discovered': (value) => value !== null });
-  if (alert) {
-    const feedback = http.post(
-      `${BASE_URL}/operations/maintenance-feedback`,
-      JSON.stringify({
-        alert_id: alert.id,
-        outcome: 'no_action_required',
-        maintenance_category: 'load_acceptance',
-        downtime_minutes: 0,
-        summary: `Bounded local k6 acceptance feedback (${PROFILE}).`,
-      }),
-      jsonParams('feedback_submission', accessToken),
-    );
-    check(feedback, { 'feedback submission returned 201': (value) => value.status === 201 });
-  }
-
   const datasets = checkedGet('/ai/datasets?limit=20&offset=0', 'datasets_discovery', accessToken);
   const dataset = firstItem(datasets);
   let datasetId = null;

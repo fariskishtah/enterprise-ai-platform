@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="FactoryMind">
+  <rect width="64" height="64" rx="16" fill="#0b1023"/>
+  <rect x="15" y="15" width="14" height="14" rx="3" fill="#ffffff"/>
+  <rect x="35" y="15" width="14" height="14" rx="3" fill="#c4b5fd"/>
+  <rect x="15" y="35" width="14" height="14" rx="3" fill="#c4b5fd"/>
+  <rect x="35" y="35" width="14" height="14" rx="3" fill="#ffffff"/>
+</svg>

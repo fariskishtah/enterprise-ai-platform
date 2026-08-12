@@ -134,16 +134,16 @@ export function KnowledgeBaseCreatePage(): ReactElement {
         items={[{ label: "Knowledge Bases", to: "/knowledge" }, { label: "Create" }]}
       />
       <PageHeader
-        description="Attach only ready, authorized document dataset versions. Embedding provider selection is controlled by the server."
+        description="Choose approved, Ready documents that FactoryMind may use when answering grounded questions."
         eyebrow="Grounded AI"
         headingId="knowledge-create-heading"
-        title="Create knowledge base"
+        title="Create trusted knowledge"
       />
       <form className="mt-6 max-w-3xl" onSubmit={(event) => void submit(event)}>
         <LifecycleCard>
           <InlineNotice>
-            Registered documents are untrusted evidence, never instructions. Indexing
-            does not browse the internet or invoke tools.
+            Documents are treated as source material, never as instructions. The AI
+            Assistant does not browse the internet or take autonomous actions.
           </InlineNotice>
           <div className="mt-5 grid gap-5 sm:grid-cols-2">
             <label className="text-sm font-medium sm:col-span-2">
@@ -168,33 +168,44 @@ export function KnowledgeBaseCreatePage(): ReactElement {
                 value={description}
               />
             </label>
-            <label className="text-sm font-medium">
-              Chunk size
-              <input
-                className="mt-1 w-full rounded-md border border-border-strong bg-elevated px-3 py-2"
-                disabled={submitting}
-                max={4000}
-                min={200}
-                onChange={(event) => setChunkSize(Number(event.target.value))}
-                type="number"
-                value={chunkSize}
-              />
-            </label>
-            <label className="text-sm font-medium">
-              Chunk overlap
-              <input
-                className="mt-1 w-full rounded-md border border-border-strong bg-elevated px-3 py-2"
-                disabled={submitting}
-                max={1000}
-                min={0}
-                onChange={(event) => setChunkOverlap(Number(event.target.value))}
-                type="number"
-                value={chunkOverlap}
-              />
-            </label>
+            <details className="rounded-md border border-border bg-elevated p-4 sm:col-span-2">
+              <summary className="cursor-pointer text-sm font-semibold">
+                Advanced document processing
+              </summary>
+              <p className="mt-2 text-xs text-muted-foreground">
+                Keep the defaults unless a data specialist needs to tune how documents
+                are divided for search.
+              </p>
+              <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                <label className="text-sm font-medium">
+                  Section size
+                  <input
+                    className="mt-1 w-full rounded-md border border-border-strong bg-card px-3 py-2"
+                    disabled={submitting}
+                    max={4000}
+                    min={200}
+                    onChange={(event) => setChunkSize(Number(event.target.value))}
+                    type="number"
+                    value={chunkSize}
+                  />
+                </label>
+                <label className="text-sm font-medium">
+                  Section overlap
+                  <input
+                    className="mt-1 w-full rounded-md border border-border-strong bg-card px-3 py-2"
+                    disabled={submitting}
+                    max={1000}
+                    min={0}
+                    onChange={(event) => setChunkOverlap(Number(event.target.value))}
+                    type="number"
+                    value={chunkOverlap}
+                  />
+                </label>
+              </div>
+            </details>
           </div>
           <fieldset className="mt-6">
-            <legend className="font-semibold">Ready document versions</legend>
+            <legend className="font-semibold">Approved source documents</legend>
             {loadingVersions ? (
               <p
                 aria-live="polite"
@@ -206,14 +217,14 @@ export function KnowledgeBaseCreatePage(): ReactElement {
             ) : discoveryError !== null ? null : available.length === 0 ? (
               <div className="mt-3 rounded-md border border-border bg-elevated p-4">
                 <p className="text-sm text-muted-foreground">
-                  No ready document versions are available. Register a TXT document and
-                  wait for processing to finish before creating this knowledge base.
+                  No Ready documents are available. Add a plain-text source document and
+                  wait for processing to finish first.
                 </p>
                 <Link
                   className={`${secondaryButtonClassName} mt-3 inline-flex`}
                   to="/datasets/new?kind=document_collection"
                 >
-                  Register TXT document
+                  Add a source document
                 </Link>
               </div>
             ) : (
@@ -341,7 +352,7 @@ export function KnowledgeBaseCreatePage(): ReactElement {
               }
               type="submit"
             >
-              {submitting ? "Creating…" : "Create knowledge base"}
+              {submitting ? "Creating…" : "Create trusted knowledge"}
             </button>
           </div>
         </LifecycleCard>

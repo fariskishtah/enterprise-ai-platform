@@ -15,6 +15,7 @@ import {
   type PaginatedResponse,
 } from "../../api/hierarchy";
 import { useAuth } from "../../auth/useAuth";
+import { hasProductCapability } from "../../auth/permissions";
 import { ConfirmDialog } from "../../components/hierarchy/Dialogs";
 import {
   FactoryFormDialog,
@@ -44,8 +45,8 @@ export function FactoryDetailPage(): ReactElement {
   const navigate = useNavigate();
   const { role, user } = useAuth();
   const { features } = useProductExperience();
-  const canWrite = role === "admin" || role === "engineer";
-  const canDelete = role === "admin";
+  const canWrite = hasProductCapability(role, "engineering.write");
+  const canDelete = hasProductCapability(role, "tenant.administer");
   const [factory, setFactory] = useState<Factory | null>(null);
   const [company, setCompany] = useState<Company | null>(null);
   const [companies, setCompanies] = useState<readonly Company[]>([]);
@@ -248,11 +249,25 @@ export function FactoryDetailPage(): ReactElement {
         )}
       </dl>
 
+      <section className="mt-6 rounded-lg border border-purple-200 bg-purple-50 p-5">
+        <p className="text-xs font-semibold uppercase tracking-wider text-purple-800">
+          Current production structure
+        </p>
+        <h3 className="mt-2 text-lg font-semibold text-neutral-950">
+          Factory → Machine or production asset → Sensor
+        </h3>
+        <p className="mt-2 max-w-3xl text-sm leading-6 text-neutral-700">
+          FactoryMind currently organizes equipment directly under each factory.
+          Production lines are not separate records in the current data model, so this
+          page does not imply line assignments that have not been configured.
+        </p>
+      </section>
+
       <div className="mt-8 flex items-center justify-between gap-4">
         <div>
-          <h3 className="text-xl font-semibold">Machines</h3>
+          <h3 className="text-xl font-semibold">Machines & production assets</h3>
           <p className="mt-1 text-sm text-neutral-600">
-            Active equipment assigned to this factory.
+            Equipment and its sensors form the production structure available today.
           </p>
         </div>
         {canWrite ? (
@@ -279,8 +294,12 @@ export function FactoryDetailPage(): ReactElement {
                 </button>
               ) : undefined
             }
-            description="No active machines belong to this factory."
-            title="No machines yet"
+            description={
+              canWrite
+                ? "Add the first machine or production asset, then open it to configure sensors and data."
+                : "No machines or production assets are available in this factory yet."
+            }
+            title="No production assets yet"
           />
         ) : (
           <>

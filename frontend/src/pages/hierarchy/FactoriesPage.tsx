@@ -9,6 +9,7 @@ import {
   type Factory,
   type PaginatedResponse,
 } from "../../api/hierarchy";
+import { hasProductCapability } from "../../auth/permissions";
 import { useAuth } from "../../auth/useAuth";
 import { FactoryFormDialog } from "../../components/hierarchy/HierarchyForms";
 import { PageHeader } from "../../components/ui/PageHeader";
@@ -25,7 +26,7 @@ const PAGE_SIZE = 20;
 
 export function FactoriesPage(): ReactElement {
   const { role } = useAuth();
-  const canWrite = role === "admin" || role === "engineer";
+  const canWrite = hasProductCapability(role, "engineering.write");
   const [page, setPage] = useState<PaginatedResponse<Factory> | null>(null);
   const [companies, setCompanies] = useState<readonly Company[]>([]);
   const [offset, setOffset] = useState(0);
@@ -131,8 +132,10 @@ export function FactoriesPage(): ReactElement {
             }
             description={
               companies.length === 0 && canWrite
-                ? "A company must exist before a factory can be created."
-                : "No active factories are available for this account."
+                ? "Your private workspace is ready. Add its first factory to begin organizing machines and sensor data."
+                : canWrite
+                  ? "Create the first factory to begin organizing machines and sensor data."
+                  : "No factories are available yet. Ask a workspace owner to add the first factory."
             }
             title="No factories yet"
           />

@@ -64,6 +64,15 @@ def test_password_hasher_hashes_and_verifies_password() -> None:
     assert not hasher.verify("WrongPassword1!", password_hash)
 
 
+@pytest.mark.anyio
+async def test_password_hasher_async_verification_preserves_hash_policy() -> None:
+    hasher = PasswordHasher()
+    password_hash = hasher.hash(VALID_PASSWORD)
+
+    assert await hasher.verify_async(VALID_PASSWORD, password_hash)
+    assert not await hasher.verify_async("WrongPassword1!", password_hash)
+
+
 def test_password_policy_rejects_weak_password() -> None:
     """The password policy rejects weak passwords."""
     from app.utils.passwords import validate_password_strength

@@ -9,6 +9,8 @@ import {
   type ConversationStatus,
 } from "../../api/chat";
 import { listKnowledgeBases, type KnowledgeBaseSummary } from "../../api/rag";
+import { hasProductCapability } from "../../auth/permissions";
+import { useAuth } from "../../auth/useAuth";
 import { LifecycleStatus } from "../../components/dataRag/DataRagUi";
 import {
   EmptyState,
@@ -26,6 +28,8 @@ const PAGE_SIZE = 20;
 const KNOWLEDGE_BASE_PAGE_SIZE = 20;
 
 export function ChatPage(): ReactElement {
+  const { role } = useAuth();
+  const canWrite = hasProductCapability(role, "engineering.write");
   const navigate = useNavigate();
   const [page, setPage] = useState<ConversationPage | null>(null);
   const [knowledgeBases, setKnowledgeBases] = useState<readonly KnowledgeBaseSummary[]>(
@@ -113,137 +117,153 @@ export function ChatPage(): ReactElement {
   return (
     <section aria-labelledby="chat-heading">
       <PageHeader
-        description="Ask grounded questions against one ready authorized knowledge base. The assistant cannot browse or invoke tools."
-        eyebrow="Enterprise RAG"
+        description="Ask questions using one approved company knowledge source. Answers cite the source material and refuse unsupported claims."
+        eyebrow="Grounded answers"
         headingId="chat-heading"
         title="AI Assistant"
       />
-      <div className="mt-6 grid gap-6 xl:grid-cols-[22rem_minmax(0,1fr)]">
-        <form
-          aria-label="New grounded conversation"
-          className="h-fit rounded-lg border border-border bg-card p-5 shadow-panel"
-          onSubmit={(event) => void create(event)}
-        >
-          <h3 className="text-lg font-semibold">New conversation</h3>
-          <div className="mt-4">
-            <InlineNotice>
-              Answers distinguish retrieved evidence from generated explanation and cite
-              registered sources.
-            </InlineNotice>
-          </div>
-          <label className="mt-4 block text-sm font-medium">
-            Knowledge base
-            <select
-              className="mt-1 w-full rounded-md border border-border-strong bg-elevated px-3 py-2"
-              disabled={creating || knowledgeBaseLoading || knowledgeBaseError !== null}
-              onChange={(event) => setKnowledgeBaseId(event.target.value)}
-              required
-              value={knowledgeBaseId}
-            >
-              <option value="">Select a ready knowledge base</option>
-              {knowledgeBases.map((base) => (
-                <option key={base.knowledge_base_id} value={base.knowledge_base_id}>
-                  {base.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          {knowledgeBaseLoading ? (
-            <p className="mt-2 text-xs text-muted-foreground" role="status">
-              Loading ready knowledge bases…
-            </p>
-          ) : null}
-          {knowledgeBaseError === null ? null : (
-            <div className="mt-3 text-sm text-red-700" role="alert">
-              <p>{knowledgeBaseError}</p>
-              <button
-                className="mt-2 font-semibold underline underline-offset-2"
-                onClick={() => {
-                  setKnowledgeBaseLoading(true);
-                  setKnowledgeBaseRevision((current) => current + 1);
-                }}
-                type="button"
-              >
-                Retry knowledge-base discovery
-              </button>
+      <div
+        className={`mt-6 grid gap-6 ${canWrite ? "xl:grid-cols-[22rem_minmax(0,1fr)]" : ""}`}
+      >
+        {canWrite ? (
+          <form
+            aria-label="New grounded conversation"
+            className="h-fit rounded-lg border border-border bg-card p-5 shadow-panel"
+            onSubmit={(event) => void create(event)}
+          >
+            <h3 className="text-lg font-semibold">Ask a new question</h3>
+            <div className="mt-4">
+              <InlineNotice>
+                AI Assistant answers from selected approved documents. Guided AI
+                prepares a manufacturing use case; Advanced AI tools build and evaluate
+                technical models.
+              </InlineNotice>
             </div>
-          )}
-          {knowledgeBaseTotal > KNOWLEDGE_BASE_PAGE_SIZE ? (
-            <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs">
-              <span className="text-muted-foreground">
-                Knowledge bases {knowledgeBaseOffset + 1}–
-                {Math.min(
-                  knowledgeBaseOffset + KNOWLEDGE_BASE_PAGE_SIZE,
-                  knowledgeBaseTotal,
-                )}{" "}
-                of {knowledgeBaseTotal}
-              </span>
-              <div className="flex gap-2">
+            <label className="mt-4 block text-sm font-medium">
+              Knowledge base
+              <select
+                className="mt-1 w-full rounded-md border border-border-strong bg-elevated px-3 py-2"
+                disabled={
+                  creating || knowledgeBaseLoading || knowledgeBaseError !== null
+                }
+                onChange={(event) => setKnowledgeBaseId(event.target.value)}
+                required
+                value={knowledgeBaseId}
+              >
+                <option value="">Select a ready knowledge base</option>
+                {knowledgeBases.map((base) => (
+                  <option key={base.knowledge_base_id} value={base.knowledge_base_id}>
+                    {base.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {knowledgeBaseLoading ? (
+              <p className="mt-2 text-xs text-muted-foreground" role="status">
+                Loading ready knowledge bases…
+              </p>
+            ) : null}
+            {knowledgeBaseError === null ? null : (
+              <div className="mt-3 text-sm text-red-700" role="alert">
+                <p>{knowledgeBaseError}</p>
                 <button
-                  className={secondaryButtonClassName}
-                  disabled={
-                    creating || knowledgeBaseLoading || knowledgeBaseOffset === 0
-                  }
+                  className="mt-2 font-semibold underline underline-offset-2"
                   onClick={() => {
-                    setKnowledgeBaseId("");
                     setKnowledgeBaseLoading(true);
-                    setKnowledgeBaseOffset((current) =>
-                      Math.max(0, current - KNOWLEDGE_BASE_PAGE_SIZE),
-                    );
+                    setKnowledgeBaseRevision((current) => current + 1);
                   }}
                   type="button"
                 >
-                  Previous
-                </button>
-                <button
-                  className={secondaryButtonClassName}
-                  disabled={
-                    creating ||
-                    knowledgeBaseLoading ||
-                    knowledgeBaseOffset + KNOWLEDGE_BASE_PAGE_SIZE >= knowledgeBaseTotal
-                  }
-                  onClick={() => {
-                    setKnowledgeBaseId("");
-                    setKnowledgeBaseLoading(true);
-                    setKnowledgeBaseOffset(
-                      (current) => current + KNOWLEDGE_BASE_PAGE_SIZE,
-                    );
-                  }}
-                  type="button"
-                >
-                  Next
+                  Retry knowledge-base discovery
                 </button>
               </div>
-            </div>
-          ) : null}
-          <label className="mt-4 block text-sm font-medium">
-            Title (optional)
-            <input
-              className="mt-1 w-full rounded-md border border-border-strong bg-elevated px-3 py-2"
-              disabled={creating}
-              maxLength={255}
-              onChange={(event) => setTitle(event.target.value)}
-              value={title}
-            />
-          </label>
-          {createError === null ? null : (
-            <p className="mt-4 text-sm text-red-700" role="alert">
-              {createError}
+            )}
+            {knowledgeBaseTotal > KNOWLEDGE_BASE_PAGE_SIZE ? (
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs">
+                <span className="text-muted-foreground">
+                  Knowledge bases {knowledgeBaseOffset + 1}–
+                  {Math.min(
+                    knowledgeBaseOffset + KNOWLEDGE_BASE_PAGE_SIZE,
+                    knowledgeBaseTotal,
+                  )}{" "}
+                  of {knowledgeBaseTotal}
+                </span>
+                <div className="flex gap-2">
+                  <button
+                    className={secondaryButtonClassName}
+                    disabled={
+                      creating || knowledgeBaseLoading || knowledgeBaseOffset === 0
+                    }
+                    onClick={() => {
+                      setKnowledgeBaseId("");
+                      setKnowledgeBaseLoading(true);
+                      setKnowledgeBaseOffset((current) =>
+                        Math.max(0, current - KNOWLEDGE_BASE_PAGE_SIZE),
+                      );
+                    }}
+                    type="button"
+                  >
+                    Previous
+                  </button>
+                  <button
+                    className={secondaryButtonClassName}
+                    disabled={
+                      creating ||
+                      knowledgeBaseLoading ||
+                      knowledgeBaseOffset + KNOWLEDGE_BASE_PAGE_SIZE >=
+                        knowledgeBaseTotal
+                    }
+                    onClick={() => {
+                      setKnowledgeBaseId("");
+                      setKnowledgeBaseLoading(true);
+                      setKnowledgeBaseOffset(
+                        (current) => current + KNOWLEDGE_BASE_PAGE_SIZE,
+                      );
+                    }}
+                    type="button"
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            ) : null}
+            <label className="mt-4 block text-sm font-medium">
+              Title (optional)
+              <input
+                className="mt-1 w-full rounded-md border border-border-strong bg-elevated px-3 py-2"
+                disabled={creating}
+                maxLength={255}
+                onChange={(event) => setTitle(event.target.value)}
+                value={title}
+              />
+            </label>
+            {createError === null ? null : (
+              <p className="mt-4 text-sm text-red-700" role="alert">
+                {createError}
+              </p>
+            )}
+            <button
+              className={`${primaryButtonClassName} mt-5 w-full`}
+              disabled={
+                creating ||
+                knowledgeBaseLoading ||
+                knowledgeBaseError !== null ||
+                knowledgeBaseId === ""
+              }
+              type="submit"
+            >
+              {creating ? "Creating…" : "Start conversation"}
+            </button>
+          </form>
+        ) : (
+          <aside className="h-fit rounded-lg border border-border bg-card p-5 shadow-panel">
+            <h3 className="font-semibold text-foreground">Read-only access</h3>
+            <p className="mt-2 text-sm text-secondary-foreground">
+              You can review existing grounded conversations. An Owner or Engineer can
+              start a new one.
             </p>
-          )}
-          <button
-            className={`${primaryButtonClassName} mt-5 w-full`}
-            disabled={
-              creating ||
-              knowledgeBaseLoading ||
-              knowledgeBaseError !== null ||
-              knowledgeBaseId === ""
-            }
-            type="submit"
-          >
-            {creating ? "Creating…" : "Start conversation"}
-          </button>
-        </form>
+          </aside>
+        )}
         <div>
           <div className="flex flex-wrap items-end justify-between gap-3">
             <h3 className="text-lg font-semibold">Conversations</h3>
@@ -274,7 +294,11 @@ export function ChatPage(): ReactElement {
               />
             ) : page === null || page.items.length === 0 ? (
               <EmptyState
-                description="Choose a ready knowledge base to start a grounded conversation."
+                description={
+                  canWrite
+                    ? "Choose prepared company knowledge to start a grounded conversation."
+                    : "No grounded conversations are available to review yet."
+                }
                 title="No conversations"
               />
             ) : (
@@ -294,8 +318,12 @@ export function ChatPage(): ReactElement {
                         </Link>
                         <LifecycleStatus status={conversation.status} />
                       </div>
-                      <p className="mt-2 break-all text-xs text-muted-foreground">
-                        Knowledge base {conversation.knowledge_base_id}
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        Using{" "}
+                        {knowledgeBases.find(
+                          (base) =>
+                            base.knowledge_base_id === conversation.knowledge_base_id,
+                        )?.name ?? "approved company knowledge"}
                       </p>
                       <p className="mt-2 text-xs text-muted-foreground">
                         Updated {formatDate(conversation.updated_at)}

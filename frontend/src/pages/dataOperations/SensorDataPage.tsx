@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 
 import { listUploadJobs, type UploadJob } from "../../api/sensorData";
 import { useAuth } from "../../auth/useAuth";
+import { hasProductCapability } from "../../auth/permissions";
 import { CsvUploadDialog } from "../../components/dataOperations/CsvUploadDialog";
 import { UploadJobSummary } from "../../components/dataOperations/UploadJobSummary";
 import { PageHeader } from "../../components/ui/PageHeader";
@@ -17,7 +18,7 @@ import { hierarchyError } from "../hierarchy/shared";
 
 export function SensorDataPage(): ReactElement {
   const { role } = useAuth();
-  const canWrite = role === "admin" || role === "engineer";
+  const canWrite = hasProductCapability(role, "engineering.write");
   const [jobs, setJobs] = useState<readonly UploadJob[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -66,10 +67,10 @@ export function SensorDataPage(): ReactElement {
             </button>
           ) : undefined
         }
-        description="Review CSV ingestion activity or select a sensor through the manufacturing hierarchy to inspect and add readings."
-        eyebrow="Data operations"
+        description="Review machine-data imports or open a factory asset to inspect its sensor readings."
+        eyebrow="Machine data"
         headingId="sensor-data-heading"
-        title="Sensor Data"
+        title="Machine & Sensor Data"
       />
       <div className="mt-6 grid gap-4 md:grid-cols-2">
         <article className="rounded-lg border border-neutral-200 bg-white p-5">
@@ -103,7 +104,7 @@ export function SensorDataPage(): ReactElement {
         <div>
           <h3 className="text-xl font-semibold">Recent upload jobs</h3>
           <p className="mt-1 text-sm text-neutral-600">
-            Most recently created CSV and API ingestion jobs.
+            Most recently created CSV and API data imports.
           </p>
         </div>
         <Link

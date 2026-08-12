@@ -44,13 +44,7 @@ jobs:
         run: python -m pip check
 
       - name: Audit Python dependencies
-        # SEC-2026-001 expires 2026-08-31. Black is development-only and its fixed
-        # release currently fails source-equivalence formatting. See the exception
-        # register; production dependencies are audited below without exceptions.
-        run: >-
-          python -m pip_audit --local --progress-spinner off
-          --ignore-vuln PYSEC-2026-2120
-          --ignore-vuln PYSEC-2026-2121
+        run: python -m pip_audit --local --progress-spinner off
 
       - name: Audit production dependency lock without exceptions
         run: python -m pip_audit -r requirements/base.lock --progress-spinner off
@@ -420,6 +414,10 @@ jobs:
             --volume "$PWD/performance/k6:/scripts:ro" \
             grafana/k6:2.1.0 \
             inspect /scripts/soak.js
+          docker run --rm \
+            --volume "$PWD/performance/k6:/scripts:ro" \
+            grafana/k6:2.1.0 \
+            inspect /scripts/document-ingest-load.js
 
   container-build:
     name: Container Build (${{ matrix.name }})

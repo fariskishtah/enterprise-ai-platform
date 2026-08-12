@@ -4,7 +4,11 @@ import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { useProductExperience } from "../product/productExperience";
 import { ForbiddenPage } from "../pages/RouteErrorPages";
 import { useAuth } from "./useAuth";
-import { hasLegacyRoleAccess } from "./permissions";
+import {
+  hasLegacyRoleAccess,
+  hasProductCapability,
+  type ProductCapability,
+} from "./permissions";
 import type { UserRole } from "./authApi";
 
 export function AuthLoadingScreen(): ReactElement {
@@ -58,7 +62,7 @@ export function PublicOnlyRoute(): ReactElement {
     requestedDestination.startsWith("/") &&
     !requestedDestination.startsWith("//")
       ? requestedDestination
-      : "/";
+      : "/dashboard";
 
   if (auth.status === "loading") {
     return <AuthLoadingScreen />;
@@ -80,6 +84,18 @@ export function RoleRoute({
   ) : (
     <ForbiddenPage />
   );
+}
+
+export function CapabilityRoute({
+  capability,
+}: {
+  readonly capability: ProductCapability;
+}): ReactElement {
+  const auth = useAuth();
+  if (auth.status === "loading") {
+    return <AuthLoadingScreen />;
+  }
+  return hasProductCapability(auth.role, capability) ? <Outlet /> : <ForbiddenPage />;
 }
 
 export function OperationsFeatureRoute(): ReactElement {
@@ -122,7 +138,7 @@ export function DemoFeatureRoute(): ReactElement {
 export function ExpertModeRoute(): ReactElement {
   const { role } = useAuth();
   const { canSwitchMode, mode, setMode } = useProductExperience();
-  if (role === "operator") return <Navigate replace to="/" />;
+  if (role === "operator") return <Navigate replace to="/dashboard" />;
   if (mode === "expert") return <Outlet />;
   return (
     <main className="rounded-lg border border-border bg-card p-8 shadow-panel">

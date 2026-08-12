@@ -149,9 +149,7 @@ section "Dependency and source security"
   cd "$BACKEND_DIR"
   python -m pip_audit -r requirements/base.lock --progress-spinner off \
     --format json --output "$EVIDENCE_DIR/pip-audit.json"
-  python -m pip_audit --local --progress-spinner off \
-    --ignore-vuln PYSEC-2026-2120 \
-    --ignore-vuln PYSEC-2026-2121
+  python -m pip_audit --local --progress-spinner off
   bandit -c pyproject.toml -r app -ll -f json -o "$EVIDENCE_DIR/bandit.json"
   pip-licenses --format=json --output-file="$EVIDENCE_DIR/backend-licenses.json"
 )

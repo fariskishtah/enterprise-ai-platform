@@ -4,6 +4,7 @@ import { listAlerts, type MonitoringAlert } from "../../api/alerts";
 import { listEvaluations, type MonitoringEvaluation } from "../../api/monitoring";
 import { getRetrainingStatus, type RetrainingStatus } from "../../api/retraining";
 import { useAuth } from "../../auth/useAuth";
+import { hasProductCapability } from "../../auth/permissions";
 import {
   EmptyState,
   InlineError,
@@ -21,7 +22,7 @@ import { PageHeader } from "../../components/ui/PageHeader";
 import { isRequestCancelled } from "../../api/client";
 export function MonitoringPage(): ReactElement {
   const { role } = useAuth();
-  const canAlerts = role === "admin" || role === "engineer";
+  const canAlerts = hasProductCapability(role, "engineering.read");
   const [evaluations, setEvaluations] = useState<
     readonly MonitoringEvaluation[] | null
   >(null);

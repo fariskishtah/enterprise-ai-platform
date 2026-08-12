@@ -141,6 +141,9 @@ case "$action" in
     compose exec -T \
       -e E2E_ADMIN_EMAIL -e E2E_ENGINEER_EMAIL -e E2E_OPERATOR_EMAIL \
       -e E2E_SMOKE_EMAIL -e E2E_EXTERNAL_EMAIL -e E2E_PASSWORD \
+      -e RAG_LOAD_USER_COUNT="${RAG_LOAD_USER_COUNT:-50}" \
+      -e RAG_LOAD_EMAIL_PREFIX="${RAG_LOAD_EMAIL_PREFIX:-phase5-rag}" \
+      -e RAG_LOAD_EMAIL_DOMAIN="${RAG_LOAD_EMAIL_DOMAIN:-example.com}" \
       backend python - <"$REPO_ROOT/scripts/seed_staging_users.py"
     compose exec -T \
       -e ENABLE_DEVELOPMENT_SEED=true \
@@ -148,6 +151,9 @@ case "$action" in
       -e DEMO_EMAIL="$E2E_ENGINEER_EMAIL" \
       -e DEMO_OPERATOR_EMAIL="$E2E_OPERATOR_EMAIL" \
       -e DEMO_PASSWORD="$E2E_PASSWORD" \
+      -e RAG_LOAD_USER_COUNT="${RAG_LOAD_USER_COUNT:-50}" \
+      -e RAG_LOAD_EMAIL_PREFIX="${RAG_LOAD_EMAIL_PREFIX:-phase5-rag}" \
+      -e RAG_LOAD_EMAIL_DOMAIN="${RAG_LOAD_EMAIL_DOMAIN:-example.com}" \
       backend python - <"$REPO_ROOT/scripts/seed_demo.py"
     echo "Disposable role accounts and deterministic workflow data are ready."
     ;;

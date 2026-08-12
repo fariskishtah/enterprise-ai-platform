@@ -7,6 +7,7 @@ import {
   type MonitoringAlert,
 } from "../../api/alerts";
 import { useAuth } from "../../auth/useAuth";
+import { hasProductCapability } from "../../auth/permissions";
 import {
   InlineError,
   LoadingSkeleton,
@@ -24,6 +25,7 @@ import { isRequestCancelled } from "../../api/client";
 export function AlertDetailPage(): ReactElement {
   const { id = "" } = useParams<{ id: string }>();
   const { role } = useAuth();
+  const canAdminister = hasProductCapability(role, "tenant.administer");
   const [item, setItem] = useState<MonitoringAlert | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -122,7 +124,7 @@ export function AlertDetailPage(): ReactElement {
             />
           </label>
         ) : null}
-        {role === "admin" && item.status !== "resolved" ? (
+        {canAdminister && item.status !== "resolved" ? (
           <label className="w-full text-sm font-semibold text-foreground">
             Engineer resolution note
             <textarea
@@ -143,7 +145,7 @@ export function AlertDetailPage(): ReactElement {
             Acknowledge
           </button>
         ) : null}
-        {role === "admin" && item.status !== "resolved" ? (
+        {canAdminister && item.status !== "resolved" ? (
           <button
             disabled={busy}
             className={primaryButtonClassName}

@@ -83,6 +83,7 @@ from app.ml.registry import (
 )
 from app.ml.services import BaseRegisteredModelLoader, RegisteredModelLoadError
 from app.models.user import User, UserRole
+from app.permissions import is_tenant_administrator
 from app.repositories.ai_governance import PromotionAuditPage
 from app.schemas.ai import (
     RandomForestClassificationTrainingRequest,
@@ -517,7 +518,7 @@ async def get_training_job(
         job = await service.get_authorized(
             job_id=job_id,
             current_user_id=current_user.id,
-            is_admin=current_user.role is UserRole.ADMIN,
+            is_admin=is_tenant_administrator(current_user.role),
         )
     except TrainingJobNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -550,7 +551,7 @@ async def get_training_job_evaluation(
         job = await service.get_authorized(
             job_id=job_id,
             current_user_id=current_user.id,
-            is_admin=current_user.role is UserRole.ADMIN,
+            is_admin=is_tenant_administrator(current_user.role),
         )
     except TrainingJobNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -627,7 +628,7 @@ async def list_training_jobs(
     """Return newest jobs within the caller's authorized scope."""
     page = await service.list_authorized(
         current_user_id=current_user.id,
-        is_admin=current_user.role is UserRole.ADMIN,
+        is_admin=is_tenant_administrator(current_user.role),
         status=job_status,
         limit=limit,
         offset=offset,
@@ -664,7 +665,7 @@ async def cancel_training_job(
         cancelled = await service.cancel(
             job_id=job_id,
             current_user_id=current_user.id,
-            is_admin=current_user.role is UserRole.ADMIN,
+            is_admin=is_tenant_administrator(current_user.role),
         )
     except TrainingJobNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

@@ -86,7 +86,7 @@ async function login(page: Page, email: string | undefined): Promise<void> {
   expect(loginResponse.status()).toBe(200);
   const tokens = (await loginResponse.json()) as LoginResponse;
   accessTokens.set(page, tokens.access_token);
-  await expect(page).toHaveURL(/\/$/);
+  await expect(page).toHaveURL(/\/dashboard$/);
   await expect(page.getByRole("button", { name: /Open account menu/ })).toBeVisible();
 }
 

@@ -31,6 +31,7 @@ import {
 } from "../components/intelligence/IntelligenceUi";
 import { PageHeader } from "../components/ui/PageHeader";
 import { useAuth } from "../auth/useAuth";
+import { roleDisplayName } from "../auth/permissions";
 
 const LIMIT = 50;
 
@@ -127,10 +128,10 @@ export function UsersPage(): ReactElement {
           >
             <option value="">All roles</option>
             <option value="owner">Owner</option>
-            <option value="admin">Admin</option>
-            <option value="engineer">Engineer</option>
-            <option value="operator">Operator</option>
-            <option value="analyst">Analyst</option>
+            <option value="admin">Operations Manager</option>
+            <option value="engineer">Engineer / Data User</option>
+            <option value="operator">Factory Operator</option>
+            <option value="analyst">Data Analyst</option>
             <option value="viewer">Viewer</option>
           </select>
         </label>
@@ -198,7 +199,7 @@ export function UsersPage(): ReactElement {
                       user.email
                     )}
                   </td>
-                  <td className="px-4 py-3">{user.role}</td>
+                  <td className="px-4 py-3">{roleDisplayName(user.role)}</td>
                   <td className="px-4 py-3">
                     <IntelligenceStatus
                       value={user.is_active ? "healthy" : "inactive"}
@@ -377,10 +378,10 @@ function InviteUserDialog({
           Assigned role
           <select className={inputClassName} defaultValue="viewer" name="role">
             <option value="viewer">Viewer</option>
-            <option value="analyst">Analyst</option>
-            <option value="operator">Operator</option>
-            <option value="engineer">Engineer</option>
-            <option value="admin">Admin</option>
+            <option value="analyst">Data Analyst</option>
+            <option value="operator">Factory Operator</option>
+            <option value="engineer">Engineer / Data User</option>
+            <option value="admin">Operations Manager</option>
             {canInviteOwner ? <option value="owner">Owner</option> : null}
           </select>
         </label>
@@ -453,11 +454,11 @@ function CreateUserDialog({
         <label className="block text-sm font-medium">
           Initial role
           <select className={inputClassName} name="role" defaultValue="operator">
-            <option value="operator">Operator</option>
+            <option value="operator">Factory Operator</option>
             <option value="viewer">Viewer</option>
-            <option value="analyst">Analyst</option>
-            <option value="engineer">Engineer</option>
-            <option value="admin">Admin</option>
+            <option value="analyst">Data Analyst</option>
+            <option value="engineer">Engineer / Data User</option>
+            <option value="admin">Operations Manager</option>
             <option value="owner">Owner</option>
           </select>
         </label>
@@ -517,10 +518,10 @@ function ManageUserDialog({
             value={role}
           >
             <option value="owner">Owner</option>
-            <option value="admin">Admin</option>
-            <option value="engineer">Engineer</option>
-            <option value="operator">Operator</option>
-            <option value="analyst">Analyst</option>
+            <option value="admin">Operations Manager</option>
+            <option value="engineer">Engineer / Data User</option>
+            <option value="operator">Factory Operator</option>
+            <option value="analyst">Data Analyst</option>
             <option value="viewer">Viewer</option>
           </select>
         </label>

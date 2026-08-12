@@ -2,6 +2,7 @@ import { lazy } from "react";
 import { createBrowserRouter } from "react-router-dom";
 
 import {
+  CapabilityRoute,
   DemoFeatureRoute,
   ExpertModeRoute,
   OperationsFeatureRoute,
@@ -19,6 +20,11 @@ const HomePage = lazy(() =>
 );
 const LoginPage = lazy(() =>
   import("../pages/LoginPage").then(({ LoginPage }) => ({ default: LoginPage })),
+);
+const LandingPage = lazy(() =>
+  import("../pages/LandingPage").then(({ LandingPage }) => ({
+    default: LandingPage,
+  })),
 );
 const RegisterPage = lazy(() =>
   import("../pages/RegisterPage").then(({ RegisterPage }) => ({
@@ -399,6 +405,7 @@ export const router = createBrowserRouter([
   },
   {
     children: [
+      { element: <LandingPage />, index: true },
       { element: <LoginPage />, path: "login" },
       { element: <RegisterPage />, path: "register" },
       { element: <ForgotPasswordPage />, path: "forgot-password" },
@@ -413,6 +420,7 @@ export const router = createBrowserRouter([
       {
         children: [
           { element: <HomePage />, index: true },
+          { element: <HomePage />, path: "dashboard" },
           { element: <FactoriesPage />, path: "factories" },
           {
             children: [
@@ -470,11 +478,16 @@ export const router = createBrowserRouter([
             children: [
               { element: <SensorDataPage />, path: "sensor-data" },
               {
-                element: <DataOnboardingPage />,
-                path: "sensor-data/onboarding",
+                children: [
+                  {
+                    element: <DataOnboardingPage />,
+                    path: "sensor-data/onboarding",
+                  },
+                  { element: <GuidedAiPage />, path: "guided-ai" },
+                ],
+                element: <CapabilityRoute capability="engineering.write" />,
               },
               { element: <DataQualityPage />, path: "sensor-data/quality" },
-              { element: <GuidedAiPage />, path: "guided-ai" },
               { element: <UploadJobsPage />, path: "sensor-data/uploads" },
               {
                 element: <UploadJobDetailPage />,
@@ -483,7 +496,10 @@ export const router = createBrowserRouter([
               {
                 children: [
                   { element: <DatasetsPage />, index: true },
-                  { element: <DatasetCreatePage />, path: "new" },
+                  {
+                    children: [{ element: <DatasetCreatePage />, path: "new" }],
+                    element: <CapabilityRoute capability="engineering.write" />,
+                  },
                   { element: <DatasetDetailPage />, path: ":datasetId" },
                   {
                     element: <DatasetVersionPage />,
@@ -505,7 +521,10 @@ export const router = createBrowserRouter([
               {
                 children: [
                   { element: <AutoMLStudiesPage />, index: true },
-                  { element: <AutoMLCreatePage />, path: "new" },
+                  {
+                    children: [{ element: <AutoMLCreatePage />, path: "new" }],
+                    element: <CapabilityRoute capability="engineering.write" />,
+                  },
                   { element: <AutoMLStudyDetailPage />, path: ":studyId" },
                   { element: <AutoMLStudyDetailPage />, path: "studies/:studyId" },
                   {
@@ -542,7 +561,10 @@ export const router = createBrowserRouter([
               {
                 children: [
                   { element: <KnowledgeBasesPage />, index: true },
-                  { element: <KnowledgeBaseCreatePage />, path: "new" },
+                  {
+                    children: [{ element: <KnowledgeBaseCreatePage />, path: "new" }],
+                    element: <CapabilityRoute capability="engineering.write" />,
+                  },
                   {
                     element: <KnowledgeBaseDetailPage />,
                     path: ":knowledgeBaseId",

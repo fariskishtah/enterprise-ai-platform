@@ -12,6 +12,7 @@ import {
   type AutoMLTrialStatus,
 } from "../../api/automl";
 import { isRequestCancelled } from "../../api/client";
+import { hasProductCapability } from "../../auth/permissions";
 import { useAuth } from "../../auth/useAuth";
 import {
   AutoMLStatusBadge,
@@ -41,6 +42,8 @@ type TrialCounts = Partial<Record<AutoMLTrialStatus, number>>;
 
 export function AutoMLStudiesPage(): ReactElement {
   const { role } = useAuth();
+  const canAdministerTenant = hasProductCapability(role, "tenant.administer");
+  const canCreateStudy = hasProductCapability(role, "engineering.write");
   const [page, setPage] = useState<AutoMLStudyPage | null>(null);
   const [counts, setCounts] = useState<Readonly<Record<string, TrialCounts>>>({});
   const [details, setDetails] = useState<Readonly<Record<string, AutoMLStudyDetail>>>(
@@ -64,7 +67,7 @@ export function AutoMLStudiesPage(): ReactElement {
           limit: PAGE_SIZE,
           offset,
           pluginId: plugin || undefined,
-          requesterId: role === "admin" && requester ? requester : undefined,
+          requesterId: canAdministerTenant && requester ? requester : undefined,
           signal: controller.signal,
           status: status || undefined,
           taskType: task || undefined,
@@ -114,9 +117,9 @@ export function AutoMLStudiesPage(): ReactElement {
       controller.abort();
       if (timer !== undefined) window.clearTimeout(timer);
     };
-  }, [offset, plugin, requester, revision, role, status, task]);
+  }, [canAdministerTenant, offset, plugin, requester, revision, status, task]);
 
-  if (role === "operator") return <Navigate replace to="/" />;
+  if (role === "operator") return <Navigate replace to="/dashboard" />;
   const resetPage = (): void => {
     setOffset(0);
     setLoading(true);
@@ -126,9 +129,11 @@ export function AutoMLStudiesPage(): ReactElement {
     <section aria-labelledby="automl-heading">
       <PageHeader
         actions={
-          <Link className={primaryButtonClassName} to="/automl/new">
-            Create study
-          </Link>
+          canCreateStudy ? (
+            <Link className={primaryButtonClassName} to="/automl/new">
+              Create study
+            </Link>
+          ) : undefined
         }
         description="Run bounded, deterministic cross-validation studies across approved algorithms."
         eyebrow="AI lifecycle"
@@ -174,7 +179,7 @@ export function AutoMLStudiesPage(): ReactElement {
             value={plugin}
           />
         </label>
-        {role === "admin" ? (
+        {canAdministerTenant ? (
           <label className="text-sm font-medium text-foreground">
             Requester ID
             <input
@@ -209,9 +214,11 @@ export function AutoMLStudiesPage(): ReactElement {
         ) : page === null || page.total === 0 ? (
           <EmptyState
             action={
-              <Link className={primaryButtonClassName} to="/automl/new">
-                Create study
-              </Link>
+              canCreateStudy ? (
+                <Link className={primaryButtonClassName} to="/automl/new">
+                  Create study
+                </Link>
+              ) : undefined
             }
             description="No authorized AutoML studies match the selected filters."
             title="No AutoML studies"

@@ -126,7 +126,7 @@ async def test_create_checkout_uses_current_intention_contract_and_hosted_ui() -
         {
             "name": "Professional",
             "amount": 500_000,
-            "description": "professional monthly subscription",
+            "description": "professional prepaid access period",
             "quantity": 1,
         }
     ]

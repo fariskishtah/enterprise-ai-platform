@@ -42,5 +42,11 @@ test-results/
 # Local performance-test results
 /performance/results/
 
+# Local generated demo/media packages (curated acceptance evidence lives in docs/)
+/.local-artifacts/
+/factorymind_gemini_video_package*/
+/factorymind_gemini_video_package.zip
+/temp_demo_assets/
+
 # Generated release validation evidence (retained by CI as workflow artifacts)
 /artifacts/

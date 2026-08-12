@@ -3,6 +3,8 @@ import { useLocation, useParams } from "react-router-dom";
 
 import { isRequestCancelled } from "../../api/client";
 import { listAllDatasetVersions, listDatasets } from "../../api/datasets";
+import { hasProductCapability } from "../../auth/permissions";
+import { useAuth } from "../../auth/useAuth";
 import {
   attachDatasetVersion,
   buildKnowledgeBase,
@@ -43,6 +45,8 @@ interface ReadyVersionOption {
 }
 
 export function KnowledgeBaseDetailPage(): ReactElement {
+  const { role } = useAuth();
+  const canWrite = hasProductCapability(role, "engineering.write");
   const { knowledgeBaseId = "" } = useParams();
   const location = useLocation();
   const [knowledgeBase, setKnowledgeBase] = useState<KnowledgeBaseDetail | null>(null);
@@ -214,7 +218,7 @@ export function KnowledgeBaseDetailPage(): ReactElement {
       ) : null}
       <PageHeader
         actions={
-          knowledgeBase.status !== "archived" ? (
+          canWrite && knowledgeBase.status !== "archived" ? (
             activeBuild === null ? (
               <button
                 className={primaryButtonClassName}
@@ -222,7 +226,7 @@ export function KnowledgeBaseDetailPage(): ReactElement {
                 onClick={() => void build()}
                 type="button"
               >
-                {mutating ? "Starting…" : "Build index"}
+                {mutating ? "Preparing…" : "Prepare for questions"}
               </button>
             ) : (
               <button
@@ -233,7 +237,7 @@ export function KnowledgeBaseDetailPage(): ReactElement {
                 }
                 type="button"
               >
-                {mutating ? "Cancelling…" : "Cancel build"}
+                {mutating ? "Cancelling…" : "Cancel preparation"}
               </button>
             )
           ) : undefined
@@ -262,34 +266,42 @@ export function KnowledgeBaseDetailPage(): ReactElement {
           {knowledgeBase.safe_error_message}
         </p>
       )}
-      <div className="mt-6">
-        <LifecycleCard>
+      <details className="mt-6 rounded-lg border border-border bg-card p-5">
+        <summary className="cursor-pointer font-semibold text-foreground">
+          Technical indexing details
+        </summary>
+        <div className="mt-4">
           <KeyValueGrid
             items={[
               { label: "Embedding provider", value: knowledgeBase.embedding_provider },
               { label: "Embedding model", value: knowledgeBase.embedding_model },
               { label: "Dimension", value: knowledgeBase.embedding_dimension },
               {
-                label: "Attached versions",
+                label: "Approved sources",
                 value: knowledgeBase.attached_dataset_version_count,
               },
               {
-                label: "Indexed documents",
+                label: "Prepared documents",
                 value: knowledgeBase.indexed_document_count,
               },
-              { label: "Indexed chunks", value: knowledgeBase.indexed_chunk_count },
+              {
+                label: "Searchable sections",
+                value: knowledgeBase.indexed_chunk_count,
+              },
               { label: "Created", value: formatDate(knowledgeBase.created_at) },
               { label: "Updated", value: formatDate(knowledgeBase.updated_at) },
             ]}
           />
-        </LifecycleCard>
-      </div>
+        </div>
+      </details>
       <div className="mt-7 grid gap-5 lg:grid-cols-2">
         <LifecycleCard>
-          <h3 className="text-lg font-semibold">Registered evidence</h3>
+          <h3 className="text-lg font-semibold">Approved source documents</h3>
           {knowledgeBase.dataset_versions.length === 0 ? (
             <p className="mt-3 text-sm text-muted-foreground">
-              Attach a ready document dataset version before building.
+              {canWrite
+                ? "Choose a Ready document before preparing this knowledge for questions."
+                : "No approved source documents are attached yet."}
             </p>
           ) : (
             <ul className="mt-3 space-y-2">
@@ -306,65 +318,74 @@ export function KnowledgeBaseDetailPage(): ReactElement {
                       Attached {formatDate(attachment.attached_at)}
                     </p>
                   </div>
-                  <button
-                    className={secondaryButtonClassName}
-                    disabled={mutating || activeBuild !== null}
-                    onClick={() =>
-                      void mutate(() =>
-                        detachDatasetVersion(
-                          knowledgeBaseId,
-                          attachment.dataset_version_id,
-                        ),
-                      )
-                    }
-                    type="button"
-                  >
-                    Detach
-                  </button>
+                  {canWrite ? (
+                    <button
+                      className={secondaryButtonClassName}
+                      disabled={mutating || activeBuild !== null}
+                      onClick={() =>
+                        void mutate(() =>
+                          detachDatasetVersion(
+                            knowledgeBaseId,
+                            attachment.dataset_version_id,
+                          ),
+                        )
+                      }
+                      type="button"
+                    >
+                      Remove source
+                    </button>
+                  ) : null}
                 </li>
               ))}
             </ul>
           )}
-          <div className="mt-4 flex flex-col gap-2 sm:flex-row">
-            <select
-              aria-label="Ready document version"
-              className="min-w-0 flex-1 rounded-md border border-border-strong bg-elevated px-3 py-2 text-sm"
-              disabled={
-                mutating ||
-                versionsLoading ||
-                versionsError !== null ||
-                activeBuild !== null
-              }
-              onChange={(event) => setSelectedVersion(event.target.value)}
-              value={selectedVersion}
-            >
-              <option value="">Select a ready version</option>
-              {attachable.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.label}
-                </option>
-              ))}
-            </select>
-            <button
-              className={secondaryButtonClassName}
-              disabled={
-                mutating ||
-                versionsLoading ||
-                versionsError !== null ||
-                selectedVersion === "" ||
-                activeBuild !== null
-              }
-              onClick={() =>
-                void mutate(async () => {
-                  await attachDatasetVersion(knowledgeBaseId, selectedVersion);
-                  setSelectedVersion("");
-                })
-              }
-              type="button"
-            >
-              Attach version
-            </button>
-          </div>
+          {canWrite ? (
+            <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+              <select
+                aria-label="Ready document version"
+                className="min-w-0 flex-1 rounded-md border border-border-strong bg-elevated px-3 py-2 text-sm"
+                disabled={
+                  mutating ||
+                  versionsLoading ||
+                  versionsError !== null ||
+                  activeBuild !== null
+                }
+                onChange={(event) => setSelectedVersion(event.target.value)}
+                value={selectedVersion}
+              >
+                <option value="">Select a ready version</option>
+                {attachable.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+              <button
+                className={secondaryButtonClassName}
+                disabled={
+                  mutating ||
+                  versionsLoading ||
+                  versionsError !== null ||
+                  selectedVersion === "" ||
+                  activeBuild !== null
+                }
+                onClick={() =>
+                  void mutate(async () => {
+                    await attachDatasetVersion(knowledgeBaseId, selectedVersion);
+                    setSelectedVersion("");
+                  })
+                }
+                type="button"
+              >
+                Add source
+              </button>
+            </div>
+          ) : (
+            <p className="mt-4 text-sm text-muted-foreground">
+              Read-only access: an Owner or Engineer manages source documents and
+              preparation.
+            </p>
+          )}
           {versionsError === null ? null : (
             <div className="mt-3 text-sm text-red-700" role="alert">
               <p>{versionsError}</p>
@@ -432,21 +453,29 @@ export function KnowledgeBaseDetailPage(): ReactElement {
           ) : null}
         </LifecycleCard>
         <LifecycleCard>
-          <h3 className="text-lg font-semibold">Chunking configuration</h3>
-          <div className="mt-3">
-            <SafeMetadata value={knowledgeBase.chunking_configuration} />
-          </div>
+          <details>
+            <summary className="cursor-pointer text-lg font-semibold">
+              Document processing settings
+            </summary>
+            <div className="mt-3">
+              <SafeMetadata value={knowledgeBase.chunking_configuration} />
+            </div>
+          </details>
         </LifecycleCard>
       </div>
       <section className="mt-7" aria-labelledby="index-builds-heading">
         <h3 className="text-lg font-semibold" id="index-builds-heading">
-          Index builds
+          Knowledge preparation history
         </h3>
         <div className="mt-4">
           {builds === null || builds.items.length === 0 ? (
             <EmptyState
-              description="Start a build after attaching registered document versions."
-              title="No index builds"
+              description={
+                canWrite
+                  ? "Add an approved source document, then prepare it for grounded questions."
+                  : "This knowledge has not been prepared for grounded questions yet."
+              }
+              title="No preparation history"
             />
           ) : (
             <div
@@ -492,7 +521,7 @@ export function KnowledgeBaseDetailPage(): ReactElement {
       </section>
       <section className="mt-7" aria-labelledby="retrieval-test-heading">
         <h3 className="text-lg font-semibold" id="retrieval-test-heading">
-          Retrieval test
+          Test source search
         </h3>
         <form className="mt-4" onSubmit={(event) => void search(event)}>
           <LifecycleCard>
@@ -500,7 +529,7 @@ export function KnowledgeBaseDetailPage(): ReactElement {
               Grounded query
               <textarea
                 className="mt-1 min-h-24 w-full rounded-md border border-border-strong bg-elevated px-3 py-2"
-                disabled={searching || knowledgeBase.status !== "ready"}
+                disabled={!canWrite || searching || knowledgeBase.status !== "ready"}
                 maxLength={4000}
                 onChange={(event) => {
                   setQuery(event.target.value);
@@ -512,11 +541,21 @@ export function KnowledgeBaseDetailPage(): ReactElement {
             </label>
             <button
               className={`${primaryButtonClassName} mt-4`}
-              disabled={searching || knowledgeBase.status !== "ready" || !query.trim()}
+              disabled={
+                !canWrite ||
+                searching ||
+                knowledgeBase.status !== "ready" ||
+                !query.trim()
+              }
               type="submit"
             >
-              {searching ? "Searching…" : "Search registered evidence"}
+              {searching ? "Searching…" : "Search approved sources"}
             </button>
+            {!canWrite ? (
+              <p className="mt-3 text-sm text-muted-foreground">
+                Read-only access does not include running source-search tests.
+              </p>
+            ) : null}
             {searchError === null ? null : (
               <p className="mt-4 text-sm text-red-700" role="alert">
                 {searchError}

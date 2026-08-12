@@ -15,7 +15,11 @@ from app.dependencies.database import get_db_session
 from app.dependencies.operational import OperationalProbe, get_operational_probe
 from app.models.rag import RAGKnowledgeBase
 from app.rag.embeddings import DeterministicHashEmbeddingProvider
-from app.rag.generation import LocalExtractiveGenerationProvider
+from app.rag.generation import (
+    LOCAL_EXTRACTIVE_MODEL_NAME,
+    LOCAL_EXTRACTIVE_PROVIDER_NAME,
+    LocalExtractiveGenerationProvider,
+)
 from app.schemas.health import (
     HealthResponse,
     OperationalStatusResponse,
@@ -149,7 +153,7 @@ def _generation_provider_status() -> str:
     provider = LocalExtractiveGenerationProvider()
     return (
         "available"
-        if provider.provider_name == "local_extractive"
-        and provider.model_name == "grounded-extractive-v1"
+        if provider.provider_name == LOCAL_EXTRACTIVE_PROVIDER_NAME
+        and provider.model_name == LOCAL_EXTRACTIVE_MODEL_NAME
         else "unavailable"
     )

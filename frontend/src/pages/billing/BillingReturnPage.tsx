@@ -45,35 +45,32 @@ function resultCopy(payment: PaymentStatus): {
   )
     return {
       title: "Payment verified",
-      detail:
-        "A verified, eligible provider event was applied. Your prepaid access period is now available in billing.",
+      detail: "Your payment was verified and your prepaid access period is now active.",
     };
   if (payment.provider_decision === "failed")
     return {
       title: "Payment was declined",
-      detail: "The provider confirmed failure. No paid access was granted.",
+      detail: "The payment was not completed. No paid access was granted.",
     };
   if (payment.provider_decision === "cancelled")
     return {
       title: "Payment cancelled",
-      detail: "The provider confirmed cancellation. No paid access was granted.",
+      detail: "The payment was cancelled. No paid access was granted.",
     };
   if (payment.provider_decision === "expired")
     return {
       title: "Payment expired",
-      detail: "The provider confirmed expiry. No paid access was granted.",
+      detail: "The payment session expired. No paid access was granted.",
     };
   if (payment.provider_decision === "refunded")
     return {
       title: "Payment refunded",
-      detail:
-        "The provider reported a refund. Review the resulting access state in billing.",
+      detail: "This payment was refunded. Review your resulting access in billing.",
     };
   if (payment.provider_decision === "reversed")
     return {
       title: "Payment reversed",
-      detail:
-        "The provider reversed this payment. Review the resulting access state in billing.",
+      detail: "This payment was reversed. Review your resulting access in billing.",
     };
   return {
     title: "Confirming payment",
@@ -276,8 +273,8 @@ export function BillingReturnPage(): ReactElement {
           </Link>
         </div>
         <p className="mt-7 border-t border-border pt-5 text-xs text-muted-foreground">
-          Status is loaded from the authenticated billing API. Browser success, amount,
-          status, plan, and tenant query values are ignored.
+          FactoryMind uses verified server confirmation for payment status; the browser
+          return alone cannot activate access.
         </p>
       </div>
     </section>

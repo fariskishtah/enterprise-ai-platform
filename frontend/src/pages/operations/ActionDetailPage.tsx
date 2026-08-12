@@ -20,6 +20,7 @@ import {
   type OperationalNote,
 } from "../../api/operations";
 import { useAuth } from "../../auth/useAuth";
+import { hasProductCapability } from "../../auth/permissions";
 import {
   Breadcrumbs,
   LoadingSkeleton,
@@ -52,7 +53,7 @@ export function ActionDetailPage(): ReactElement {
     "maintenance_performed",
   );
   const [feedbackSummary, setFeedbackSummary] = useState("");
-  const canManage = role === "admin" || role === "engineer";
+  const canManage = hasProductCapability(role, "engineering.write");
 
   useEffect(() => {
     const controller = new AbortController();

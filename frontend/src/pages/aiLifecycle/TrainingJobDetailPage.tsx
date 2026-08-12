@@ -76,7 +76,7 @@ export function TrainingJobDetailPage(): ReactElement {
     const timer = window.setInterval(() => void load(undefined, true), 5000);
     return () => window.clearInterval(timer);
   }, [job, load]);
-  if (role === "operator") return <Navigate replace to="/" />;
+  if (role === "operator") return <Navigate replace to="/dashboard" />;
   if (loading && job === null) return <LoadingSkeleton label="Loading training job" />;
   if (error !== null && job === null)
     return (

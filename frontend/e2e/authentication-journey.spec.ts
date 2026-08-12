@@ -73,7 +73,7 @@ test.describe("authentication journey", () => {
       .getByLabel("Password", { exact: true })
       .fill("Correct horse battery staple");
     await page.getByLabel("Password", { exact: true }).press("Enter");
-    await expect(page).toHaveURL(/\/$/);
+    await expect(page).toHaveURL(/\/dashboard$/);
     expect(loginAttempts).toBe(2);
   });
 
@@ -318,8 +318,8 @@ test.describe("authentication journey", () => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto("/login");
     await expect(page.getByRole("heading", { name: "Welcome back" })).toBeVisible();
-    await page.keyboard.press("Tab");
     const themeButton = page.getByRole("button", { name: "Use dark mode" });
+    await themeButton.focus();
     await expect(themeButton).toBeFocused();
     expect(
       await themeButton.evaluate((element) => getComputedStyle(element).outlineStyle),

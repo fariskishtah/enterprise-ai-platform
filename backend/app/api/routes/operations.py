@@ -36,6 +36,7 @@ from app.models.pilot import MachineRiskAssessment
 from app.models.sensor import Sensor
 from app.models.sensor_data import SensorReading
 from app.models.user import User, UserRole
+from app.permissions import is_tenant_administrator
 from app.schemas.operations import (
     AlertLifecycleRequest,
     MaintenanceFeedbackCreateRequest,
@@ -1091,7 +1092,7 @@ async def search_operations(
             )
         )
     )
-    if current_user.role is UserRole.ADMIN:
+    if is_tenant_administrator(current_user.role):
         users = (
             await session.execute(
                 select(User)

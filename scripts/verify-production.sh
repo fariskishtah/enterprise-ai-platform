@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-readonly PROJECT_NAME="ai-manufacturing-production"
+readonly PROJECT_NAME="ai-manufacturing-platform"
 readonly CORE_SERVICES=(postgres redis backend training-worker frontend reverse-proxy)
 ENV_FILE=".env.production"
 HEALTH_TIMEOUT="${PRODUCTION_HEALTH_TIMEOUT_SECONDS:-180}"
@@ -179,6 +179,8 @@ curl --fail --silent --show-error --output /dev/null \
   --connect-timeout 5 --max-time 15 "http://127.0.0.1:${public_port}/"
 curl --fail --silent --show-error --output /dev/null \
   --connect-timeout 5 --max-time 15 "http://127.0.0.1:${public_port}/api/health"
+curl --fail --silent --show-error --output /dev/null \
+  --connect-timeout 5 --max-time 15 "http://127.0.0.1:${public_port}/api/ready"
 
 if [[ "$HTTPS_ENABLED" == true ]]; then
   read_env_value() {
@@ -272,6 +274,9 @@ if [[ "$HTTPS_ENABLED" == true ]]; then
   curl --fail --silent --show-error --output /dev/null \
     --connect-timeout 5 --max-time 20 --resolve "$resolve_target" \
     "${public_base_url}/api/health"
+  curl --fail --silent --show-error --output /dev/null \
+    --connect-timeout 5 --max-time 20 --resolve "$resolve_target" \
+    "${public_base_url}/api/ready"
   rm -f "$health_headers"
   trap - EXIT
 fi

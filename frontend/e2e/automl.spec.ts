@@ -154,7 +154,7 @@ test("AutoML navigation, empty list, role authorization, and accessibility", asy
   const operator = await page.context().newPage();
   await authenticated(operator, "operator");
   await operator.goto("/automl");
-  await expect(operator).toHaveURL(/\/$/);
+  await expect(operator).toHaveURL(/\/dashboard$/);
   await operator.close();
   expect(errors).toEqual([]);
 });

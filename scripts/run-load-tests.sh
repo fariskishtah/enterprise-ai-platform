@@ -15,9 +15,12 @@ for variable in \
   RAG_VUS RAG_WARMUP_SECONDS RAG_STEADY_SECONDS RAG_COOLDOWN_SECONDS RAG_PAUSE_SECONDS \
   IMPORT_JOBS IMPORT_IDEMPOTENCY_KEY REPORT_JOBS REPORT_IDEMPOTENCY_KEY \
   STRESS_PEAK_VUS SOAK_VUS SOAK_DURATION_MINUTES \
+  CAPACITY_WORKLOAD CAPACITY_VUS CAPACITY_DURATION_SECONDS CAPACITY_PAUSE_SECONDS \
+  RAG_LOAD_USER_COUNT RAG_LOAD_EMAIL_PREFIX RAG_LOAD_EMAIL_DOMAIN \
   ACCEPTANCE_PROFILE \
   ENABLE_TRAINING_LOAD TRAINING_JOBS TRAINING_MAX_POLLS \
-  TRAINING_POLL_SECONDS TRAINING_IDEMPOTENCY_KEY; do
+  TRAINING_POLL_SECONDS TRAINING_IDEMPOTENCY_KEY \
+  ENABLE_DOCUMENT_INGESTION_LOAD DOCUMENT_LOAD_RUN_ID; do
   if [[ -n "${!variable:-}" ]]; then
     K6_ENV+=(-e "$variable=${!variable}")
   fi
@@ -98,6 +101,14 @@ case "$SUITE" in
       grafana/k6:2.1.0 \
       run /scripts/report-load.js
     ;;
+  document-ingest)
+    docker run --rm \
+      --network host \
+      --volume "$ROOT_DIR/performance/k6:/scripts:ro" \
+      "${K6_ENV[@]}" \
+      grafana/k6:2.1.0 \
+      run /scripts/document-ingest-load.js
+    ;;
   acceptance)
     profile="${ACCEPTANCE_PROFILE:-smoke}"
     case "$profile" in
@@ -117,8 +128,21 @@ case "$SUITE" in
       run --summary-export="/results/${profile}.json" \
       /repo/tests/load/acceptance.js
     ;;
+  capacity)
+    workload="${CAPACITY_WORKLOAD:-mixed}"
+    vus="${CAPACITY_VUS:-10}"
+    mkdir -p "$ROOT_DIR/artifacts/load-runs"
+    docker run --rm \
+      --network host \
+      --volume "$ROOT_DIR/tests/load:/scripts:ro" \
+      --volume "$ROOT_DIR/artifacts/load-runs:/results" \
+      "${K6_ENV[@]}" \
+      grafana/k6:2.1.0 \
+      run --summary-export="/results/capacity-${workload}-${vus}.json" \
+      /scripts/capacity.js
+    ;;
   inspect)
-    for script in smoke.js api-load.js auth-load.js training-job-load.js import-load.js report-load.js data-rag-load.js stress.js soak.js; do
+    for script in smoke.js api-load.js auth-load.js training-job-load.js import-load.js report-load.js data-rag-load.js stress.js soak.js document-ingest-load.js; do
       echo "--- Inspecting ${script} ---"
       docker run --rm \
         --volume "$ROOT_DIR/performance/k6:/scripts:ro" \
@@ -127,7 +151,7 @@ case "$SUITE" in
     done
     ;;
   *)
-    echo "Unknown suite '${SUITE}'. Available suites: smoke, api, auth, data-rag, stress, soak, training, import, report, acceptance, inspect."
+    echo "Unknown suite '${SUITE}'. Available suites: smoke, api, auth, data-rag, stress, soak, training, import, report, document-ingest, acceptance, capacity, inspect."
     exit 1
     ;;
 esac

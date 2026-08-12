@@ -25,3 +25,12 @@ production until the three blocked alerting items are implemented and deliberate
 fired into the real on-call path. The procedures are in `runbook.md`, escalation
 in `incident-response.md`, gates in `release-checklist.md`, and recovery decisions
 in `rollback-plan.md`.
+
+## Controlled initial-launch risk decision — 2026-08-12
+
+The Security Owner temporarily accepts the unproven external alert receiver for
+the initial 1–20-user launch only. This is not evidence that external alert
+delivery works. Compensating controls are manual production health verification
+immediately after deployment and after canary, preserved application/container
+logs, disabled payments, and a maximum of one active training job. External
+alert delivery remains required post-launch.

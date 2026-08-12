@@ -26,6 +26,10 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in the production environment file}
+      DATABASE_POOL_SIZE: ${DATABASE_POOL_SIZE:-10}
+      DATABASE_MAX_OVERFLOW: ${DATABASE_MAX_OVERFLOW:-5}
+      DATABASE_POOL_TIMEOUT_SECONDS: ${DATABASE_POOL_TIMEOUT_SECONDS:-5}
+      DATABASE_POOL_RECYCLE_SECONDS: ${DATABASE_POOL_RECYCLE_SECONDS:-1800}
       REDIS_URL: ${REDIS_URL:?Set REDIS_URL in the production environment file}
       SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY in the production environment file}
       JWT_ISSUER: ${JWT_ISSUER:?Set JWT_ISSUER in the production environment file}
@@ -122,17 +126,17 @@ services:
       - data
       - observability
       - egress
-    mem_limit: 1g
-    mem_reservation: 256m
-    cpus: 0.50
+    mem_limit: 1536m
+    mem_reservation: 512m
+    cpus: 4.0
     deploy:
       resources:
         limits:
-          memory: 1g
-          cpus: "0.50"
+          memory: 1536m
+          cpus: "4.0"
         reservations:
-          memory: 256m
-          cpus: "0.10"
+          memory: 512m
+          cpus: "1.0"
 
   training-worker:
     <<: *production-defaults

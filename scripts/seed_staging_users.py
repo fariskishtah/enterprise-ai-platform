@@ -25,6 +25,11 @@ def required(name: str) -> str:
 async def seed() -> None:
     password = required("E2E_PASSWORD")
     validate_password_strength(password)
+    rag_load_user_count = int(os.getenv("RAG_LOAD_USER_COUNT", "50"))
+    if not 1 <= rag_load_user_count <= 100:
+        raise RuntimeError("RAG_LOAD_USER_COUNT must be between 1 and 100")
+    rag_load_email_prefix = os.getenv("RAG_LOAD_EMAIL_PREFIX", "phase5-rag")
+    rag_load_email_domain = os.getenv("RAG_LOAD_EMAIL_DOMAIN", "example.com")
     accounts = (
         (required("E2E_ADMIN_EMAIL"), UserRole.ADMIN),
         (required("E2E_ENGINEER_EMAIL"), UserRole.ENGINEER),
@@ -34,6 +39,9 @@ async def seed() -> None:
     external_email = required("E2E_EXTERNAL_EMAIL")
     engine = create_async_engine(Settings().database_url)
     hasher = PasswordHasher()
+    # These disposable accounts intentionally share one fixture password, so one
+    # bounded hash avoids blocking the seed command once per reusable identity.
+    hashed_password = hasher.hash(password)
     try:
         async with engine.begin() as connection:
             company_name = "Northstar Demo Manufacturing"
@@ -62,11 +70,38 @@ async def seed() -> None:
                     )
                 ).scalar_one_or_none()
                 values = {
-                    "hashed_password": hasher.hash(password),
+                    "hashed_password": hashed_password,
                     "is_active": True,
                     "is_email_verified": True,
                     "email_verified_at": datetime.now(UTC),
                     "role": role,
+                    "company_id": company_id,
+                }
+                if existing_id is None:
+                    await connection.execute(
+                        User.__table__.insert().values(email=normalized, **values)
+                    )
+                else:
+                    await connection.execute(
+                        User.__table__.update()
+                        .where(User.id == existing_id)
+                        .values(**values)
+                    )
+            for index in range(1, rag_load_user_count + 1):
+                normalized = normalize_email(
+                    f"{rag_load_email_prefix}-{index:03d}@{rag_load_email_domain}"
+                )
+                existing_id = (
+                    await connection.execute(
+                        select(User.id).where(User.email == normalized)
+                    )
+                ).scalar_one_or_none()
+                values = {
+                    "hashed_password": hashed_password,
+                    "is_active": True,
+                    "is_email_verified": True,
+                    "email_verified_at": datetime.now(UTC),
+                    "role": UserRole.ENGINEER,
                     "company_id": company_id,
                 }
                 if existing_id is None:
@@ -104,7 +139,7 @@ async def seed() -> None:
                 )
             ).scalar_one_or_none()
             external_values = {
-                "hashed_password": hasher.hash(password),
+                "hashed_password": hashed_password,
                 "is_active": True,
                 "is_email_verified": True,
                 "email_verified_at": datetime.now(UTC),
@@ -127,7 +162,7 @@ async def seed() -> None:
         await engine.dispose()
     print(
         "Staging validation users are ready: admin, engineer, operator, smoke, "
-        "external tenant."
+        "external tenant, and a reusable tenant-safe RAG load pool."
     )
 
 

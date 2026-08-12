@@ -227,6 +227,7 @@ test.describe("authentication", () => {
     await page.getByLabel("Password", { exact: true }).fill("local-test-password");
     await page.getByRole("button", { name: "Sign in" }).click();
     await expect(page).toHaveURL(/\/settings$/);
+    await expect(page.locator("#settings-heading")).toBeVisible();
     const persistedBrowserState = await page.evaluate(() => ({
       local: Object.values(localStorage).join(" "),
       session: Object.values(sessionStorage).join(" "),
@@ -357,40 +358,46 @@ test.describe("role-aware navigation", () => {
       });
       await expect(navigation.getByRole("link", { name: "Settings" })).toBeVisible();
       if (role === "operator") {
-        await expect(navigation.getByRole("link", { name: "Home" })).toBeVisible();
+        await expect(navigation.getByRole("link", { name: "Overview" })).toBeVisible();
         await expect(
           navigation.getByRole("link", { name: "Required Actions" }),
         ).toBeVisible();
         await expect(navigation.getByRole("link", { name: "Alerts" })).toBeVisible();
         await expect(navigation.getByRole("link", { name: "Models" })).toHaveCount(0);
         await expect(
-          navigation.getByRole("link", { name: "Training Jobs" }),
+          navigation.getByRole("link", { name: "Model Training" }),
         ).toHaveCount(0);
-        await expect(navigation.getByRole("link", { name: "Audit Logs" })).toHaveCount(
-          0,
-        );
+        await expect(
+          navigation.getByRole("link", { name: "Audit History" }),
+        ).toHaveCount(0);
         const directRouteIdentityReady = page.waitForResponse(
           (response) =>
             response.url().endsWith("/users/me") && response.status() === 200,
         );
         await page.goto("/audit-log");
         await directRouteIdentityReady;
-        await expect(page).toHaveURL(/\/$/);
+        await expect(page).toHaveURL(/\/dashboard$/);
         expect(restrictedAuditRequests).toBe(0);
       } else {
+        const advancedAiSection = navigation.getByRole("button", {
+          name: "Advanced AI",
+        });
+        if ((await advancedAiSection.getAttribute("aria-expanded")) !== "true") {
+          await advancedAiSection.click();
+        }
         await expect(
-          navigation.getByRole("link", { name: "Training Jobs" }),
-        ).toBeVisible();
-        await expect(
-          navigation.getByRole("link", { name: "Audit Logs" }),
+          navigation.getByRole("link", { name: "Model Training" }),
         ).toBeVisible();
         if (role === "admin") {
+          await expect(
+            navigation.getByRole("link", { name: "Audit History" }),
+          ).toBeVisible();
           await page.getByLabel("Product experience").selectOption("simple");
           await expect(
             navigation.getByRole("link", { name: "Required Actions" }),
           ).toBeVisible();
           await expect(
-            navigation.getByRole("link", { name: "Training Jobs" }),
+            navigation.getByRole("link", { name: "Model Training" }),
           ).toHaveCount(0);
           await page.goto("/training");
           await expect(
@@ -399,6 +406,10 @@ test.describe("role-aware navigation", () => {
             }),
           ).toBeVisible();
           expect(restrictedAuditRequests).toBe(0);
+        } else {
+          await expect(
+            navigation.getByRole("link", { name: "Audit History" }),
+          ).toHaveCount(0);
         }
       }
       expect(failures).toEqual([]);

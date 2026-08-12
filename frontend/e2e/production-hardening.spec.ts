@@ -189,11 +189,11 @@ test.describe("production account and support experience", () => {
     const navigation = page.getByRole("navigation", {
       name: "Primary navigation",
     });
-    const factoryLink = navigation.getByRole("link", { name: "Factory Overview" });
+    const factoryLink = navigation.getByRole("link", { name: "Factories & Assets" });
     await expect(factoryLink.locator('[data-motion="lift"]')).toHaveCount(1);
     await expect(
       navigation
-        .getByRole("link", { name: "Home" })
+        .getByRole("link", { name: "Overview" })
         .locator('[data-motion="chart-rise"]'),
     ).toHaveCount(1);
     await expect(
@@ -210,7 +210,7 @@ test.describe("production account and support experience", () => {
     await page.reload();
     const reducedFactoryLink = page
       .getByRole("navigation", { name: "Primary navigation" })
-      .getByRole("link", { name: "Factory Overview" });
+      .getByRole("link", { name: "Factories & Assets" });
     await reducedFactoryLink.hover();
     const reducedMotionStyle = await reducedFactoryLink
       .locator('[data-motion="lift"]')

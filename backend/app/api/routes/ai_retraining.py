@@ -42,6 +42,7 @@ from app.ml.retraining import (
 )
 from app.ml.retraining.service import RetrainingEvaluationResult, RetrainingService
 from app.models.user import User, UserRole
+from app.permissions import is_tenant_administrator
 from app.schemas.ai_retraining import (
     CandidateComparisonResponse,
     CooldownResponse,
@@ -268,7 +269,8 @@ async def request_manual_retraining(
     registry: Annotated[BaseModelRegistry, Depends(get_ai_model_registry)],
     public_demo: Annotated[bool, Depends(is_public_demo_account)],
 ) -> RetrainingEvaluationResponse:
-    if body.override_cooldown and current_user.role is not UserRole.ADMIN:
+    tenant_admin = is_tenant_administrator(current_user.role)
+    if body.override_cooldown and not tenant_admin:
         raise HTTPException(
             status_code=403,
             detail="Only an administrator may override retraining cooldown.",
@@ -289,7 +291,7 @@ async def request_manual_retraining(
             reason=body.reason,
             requested_by_user_id=current_user.id,
             override_cooldown=body.override_cooldown,
-            requester_is_admin=current_user.role is UserRole.ADMIN,
+            requester_is_admin=tenant_admin,
         )
     except RetrainingError as exc:
         _translate(exc)

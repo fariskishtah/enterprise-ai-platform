@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactElement } from "react";
 
 import { downloadAuditEvents, listAuditEvents, type AuditPage } from "../api/audit";
 import { isRequestCancelled } from "../api/client";
+import { hasProductCapability } from "../auth/permissions";
 import { useAuth } from "../auth/useAuth";
 import {
   EmptyState,
@@ -22,6 +23,7 @@ const LIMIT = 50;
 
 export function AuditLogsPage(): ReactElement {
   const { role } = useAuth();
+  const canReadAudit = hasProductCapability(role, "audit.read");
   const [page, setPage] = useState<AuditPage | null>(null);
   const [offset, setOffset] = useState(0);
   const [action, setAction] = useState("");
@@ -32,7 +34,7 @@ export function AuditLogsPage(): ReactElement {
   const [exporting, setExporting] = useState<"csv" | "json" | null>(null);
 
   useEffect(() => {
-    if (role !== "admin") return;
+    if (!canReadAudit) return;
     const controller = new AbortController();
     listAuditEvents({
       action: action || undefined,
@@ -52,20 +54,20 @@ export function AuditLogsPage(): ReactElement {
           );
       });
     return () => controller.abort();
-  }, [action, offset, resourceType, result, revision, role]);
+  }, [action, canReadAudit, offset, resourceType, result, revision]);
 
-  if (role !== "admin")
+  if (!canReadAudit)
     return (
       <section>
         <PageHeader
           eyebrow="Governance"
           headingId="audit-logs-heading"
           title="Audit Logs"
-          description="The unified company audit trail is restricted to administrators."
+          description="The unified company audit trail is restricted to authorized governance roles."
         />
         <div className="mt-6">
           <EmptyState
-            title="Administrator access required"
+            title="Audit access required"
             description="Operational pages continue to show the activity appropriate for your role."
           />
         </div>

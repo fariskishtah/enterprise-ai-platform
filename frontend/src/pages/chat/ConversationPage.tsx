@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactElement } from "react";
-import { useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 
 import { isRequestCancelled } from "../../api/client";
+import { hasProductCapability } from "../../auth/permissions";
+import { useAuth } from "../../auth/useAuth";
 import {
   archiveConversation,
   cancelChatMessage,
@@ -14,6 +16,7 @@ import {
   type ChatMessageSubmission,
   type ConversationSummary,
 } from "../../api/chat";
+import { getKnowledgeBase } from "../../api/rag";
 import {
   LifecycleStatus,
   terminalMessageStatuses,
@@ -68,8 +71,13 @@ function mergeSubmittedExchange(
 }
 
 export function ConversationPage(): ReactElement {
+  const { role } = useAuth();
+  const canWrite = hasProductCapability(role, "engineering.write");
   const { conversationId = "" } = useParams();
   const [conversation, setConversation] = useState<ConversationSummary | null>(null);
+  const [knowledgeBaseName, setKnowledgeBaseName] = useState(
+    "Approved company knowledge",
+  );
   const [messages, setMessages] = useState<ChatMessagePage | null>(null);
   const [messageOffset, setMessageOffset] = useState<number | null>(null);
   const [revision, setRevision] = useState(0);
@@ -125,6 +133,20 @@ export function ConversationPage(): ReactElement {
     };
   }, [conversationId, messageOffset, revision]);
 
+  useEffect(() => {
+    if (conversation === null) return;
+    const controller = new AbortController();
+    getKnowledgeBase(conversation.knowledge_base_id, controller.signal)
+      .then((knowledgeBase) => {
+        if (!controller.signal.aborted) setKnowledgeBaseName(knowledgeBase.name);
+      })
+      .catch((caught: unknown) => {
+        if (!isRequestCancelled(caught, controller.signal))
+          setKnowledgeBaseName("Approved company knowledge");
+      });
+    return () => controller.abort();
+  }, [conversation]);
+
   const submit = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault();
     if (submitting || !content.trim()) return;
@@ -179,7 +201,7 @@ export function ConversationPage(): ReactElement {
       />
       <PageHeader
         actions={
-          conversation.status === "active" ? (
+          canWrite && conversation.status === "active" ? (
             <button
               className={secondaryButtonClassName}
               disabled={mutating}
@@ -199,9 +221,7 @@ export function ConversationPage(): ReactElement {
       />
       <div className="mt-5 flex flex-wrap items-center gap-3">
         <LifecycleStatus status={conversation.status} />
-        <span className="break-all text-xs text-muted-foreground">
-          Knowledge base {conversation.knowledge_base_id}
-        </span>
+        <span className="text-xs text-muted-foreground">Using {knowledgeBaseName}</span>
       </div>
       <div
         aria-label="Conversation messages"
@@ -211,13 +231,18 @@ export function ConversationPage(): ReactElement {
       >
         {messages === null || messages.items.length === 0 ? (
           <EmptyState
-            description="Ask a question whose answer can be supported by registered evidence."
+            description={
+              canWrite
+                ? "Ask a question that can be supported by approved company sources."
+                : "No grounded questions have been added to this conversation yet."
+            }
             title="No messages"
           />
         ) : (
           messages.items.map((message) => (
             <MessageCard
               busy={mutating}
+              canWrite={canWrite}
               key={message.message_id}
               message={message}
               onCancel={() => void mutate(() => cancelChatMessage(message.message_id))}
@@ -238,7 +263,7 @@ export function ConversationPage(): ReactElement {
           total={messages.total}
         />
       )}
-      {conversation.status === "active" ? (
+      {canWrite && conversation.status === "active" ? (
         <form
           className="sticky bottom-3 mt-6 rounded-lg border border-border bg-card p-4 shadow-panel"
           onSubmit={(event) => void submit(event)}
@@ -278,7 +303,11 @@ export function ConversationPage(): ReactElement {
         </form>
       ) : (
         <div className="mt-6">
-          <InlineNotice>This conversation is archived and read-only.</InlineNotice>
+          <InlineNotice>
+            {conversation.status === "active"
+              ? "You have read-only access to this grounded conversation."
+              : "This conversation is archived and read-only."}
+          </InlineNotice>
         </div>
       )}
     </section>
@@ -287,10 +316,12 @@ export function ConversationPage(): ReactElement {
 
 function MessageCard({
   busy,
+  canWrite,
   message,
   onCancel,
 }: {
   readonly busy: boolean;
+  readonly canWrite: boolean;
   readonly message: ChatMessage;
   readonly onCancel: () => void;
 }): ReactElement {
@@ -304,7 +335,7 @@ function MessageCard({
         <p className="text-sm font-semibold capitalize">{message.role}</p>
         <div className="flex items-center gap-2">
           <LifecycleStatus status={message.status} />
-          {active ? (
+          {active && canWrite ? (
             <button
               className="text-xs font-semibold text-link hover:underline disabled:opacity-60"
               disabled={busy}
@@ -331,9 +362,17 @@ function MessageCard({
         </p>
       )}
       {message.grounded_outcome === "insufficient_evidence" ? (
-        <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-          The registered evidence was insufficient to support an answer.
-        </p>
+        <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+          <p>The registered evidence was insufficient to support an answer.</p>
+          {canWrite ? (
+            <Link
+              className="mt-2 inline-block font-semibold underline underline-offset-2"
+              to="/knowledge"
+            >
+              Add or update trusted knowledge
+            </Link>
+          ) : null}
+        </div>
       ) : null}
       {message.citations.length > 0 ? (
         <section className="mt-4 border-t border-border pt-4" aria-label="Citations">

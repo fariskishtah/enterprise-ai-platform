@@ -2,6 +2,8 @@ import { useEffect, useState, type ReactElement } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 
 import { isRequestCancelled } from "../../api/client";
+import { hasProductCapability } from "../../auth/permissions";
+import { useAuth } from "../../auth/useAuth";
 import {
   archiveDataset,
   createDatasetVersion,
@@ -34,6 +36,8 @@ const PAGE_SIZE = 20;
 const POLL_INTERVAL_MS = 4_000;
 
 export function DatasetDetailPage(): ReactElement {
+  const { role } = useAuth();
+  const canWrite = hasProductCapability(role, "engineering.write");
   const { datasetId = "" } = useParams();
   const location = useLocation();
   const navigate = useNavigate();
@@ -138,7 +142,7 @@ export function DatasetDetailPage(): ReactElement {
     <section aria-labelledby="dataset-detail-heading">
       <Breadcrumbs
         items={[
-          { label: "Dataset Registry", to: "/datasets" },
+          { label: "Datasets & Documents", to: "/datasets" },
           { label: dataset.name },
         ]}
       />
@@ -151,7 +155,7 @@ export function DatasetDetailPage(): ReactElement {
       ) : null}
       <PageHeader
         actions={
-          dataset.status === "active" ? (
+          canWrite && dataset.status === "active" ? (
             <>
               <button
                 className={secondaryButtonClassName}
@@ -177,7 +181,7 @@ export function DatasetDetailPage(): ReactElement {
           ) : undefined
         }
         description={dataset.description ?? "No description provided."}
-        eyebrow="Dataset Registry"
+        eyebrow="Trusted data"
         headingId="dataset-detail-heading"
         title={dataset.name}
       />

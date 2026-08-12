@@ -10,6 +10,7 @@ import pytest
 from app.config.settings import Settings
 from app.core.application import create_app
 from app.observability.metrics import (
+    AUTH_LOGIN_PHASE_DURATION,
     BACKGROUND_JOBS_PROCESSED,
     BILLING_PAYMENT_OLDEST_PENDING_AGE,
     BILLING_PROVIDER_RECONCILIATION_ATTEMPTS,
@@ -17,14 +18,19 @@ from app.observability.metrics import (
     BILLING_SUBSCRIPTION_OLDEST_INCOMPLETE_AGE,
     BILLING_WEBHOOK_INGEST,
     BILLING_WEBHOOK_PROCESSING_LATENCY,
+    DATABASE_POOL_CONNECTIONS,
+    DATABASE_POOL_EXHAUSTIONS,
     HTTP_REQUESTS,
     TRAINING_JOBS_SUBMITTED,
     configure_metrics,
+    record_auth_login_phase,
     record_background_job_processed,
     record_billing_provider_reconciliation,
     record_billing_webhook_ingest,
     record_billing_webhook_processing,
     record_billing_webhook_recovery,
+    record_database_pool_exhaustion,
+    record_database_pool_state,
     record_monitoring_evaluation,
     record_prediction,
     record_training_job_submitted,
@@ -148,6 +154,43 @@ def test_custom_metric_recorders_increment_bounded_series() -> None:
 
     assert _submitted_value() == submitted + 1
     assert _background_processed_value() == processed + 1
+
+
+def test_database_pool_and_auth_metrics_use_only_bounded_labels() -> None:
+    service = "pool-auth-observability-test"
+    environment = "test"
+    configure_metrics(enabled=True, service=service, environment=environment)
+    exhaustion = DATABASE_POOL_EXHAUSTIONS.labels(
+        service=service, environment=environment
+    )
+    exhaustion_before = _counter_sample(exhaustion, "database_pool_exhaustions_total")
+
+    record_database_pool_state(size=10, checked_in=7, checked_out=3, overflow=0)
+    record_database_pool_exhaustion()
+    record_auth_login_phase(phase="password_verify", duration_seconds=0.25)
+    record_auth_login_phase(phase="identity-private-value", duration_seconds=1.0)
+
+    assert (
+        DATABASE_POOL_CONNECTIONS.labels(
+            service=service, environment=environment, state="checked_out"
+        )._value.get()
+        == 3
+    )
+    assert (
+        _counter_sample(exhaustion, "database_pool_exhaustions_total")
+        == exhaustion_before + 1
+    )
+    assert (
+        _histogram_count(
+            AUTH_LOGIN_PHASE_DURATION.labels(
+                service=service,
+                environment=environment,
+                phase="password_verify",
+            ),
+            "auth_login_phase_duration_seconds_count",
+        )
+        >= 1
+    )
 
 
 def test_billing_metrics_use_bounded_labels_and_identifier_free_ages() -> None:

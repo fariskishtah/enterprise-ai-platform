@@ -4,13 +4,12 @@ from __future__ import annotations
 
 import io
 from datetime import datetime, timedelta
-from typing import Annotated, Any
+from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.sql.elements import ColumnElement
 
 from app.config.settings import Settings, get_settings
 from app.dependencies.auth import require_roles
@@ -92,17 +91,16 @@ async def _metrics(
     start_at: datetime,
     end_at: datetime,
 ) -> dict[str, object]:
+    """Return dashboard aggregates in one bounded database round trip."""
     machine_filters = [Factory.company_id == company_id, Machine.deleted_at.is_(None)]
     if factory_id:
         machine_filters.append(Factory.id == factory_id)
-    machine_count = int(
-        await session.scalar(
-            select(func.count())
-            .select_from(Machine)
-            .join(Factory)
-            .where(*machine_filters)
-        )
-        or 0
+    machine_count = (
+        select(func.count())
+        .select_from(Machine)
+        .join(Factory)
+        .where(*machine_filters)
+        .scalar_subquery()
     )
     alert_filters = [
         MonitoringAlertEntity.company_id == company_id,
@@ -118,39 +116,47 @@ async def _metrics(
         alert_filters.append(MonitoringAlertEntity.factory_id == factory_id)
         action_filters.append(OperationalAction.factory_id == factory_id)
 
-    async def count(model: type[Any], *filters: ColumnElement[bool]) -> int:
-        return int(
-            await session.scalar(
-                select(func.count()).select_from(model).where(*filters)
-            )
-            or 0
+    open_alerts = (
+        select(func.count())
+        .select_from(MonitoringAlertEntity)
+        .where(
+            *alert_filters,
+            MonitoringAlertEntity.status != MonitoringAlertStatus.RESOLVED,
         )
-
-    open_alerts = await count(
-        MonitoringAlertEntity,
-        *alert_filters,
-        MonitoringAlertEntity.status != MonitoringAlertStatus.RESOLVED,
+        .scalar_subquery()
     )
-    critical_alerts = await count(
-        MonitoringAlertEntity,
-        *alert_filters,
-        MonitoringAlertEntity.severity == MonitoringAlertSeverity.CRITICAL,
+    critical_alerts = (
+        select(func.count())
+        .select_from(MonitoringAlertEntity)
+        .where(
+            *alert_filters,
+            MonitoringAlertEntity.severity == MonitoringAlertSeverity.CRITICAL,
+        )
+        .scalar_subquery()
     )
-    completed_actions = await count(
-        OperationalAction,
-        *action_filters,
-        OperationalAction.status == OperationalActionStatus.COMPLETED,
+    completed_actions = (
+        select(func.count())
+        .select_from(OperationalAction)
+        .where(
+            *action_filters,
+            OperationalAction.status == OperationalActionStatus.COMPLETED,
+        )
+        .scalar_subquery()
     )
     now = utc_now()
-    overdue_actions = await count(
-        OperationalAction,
-        *action_filters,
-        OperationalAction.status.not_in(
-            [OperationalActionStatus.COMPLETED, OperationalActionStatus.CANCELLED]
-        ),
-        OperationalAction.due_at < now,
+    overdue_actions = (
+        select(func.count())
+        .select_from(OperationalAction)
+        .where(
+            *action_filters,
+            OperationalAction.status.not_in(
+                [OperationalActionStatus.COMPLETED, OperationalActionStatus.CANCELLED]
+            ),
+            OperationalAction.due_at < now,
+        )
+        .scalar_subquery()
     )
-    acknowledgment_seconds = await session.scalar(
+    acknowledgment_seconds = (
         select(
             func.avg(
                 func.extract(
@@ -159,9 +165,11 @@ async def _metrics(
                     - MonitoringAlertEntity.first_detected_at,
                 )
             )
-        ).where(*alert_filters, MonitoringAlertEntity.acknowledged_at.is_not(None))
+        )
+        .where(*alert_filters, MonitoringAlertEntity.acknowledged_at.is_not(None))
+        .scalar_subquery()
     )
-    resolution_seconds = await session.scalar(
+    resolution_seconds = (
         select(
             func.avg(
                 func.extract(
@@ -170,46 +178,79 @@ async def _metrics(
                     - MonitoringAlertEntity.first_detected_at,
                 )
             )
-        ).where(*alert_filters, MonitoringAlertEntity.resolved_at.is_not(None))
+        )
+        .where(*alert_filters, MonitoringAlertEntity.resolved_at.is_not(None))
+        .scalar_subquery()
     )
     reading_filters = [Factory.company_id == company_id]
     if factory_id:
         reading_filters.append(Factory.id == factory_id)
-    latest_reading = await session.scalar(
+    latest_reading = (
         select(func.max(SensorReading.timestamp))
         .join(Sensor, SensorReading.sensor_id == Sensor.id)
         .join(Machine, Sensor.machine_id == Machine.id)
         .join(Factory, Machine.factory_id == Factory.id)
         .where(*reading_filters)
+        .scalar_subquery()
     )
-    latest_reading = latest_reading if isinstance(latest_reading, datetime) else None
-    feedback_count = await count(
-        MaintenanceFeedback,
-        MaintenanceFeedback.company_id == company_id,
-        MaintenanceFeedback.created_at >= start_at,
-        MaintenanceFeedback.created_at <= end_at,
+    feedback_count = (
+        select(func.count())
+        .select_from(MaintenanceFeedback)
+        .where(
+            MaintenanceFeedback.company_id == company_id,
+            MaintenanceFeedback.created_at >= start_at,
+            MaintenanceFeedback.created_at <= end_at,
+        )
+        .scalar_subquery()
     )
-    shift_count = await count(
-        ShiftHandover,
-        ShiftHandover.company_id == company_id,
-        ShiftHandover.started_at >= start_at,
-        ShiftHandover.started_at <= end_at,
+    shift_count = (
+        select(func.count())
+        .select_from(ShiftHandover)
+        .where(
+            ShiftHandover.company_id == company_id,
+            ShiftHandover.started_at >= start_at,
+            ShiftHandover.started_at <= end_at,
+        )
+        .scalar_subquery()
+    )
+    row = (
+        await session.execute(
+            select(
+                machine_count.label("machine_count"),
+                open_alerts.label("open_alerts"),
+                critical_alerts.label("critical_alerts"),
+                overdue_actions.label("overdue_actions"),
+                completed_actions.label("completed_actions"),
+                acknowledgment_seconds.label("acknowledgment_seconds"),
+                resolution_seconds.label("resolution_seconds"),
+                latest_reading.label("latest_reading"),
+                feedback_count.label("feedback_count"),
+                shift_count.label("shift_count"),
+            )
+        )
+    ).one()
+    latest_reading_at = (
+        row.latest_reading if isinstance(row.latest_reading, datetime) else None
     )
     return {
-        "machine_count": machine_count,
-        "open_alerts": open_alerts,
-        "critical_alerts": critical_alerts,
-        "overdue_actions": overdue_actions,
-        "completed_actions": completed_actions,
+        "machine_count": int(row.machine_count or 0),
+        "open_alerts": int(row.open_alerts or 0),
+        "critical_alerts": int(row.critical_alerts or 0),
+        "overdue_actions": int(row.overdue_actions or 0),
+        "completed_actions": int(row.completed_actions or 0),
         "average_acknowledgement_seconds": (
-            round(float(acknowledgment_seconds), 1) if acknowledgment_seconds else None
+            round(float(row.acknowledgment_seconds), 1)
+            if row.acknowledgment_seconds
+            else None
         ),
         "average_resolution_seconds": (
-            round(float(resolution_seconds), 1) if resolution_seconds else None
+            round(float(row.resolution_seconds), 1) if row.resolution_seconds else None
         ),
-        "data_freshness_at": latest_reading.isoformat() if latest_reading else None,
-        "maintenance_feedback_count": feedback_count,
-        "shift_activity_count": shift_count,
+        "data_freshness_at": (
+            latest_reading_at.isoformat() if latest_reading_at else None
+        ),
+        "maintenance_feedback_count": int(row.feedback_count or 0),
+        "shift_activity_count": int(row.shift_count or 0),
         "period_start": start_at.isoformat(),
         "period_end": end_at.isoformat(),
     }

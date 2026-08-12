@@ -8,6 +8,7 @@ import {
   type UploadJobStatus,
 } from "../../api/sensorData";
 import { useAuth } from "../../auth/useAuth";
+import { hasProductCapability } from "../../auth/permissions";
 import { CsvUploadDialog } from "../../components/dataOperations/CsvUploadDialog";
 import { UploadJobSummary } from "../../components/dataOperations/UploadJobSummary";
 import { PageHeader } from "../../components/ui/PageHeader";
@@ -25,7 +26,7 @@ const PAGE_SIZE = 20;
 
 export function UploadJobsPage(): ReactElement {
   const { role } = useAuth();
-  const canWrite = role === "admin" || role === "engineer";
+  const canWrite = hasProductCapability(role, "engineering.write");
   const [page, setPage] = useState<PaginatedResponse<UploadJob> | null>(null);
   const [offset, setOffset] = useState(0);
   const [status, setStatus] = useState<UploadJobStatus | "">("");
@@ -70,7 +71,10 @@ export function UploadJobsPage(): ReactElement {
   return (
     <section aria-labelledby="uploads-heading">
       <Breadcrumbs
-        items={[{ label: "Sensor Data", to: "/sensor-data" }, { label: "Upload jobs" }]}
+        items={[
+          { label: "Machine & Sensor Data", to: "/sensor-data" },
+          { label: "Import history" },
+        ]}
       />
       <PageHeader
         actions={
@@ -84,10 +88,10 @@ export function UploadJobsPage(): ReactElement {
             </button>
           ) : undefined
         }
-        description="Review aggregate results from sensor-data ingestion jobs."
-        eyebrow="Data operations"
+        description="Review completed, processing, and failed machine-data imports with accepted and rejected row totals."
+        eyebrow="Machine data"
         headingId="uploads-heading"
-        title="Upload jobs"
+        title="Import history"
       />
       <form
         className="mt-6 flex flex-wrap items-end gap-3"
@@ -145,7 +149,7 @@ export function UploadJobsPage(): ReactElement {
               ) : undefined
             }
             description="No upload jobs match the current filter."
-            title="No upload jobs"
+            title="No data imports"
           />
         ) : (
           <>

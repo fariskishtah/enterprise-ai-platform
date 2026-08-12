@@ -49,7 +49,7 @@ export function LoginPage(): ReactElement {
     requestedDestination?.startsWith("/") === true &&
     !requestedDestination.startsWith("//")
       ? requestedDestination
-      : "/";
+      : "/dashboard";
   const notice =
     auth.notice ??
     (searchParams.get("reason") === "session-expired"
