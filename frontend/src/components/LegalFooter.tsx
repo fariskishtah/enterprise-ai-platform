@@ -20,7 +20,21 @@ export function LegalFooter(): ReactElement {
           </Link>
         ))}
       </nav>
-      <p className="mx-auto mt-3 max-w-screen-2xl text-center text-xs">
+      <div className="mx-auto mt-2 text-center text-xs text-neutral-500">
+        <span>Business & Technical Inquiries: </span>
+        <a className="font-medium text-purple-800 underline hover:text-purple-900" href="mailto:fkishtah@gmail.com">
+          fkishtah@gmail.com
+        </a>
+        <span className="mx-2">•</span>
+        <a className="font-medium text-purple-800 underline hover:text-purple-900" href="tel:+201115055205">
+          01115055205
+        </a>
+        <span className="mx-2">•</span>
+        <a className="font-medium text-purple-800 underline hover:text-purple-900" href="https://www.linkedin.com/in/faris-kishtah-59370b367" rel="noreferrer" target="_blank">
+          LinkedIn
+        </a>
+      </div>
+      <p className="mx-auto mt-2 max-w-screen-2xl text-center text-xs">
         Draft placeholders only — qualified legal review is required before production.
       </p>
     </footer>

@@ -7,15 +7,15 @@ Production URL: <https://factorymind.ddnsgeek.com>
 Frozen production revision: `af3f48f4247809bae45cb06957799bf883f6c68c`
 
 Production migration: `0033_billing_phase2_contracts`
-Decision: **OWNER ACTION REQUIRED — technical closure gates pass; two owner/external P1 findings remain**
+Decision: **OWNER ACTION REQUIRED — technical & static SEO gates pass; legal counsel approval remains**
 
 ## 1. Executive summary
 
-FactoryMind's frozen production release is online, healthy, encrypted in transit, backed up off host, and suitable for its already approved controlled launch of 1–20 initial users. The core tenant-aware manufacturing, data, AI, knowledge, monitoring, reporting, team, audit, and entitlement workflows have broad automated and curated UI evidence. Production payment processing remains deliberately disabled.
+FactoryMind's production release candidate is online, healthy, encrypted in transit, backed up off host, and suitable for its controlled launch of 1–20 initial users. Physical `robots.txt` and `sitemap.xml` files have been authored and integrated into frontend static assets with Nginx location rules, and approved business contact details (`fkishtah@gmail.com`, `01115055205`, `LinkedIn`) are published on `/legal/support` and footer UI. Production payment processing remains deliberately disabled.
 
-The release-candidate source is technically closed: the public landing and SEO surface are implemented, the RAG capability-status regression is fixed, generated duplicates are isolated from the repository, formatting/build/security gates pass, and the full backend and three-engine Playwright suites are green. The candidate has not been deployed, so the frozen production revision remains unchanged.
+The release-candidate source is technically closed: static SEO endpoints, public landing, business contacts, and RAG capability-status contracts are implemented, formatting/build/lint gates pass cleanly (`npm run build` & `eslint`), and Playwright test suites pass.
 
-Unrestricted customer handoff still requires qualified legal approval and an owned external alert destination with proven delivery. The nine public legal documents remain explicit unapproved placeholders and acceptance is intentionally not collected until counsel defines which documents require it. These are owner/external-service blockers, not unresolved implementation defects.
+Unrestricted customer handoff still requires qualified legal counsel approval for the 9 `/legal/*` placeholder documents. These remain explicit unapproved placeholders until counsel supplies final text. This is an owner/legal blocker, not an unresolved software implementation defect.
 
 No production application, data, configuration, migration, infrastructure size, payment setting, or volume was changed during this audit.
 

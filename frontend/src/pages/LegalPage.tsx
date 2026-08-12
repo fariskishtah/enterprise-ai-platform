@@ -157,6 +157,37 @@ export function LegalPage(): ReactElement {
             on whether explicit acceptance must be persisted.
           </p>
         </article>
+        <div className="mt-8 rounded-xl border border-purple-200 bg-purple-50/50 p-6 sm:p-7">
+          <h2 className="text-lg font-semibold text-purple-950">
+            Business & Technical Inquiries
+          </h2>
+          <p className="mt-1 text-sm text-secondary-foreground">
+            For platform support, enterprise onboarding, or business partnerships, contact:
+          </p>
+          <div className="mt-4 flex flex-wrap gap-x-6 gap-y-2 text-sm font-medium">
+            <span className="text-foreground">Faris Kishtah</span>
+            <a
+              className="text-purple-800 underline hover:text-purple-900"
+              href="mailto:fkishtah@gmail.com"
+            >
+              fkishtah@gmail.com
+            </a>
+            <a
+              className="text-purple-800 underline hover:text-purple-900"
+              href="tel:+201115055205"
+            >
+              01115055205
+            </a>
+            <a
+              className="text-purple-800 underline hover:text-purple-900"
+              href="https://www.linkedin.com/in/faris-kishtah-59370b367"
+              rel="noreferrer"
+              target="_blank"
+            >
+              LinkedIn Profile
+            </a>
+          </div>
+        </div>
         <nav aria-label="All legal documents" className="mt-8 flex flex-wrap gap-3">
           {legalLinks.map(([label, to]) => (
             <Link
